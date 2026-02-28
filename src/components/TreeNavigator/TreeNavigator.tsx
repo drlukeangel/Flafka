@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TreeNode as TreeNodeType } from '../../types';
 import {
@@ -12,7 +12,75 @@ import {
   FiCode,
   FiExternalLink,
   FiLoader,
+  FiSearch,
+  FiX,
 } from 'react-icons/fi';
+
+/**
+ * Escape special regex characters in a user-supplied string.
+ */
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Recursively filter tree nodes by name query.
+ * - If query is empty, return nodes unchanged.
+ * - A node is kept if its name matches OR if any descendant matches.
+ * - When a parent is kept due to matching children, those children are returned
+ *   expanded so the matches are immediately visible.
+ */
+function filterTree(nodes: TreeNodeType[], query: string): TreeNodeType[] {
+  if (!query.trim()) return nodes;
+
+  const lower = query.toLowerCase();
+
+  return nodes.reduce<TreeNodeType[]>((acc, node) => {
+    const nameMatches = node.name.toLowerCase().includes(lower);
+
+    if (node.children && node.children.length > 0) {
+      const filteredChildren = filterTree(node.children, query);
+      if (nameMatches || filteredChildren.length > 0) {
+        // Keep parent, show filtered children expanded so matches are visible
+        acc.push({
+          ...node,
+          isExpanded: filteredChildren.length > 0 ? true : node.isExpanded,
+          children: filteredChildren.length > 0 ? filteredChildren : node.children,
+        });
+      }
+    } else {
+      if (nameMatches) {
+        acc.push(node);
+      }
+    }
+
+    return acc;
+  }, []);
+}
+
+/**
+ * Render a node label with the matching portion highlighted.
+ */
+function HighlightedLabel({ name, query }: { name: string; query: string }) {
+  if (!query.trim()) {
+    return <span className="node-label">{name}</span>;
+  }
+
+  const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+  const parts = name.split(regex);
+
+  return (
+    <span className="node-label">
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <span key={i} className="tree-highlight">{part}</span>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  );
+}
 
 const TreeNavigator: React.FC = () => {
   const {
@@ -30,6 +98,8 @@ const TreeNavigator: React.FC = () => {
     schemaLoading,
   } = useWorkspaceStore();
 
+  const [searchQuery, setSearchQuery] = useState('');
+
   useEffect(() => {
     loadTreeData();
   }, [loadTreeData]);
@@ -42,10 +112,33 @@ const TreeNavigator: React.FC = () => {
     }
   };
 
+  const displayedNodes = filterTree(treeNodes, searchQuery);
+  const isFiltering = searchQuery.trim().length > 0;
+
   return (
     <div className="tree-navigator">
       <div className="tree-header">
         <h3>Workspace Explorer</h3>
+      </div>
+      <div className="tree-search">
+        <FiSearch size={14} className="tree-search-icon" />
+        <input
+          className="tree-search-input"
+          type="text"
+          placeholder="Filter objects..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="Filter tree objects"
+        />
+        {searchQuery && (
+          <button
+            className="tree-search-clear"
+            onClick={() => setSearchQuery('')}
+            aria-label="Clear filter"
+          >
+            <FiX size={12} />
+          </button>
+        )}
       </div>
       <div className="tree-content">
         {treeLoading ? (
@@ -53,8 +146,8 @@ const TreeNavigator: React.FC = () => {
             <FiLoader className="animate-spin" />
             <span>Loading...</span>
           </div>
-        ) : treeNodes.length > 0 ? (
-          treeNodes.map((node) => (
+        ) : displayedNodes.length > 0 ? (
+          displayedNodes.map((node) => (
             <TreeNodeComponent
               key={node.id}
               node={node}
@@ -63,8 +156,13 @@ const TreeNavigator: React.FC = () => {
               onToggle={toggleTreeNode}
               onSelect={selectTreeNode}
               onDoubleClick={handleDoubleClick}
+              searchQuery={searchQuery}
             />
           ))
+        ) : isFiltering ? (
+          <div className="tree-empty">
+            <span>No results for &ldquo;{searchQuery}&rdquo;</span>
+          </div>
         ) : (
           <div className="tree-empty">
             <span>No database objects found</span>
@@ -106,6 +204,7 @@ interface TreeNodeProps {
   onToggle: (nodeId: string) => void;
   onSelect: (nodeId: string) => void;
   onDoubleClick: (node: TreeNodeType) => void;
+  searchQuery: string;
 }
 
 const TreeNodeComponent: React.FC<TreeNodeProps> = ({
@@ -115,6 +214,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   onToggle,
   onSelect,
   onDoubleClick,
+  searchQuery,
 }) => {
   const hasChildren = node.children && node.children.length > 0;
   const isExpandable = hasChildren || ['catalog', 'database', 'tables', 'views', 'models', 'functions', 'externalTables'].includes(node.type);
@@ -180,7 +280,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
           )}
         </span>
         {getIcon()}
-        <span className="node-label">{node.name}</span>
+        <HighlightedLabel name={node.name} query={searchQuery} />
         {node.isLoading && <FiLoader className="animate-spin node-loading" size={12} />}
       </div>
 
@@ -195,6 +295,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
               onToggle={onToggle}
               onSelect={onSelect}
               onDoubleClick={onDoubleClick}
+              searchQuery={searchQuery}
             />
           ))}
         </div>
