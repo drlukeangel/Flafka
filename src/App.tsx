@@ -90,7 +90,9 @@ function App() {
       <div className="app-content">
         {/* Sidebar - Tree Navigator */}
         <aside className={`sidebar${sidebarCollapsed ? ' sidebar--collapsed' : ''}`}>
-          <TreeNavigator />
+          <div className="sidebar-content">
+            <TreeNavigator />
+          </div>
           <button
             className="sidebar-collapse-btn"
             onClick={toggleSidebar}
