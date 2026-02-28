@@ -347,6 +347,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           error: undefined,
           statementName: undefined,
           startedAt: undefined,
+          lastExecutedCode: null,
           createdAt: new Date(),
         };
 
@@ -379,10 +380,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const statement = get().statements.find((s) => s.id === id);
         if (!statement) return;
 
+        const submittedCode = statement.code;
+
         // Update status to PENDING
         set((state) => ({
           statements: state.statements.map((s) =>
-            s.id === id ? { ...s, status: 'PENDING' as StatementStatus, error: undefined, results: undefined, startedAt: new Date() } : s
+            s.id === id ? { ...s, status: 'PENDING' as StatementStatus, error: undefined, results: undefined, startedAt: new Date(), lastExecutedCode: submittedCode } : s
           ),
         }));
 
@@ -655,6 +658,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           status: s.status === 'RUNNING' || s.status === 'PENDING' ? 'IDLE' as const : s.status,
           createdAt: s.createdAt,
           isCollapsed: s.isCollapsed,
+          lastExecutedCode: s.lastExecutedCode ?? null,
           // Don't persist results, error, statementName (transient)
         })),
         catalog: state.catalog,

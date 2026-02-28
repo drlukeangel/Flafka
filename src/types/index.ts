@@ -16,6 +16,7 @@ export interface SQLStatement {
   lastExecutedAt?: Date;
   startedAt?: Date;
   isCollapsed?: boolean;
+  lastExecutedCode?: string | null;
 }
 
 export interface Column {
