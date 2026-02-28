@@ -11,6 +11,7 @@ import {
   FiGrid,
   FiList,
   FiColumns,
+  FiClipboard,
 } from 'react-icons/fi';
 
 interface ResultsTableProps {
@@ -19,6 +20,7 @@ interface ResultsTableProps {
   totalRowsReceived?: number;
   statementIndex?: number;
   statementName?: string;
+  onOpenHelp?: (topicId: string) => void;
 }
 
 // Helper function to check if a value is expandable (object or array)
@@ -36,7 +38,37 @@ export const formatJSON = (value: unknown): string => {
   }
 };
 
-const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsReceived, statementIndex = 0, statementName }) => {
+// Helper function to format cell values for markdown table generation
+export const formatCellValue = (value: unknown): string => {
+  let str: string;
+
+  if (value === null || value === undefined) {
+    str = 'null';
+  } else if (typeof value === 'object') {
+    if (value instanceof Date) {
+      str = value.toISOString();
+    } else {
+      str = JSON.stringify(value);
+    }
+  } else {
+    str = String(value);
+  }
+
+  // Remove newlines/tabs
+  str = str.replace(/[\n\r\t]/g, ' ');
+
+  // Escape pipe characters
+  str = str.replace(/\|/g, '\\|');
+
+  // Truncate to 100 chars
+  if (str.length > 100) {
+    str = str.substring(0, 97) + '...';
+  }
+
+  return str;
+};
+
+const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsReceived, statementIndex = 0, statementName, onOpenHelp }) => {
   const addToast = useWorkspaceStore((s) => s.addToast);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
@@ -140,9 +172,9 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     return new Map(data.map((row, i) => [row, i + 1]));
   }, [data]);
 
-  // Virtual scrolling (grid mode only)
+  // Virtual scrolling (both grid and list modes)
   const virtualizer = useVirtualizer({
-    count: viewMode === 'grid' ? sortedData.length : 0,
+    count: sortedData.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => 35,
     overscan: 10,
@@ -150,25 +182,28 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
 
   const virtualItems = virtualizer.getVirtualItems();
 
-  const paddingTop = viewMode === 'grid' && virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
   const paddingBottom =
-    viewMode === 'grid' && virtualItems.length > 0
+    virtualItems.length > 0
       ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
       : 0;
 
+  // Reset pinned state when switching view modes
+  useEffect(() => {
+    isPinnedToBottom.current = false;
+  }, [viewMode]);
+
   // Scroll-lock: auto-scroll to bottom when new streaming data arrives if pinned
   useEffect(() => {
-    if (viewMode !== 'grid') return;
     const el = containerRef.current;
     if (!el) return;
     if (isPinnedToBottom.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [sortedData.length, viewMode]);
+  }, [sortedData.length]);
 
   // Track whether user has scrolled away from bottom
   useEffect(() => {
-    if (viewMode !== 'grid') return;
     const el = containerRef.current;
     if (!el) return;
     const handleScroll = () => {
@@ -177,7 +212,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     };
     el.addEventListener('scroll', handleScroll, { passive: true });
     return () => el.removeEventListener('scroll', handleScroll);
-  }, [viewMode]);
+  }, []);
 
   const handleCellClick = (value: unknown, cellKey: string) => {
     const stringValue =
@@ -218,6 +253,68 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     }).catch(() => {
       addToast({ type: 'error', message: 'Failed to copy JSON', duration: 2000 });
     });
+  };
+
+  const copyAsMarkdown = () => {
+    if (sortedData.length === 0) {
+      addToast({ type: 'error', message: 'No data to copy', duration: 2000 });
+      return;
+    }
+
+    if (!visibleColumnNames || visibleColumnNames.length === 0) {
+      addToast({ type: 'error', message: 'No columns to copy', duration: 2000 });
+      return;
+    }
+
+    const headers = ['#', ...visibleColumnNames];
+    const markdownLines: string[] = [];
+
+    // Header row
+    markdownLines.push('| ' + headers.join(' | ') + ' |');
+
+    // Separator row
+    const separators = headers.map((h) => '-'.repeat(Math.max(3, h.length)));
+    markdownLines.push('| ' + separators.join(' | ') + ' |');
+
+    // Data rows (max 100)
+    const rowsToShow = Math.min(sortedData.length, 100);
+    for (let i = 0; i < rowsToShow; i++) {
+      const row = sortedData[i];
+      const displayRowNum = originalIndexMap.get(row) ?? (i + 1);
+      const cells = [String(displayRowNum)];
+
+      for (const colName of visibleColumnNames) {
+        cells.push(formatCellValue(row[colName]));
+      }
+
+      markdownLines.push('| ' + cells.join(' | ') + ' |');
+    }
+
+    // Footer if truncated (same column count as header)
+    if (sortedData.length > 100) {
+      const remaining = sortedData.length - 100;
+      const footerCells = Array(headers.length).fill('');
+      footerCells[1] = `*[...${remaining} more rows]*`;
+      markdownLines.push('| ' + footerCells.join(' | ') + ' |');
+    }
+
+    const markdown = markdownLines.join('\n');
+
+    navigator.clipboard.writeText(markdown)
+      .then(() => {
+        addToast({
+          type: 'success',
+          message: `Copied ${rowsToShow} rows as markdown`,
+          duration: 2000,
+        });
+      })
+      .catch(() => {
+        addToast({
+          type: 'error',
+          message: 'Failed to copy to clipboard',
+          duration: 2000,
+        });
+      });
   };
 
   const handleSort = (column: string) => {
@@ -314,6 +411,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
           </span>
         </div>
         <div className="toolbar-right">
+          {onOpenHelp && (
+            <button
+              onClick={() => onOpenHelp('troubleshoot-results-buffer')}
+              className="help-button-small"
+              title="Help: Why do results stop updating?"
+              aria-label="Help: Results buffer capacity"
+            >
+              ?
+            </button>
+          )}
           <button
             className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
             onClick={() => setViewMode('grid')}
@@ -358,6 +465,15 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
               </div>
             )}
           </div>
+          <button
+            onClick={copyAsMarkdown}
+            disabled={sortedData.length === 0 || visibleColumnNames.length === 0}
+            title="Copy as Markdown"
+            className="export-btn"
+          >
+            <FiClipboard size={14} />
+            <span>Copy as MD</span>
+          </button>
           <div className="export-dropdown">
             <button className="export-btn" title="Export">
               <FiDownload size={14} />
@@ -483,13 +599,20 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
               </tr>
             </thead>
             <tbody>
-              {sortedData.map((row, rowIndex) => {
+              {paddingTop > 0 && (
+                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+              )}
+              {virtualItems.map((virtualRow) => {
+                const row = sortedData[virtualRow.index];
                 const originalIndex = originalIndexMap.get(row);
                 return (
-                  <tr key={rowIndex}>
+                  <tr
+                    key={virtualRow.key}
+                    className={virtualRow.index % 2 !== 0 ? 'results-row-odd' : ''}
+                  >
                     <td className="results-index-cell">{originalIndex}</td>
                     {visibleColumnNames.map((colName) => {
-                      const cellKey = `${rowIndex}-${colName}`;
+                      const cellKey = `${virtualRow.index}-${colName}`;
                       return (
                         <td
                           key={colName}
@@ -518,6 +641,9 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
                   </tr>
                 );
               })}
+              {paddingBottom > 0 && (
+                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+              )}
             </tbody>
           </table>
         )}

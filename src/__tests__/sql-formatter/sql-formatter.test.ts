@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { formatSQL } from '../../utils/sqlFormatter';
 
-describe('formatSQL', () => {
+describe('[@sql-formatter] formatSQL', () => {
   it('returns empty/whitespace code unchanged', () => {
     expect(formatSQL('')).toBe('');
     expect(formatSQL('   ')).toBe('   ');

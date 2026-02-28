@@ -129,11 +129,22 @@ export const getStatementResults = async (
 };
 
 /**
- * Delete/cancel a statement
+ * Cancel a statement using POST to /cancel endpoint.
+ * Per Confluent Flink SQL API: POST /statements/{name}/cancel with payload { stop_after_terminating_queries: boolean }
+ * @param statementName - The name of the statement to cancel
+ * @param options - Optional configuration for cancellation
+ * @param options.stopAfterTerminatingQueries - If true, stop the job after terminating all queries (default: true)
+ * @throws ApiError if the cancel request fails (e.g., 409 Conflict if already cancelled)
  */
-export const cancelStatement = async (statementName: string): Promise<void> => {
+export const cancelStatement = async (
+  statementName: string,
+  options?: { stopAfterTerminatingQueries?: boolean }
+): Promise<void> => {
   try {
-    await confluentClient.delete(`${buildStatementsUrl()}/${statementName}`);
+    const payload = {
+      stop_after_terminating_queries: options?.stopAfterTerminatingQueries ?? true,
+    };
+    await confluentClient.post(`${buildStatementsUrl()}/${statementName}/cancel`, payload);
   } catch (error) {
     throw handleApiError(error);
   }
@@ -146,9 +157,12 @@ export interface ComputePoolStatus {
 }
 
 /**
- * Get compute pool status (phase and current CFU usage)
+ * Get compute pool status (phase and current CFU usage).
+ * Uses Confluent Cloud Management API (FCPM) via fcpmClient.
+ * @returns ComputePoolStatus with phase and current CFU
+ * @throws ApiError if the request fails (e.g., 404 if pool not found, 500 server error)
  */
-export const getComputePoolStatus = async (): Promise<ComputePoolStatus | null> => {
+export const getComputePoolStatus = async (): Promise<ComputePoolStatus> => {
   try {
     const url = `/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
     const response = await fcpmClient.get(url);
@@ -158,8 +172,7 @@ export const getComputePoolStatus = async (): Promise<ComputePoolStatus | null> 
       currentCfu: data?.status?.current_cfu ?? 0,
     };
   } catch (error) {
-    console.error('Failed to get compute pool status:', error);
-    return null;
+    throw handleApiError(error);
   }
 };
 

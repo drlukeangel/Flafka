@@ -1,0 +1,349 @@
+/**
+ * @help-system
+ * HelpPanel component styles
+ * Uses CSS custom properties for dark/light mode theming
+ */
+
+/* Overlay */
+.help-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  animation: help-fade-in var(--transition-normal);
+}
+
+@keyframes help-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Modal Container */
+.help-panel-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 700px;
+  max-height: 85vh;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  animation: help-slide-in var(--transition-normal);
+}
+
+@keyframes help-slide-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -45%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* Header */
+.help-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface-secondary);
+  flex-shrink: 0;
+  border-radius: 8px 8px 0 0;
+}
+
+.help-panel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.help-panel-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.help-panel-close-btn:hover {
+  background-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.help-panel-close-btn:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus-ring);
+}
+
+/* Search Container */
+.help-panel-search-container {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.help-panel-search-input {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.help-panel-search-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+.help-panel-search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* Category Tabs */
+.help-panel-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface-secondary);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scroll-behavior: smooth;
+}
+
+.help-panel-tab {
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.help-panel-tab:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface);
+}
+
+.help-panel-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.help-panel-tab:focus {
+  outline: none;
+  box-shadow: inset 0 -3px var(--color-primary);
+}
+
+/* Content Area */
+.help-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  color: var(--color-text-primary);
+}
+
+/* Topics List */
+.help-topics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Topic Card */
+.help-topic-card {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-surface-secondary);
+}
+
+/* @help-contextual: Topic highlight effect */
+.help-topic-highlighted {
+  background-color: var(--color-surface-highlight, rgba(99, 179, 237, 0.1));
+  border-left: 3px solid var(--color-primary);
+  padding-left: 9px;
+  transition: all 0.3s ease;
+}
+
+.help-topic-title {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* Topic Content */
+.help-topic-content {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Headings */
+.help-heading {
+  margin: 12px 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+/* Paragraphs and Text */
+.help-text {
+  margin: 8px 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.help-list-title {
+  margin: 12px 0 6px 0;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+/* Lists */
+.help-list {
+  margin: 8px 0 12px 20px;
+  padding: 0;
+  list-style-type: disc;
+}
+
+.help-list-item {
+  margin: 4px 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+/* Code Blocks */
+.help-code-container {
+  position: relative;
+  margin: 12px 0;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.help-code-block {
+  display: block;
+  margin: 0;
+  padding: 12px;
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.help-code-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background-color: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.help-code-copy-btn:hover {
+  background-color: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.help-code-copy-btn:focus {
+  outline: none;
+  box-shadow: var(--shadow-focus-ring);
+}
+
+/* Empty State */
+.help-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.help-empty-state p {
+  margin: 8px 0;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.help-empty-suggestion {
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+}
+
+/* Scrollbar Styling */
+.help-panel-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.help-panel-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.help-panel-content::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+.help-panel-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .help-panel-modal {
+    width: 95%;
+    max-height: 90vh;
+  }
+
+  .help-panel-tabs {
+    overflow-x: auto;
+  }
+
+  .help-panel-content {
+    padding: 12px;
+  }
+}

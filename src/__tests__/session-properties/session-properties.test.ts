@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-describe('Session Properties Logic', () => {
+describe('[@session-properties] Session Properties Logic', () => {
   const DEFAULT_PROPERTIES = {
     'sql.local-time-zone': 'UTC',
     'parallelism.default': '1',

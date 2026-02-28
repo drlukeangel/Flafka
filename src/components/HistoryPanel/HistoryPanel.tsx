@@ -6,6 +6,7 @@ import { FiRefreshCw, FiX } from 'react-icons/fi';
 interface HistoryPanelProps {
   onClose: () => void;
   onRefresh: () => void;
+  onOpenHelp?: (topicId: string) => void;
 }
 
 const FILTER_CATEGORIES = [
@@ -104,7 +105,7 @@ function HistoryItem({
   );
 }
 
-export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
+export function HistoryPanel({ onClose, onRefresh, onOpenHelp }: HistoryPanelProps) {
   const { statementHistory, historyLoading, historyError, addStatement } = useWorkspaceStore();
   const [activeFilter, setActiveFilter] = useState<string>('all');
 
@@ -143,6 +144,16 @@ export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
       <div className="history-panel-header">
         <span className="history-panel-title">Statement History</span>
         <div className="history-panel-controls">
+          {onOpenHelp && (
+            <button
+              onClick={() => onOpenHelp('faq-rerun-statements')}
+              className="help-button-small"
+              title="Help: How do I rerun statements?"
+              aria-label="Help: Rerunning statements from history"
+            >
+              ?
+            </button>
+          )}
           <button
             className="history-icon-btn"
             onClick={onRefresh}
