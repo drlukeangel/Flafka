@@ -1,4 +1,4 @@
-import { confluentClient, handleApiError } from './confluent-client';
+import { confluentClient, fcpmClient, handleApiError } from './confluent-client';
 import { env } from '../config/environment';
 import type { Column } from '../types';
 
@@ -149,8 +149,8 @@ export interface ComputePoolStatus {
  */
 export const getComputePoolStatus = async (): Promise<ComputePoolStatus | null> => {
   try {
-    const url = `/api/fcpm/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
-    const response = await confluentClient.get(url);
+    const url = `/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
+    const response = await fcpmClient.get(url);
     const data = response.data;
     return {
       phase: data?.status?.phase ?? 'UNKNOWN',
