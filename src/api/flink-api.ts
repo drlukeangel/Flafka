@@ -138,6 +138,30 @@ export const cancelStatement = async (statementName: string): Promise<void> => {
   }
 };
 
+// Compute Pool Status types
+export interface ComputePoolStatus {
+  phase: string;
+  currentCfu: number;
+}
+
+/**
+ * Get compute pool status (phase and current CFU usage)
+ */
+export const getComputePoolStatus = async (): Promise<ComputePoolStatus | null> => {
+  try {
+    const url = `/fcpm/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
+    const response = await confluentClient.get(url);
+    const data = response.data;
+    return {
+      phase: data?.status?.phase ?? 'UNKNOWN',
+      currentCfu: data?.status?.current_cfu ?? 0,
+    };
+  } catch (error) {
+    console.error('Failed to get compute pool status:', error);
+    return null;
+  }
+};
+
 /**
  * List all statements
  */
