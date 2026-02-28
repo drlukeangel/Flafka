@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { editorRegistry, setFocusedEditorId, focusedEditorId } from './editorRegistry';
 import type { SQLStatement, TreeNode, Column } from '../../types';
 import {
   FiPlay,
@@ -143,6 +144,8 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     reorderStatements,
   } = useWorkspaceStore();
 
+  const theme = useWorkspaceStore((s) => s.theme);
+
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const cellRef = useRef<HTMLDivElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -174,6 +177,50 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         const s = useWorkspaceStore.getState().statements.find(s => s.id === statement.id);
         if (s && (s.status === 'RUNNING' || s.status === 'PENDING')) {
           cancelStatement(statement.id);
+        }
+      },
+    });
+
+    editor.addAction({
+      id: 'navigate-next-cell',
+      label: 'Navigate to Next Cell',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.DownArrow],
+      run: () => {
+        const statements = useWorkspaceStore.getState().statements;
+        const currentIndex = statements.findIndex(s => s.id === statement.id);
+        if (currentIndex === -1 || currentIndex >= statements.length - 1) return;
+        const nextStatement = statements[currentIndex + 1];
+        if (nextStatement) {
+          if (nextStatement.isCollapsed) {
+            useWorkspaceStore.getState().toggleStatementCollapse(nextStatement.id);
+            requestAnimationFrame(() => {
+              editorRegistry.get(nextStatement.id)?.focus();
+            });
+          } else {
+            editorRegistry.get(nextStatement.id)?.focus();
+          }
+        }
+      },
+    });
+
+    editor.addAction({
+      id: 'navigate-prev-cell',
+      label: 'Navigate to Previous Cell',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Alt | monaco.KeyCode.UpArrow],
+      run: () => {
+        const statements = useWorkspaceStore.getState().statements;
+        const currentIndex = statements.findIndex(s => s.id === statement.id);
+        if (currentIndex <= 0) return;
+        const prevStatement = statements[currentIndex - 1];
+        if (prevStatement) {
+          if (prevStatement.isCollapsed) {
+            useWorkspaceStore.getState().toggleStatementCollapse(prevStatement.id);
+            requestAnimationFrame(() => {
+              editorRegistry.get(prevStatement.id)?.focus();
+            });
+          } else {
+            editorRegistry.get(prevStatement.id)?.focus();
+          }
         }
       },
     });
@@ -231,6 +278,23 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     const disposable = editor.onDidContentSizeChange(updateHeight);
     editor.onDidDispose(() => disposable.dispose());
     updateHeight();
+
+    // --- Editor Registry & Focus Tracking ---
+    // Register this editor instance in the module-level registry
+    editorRegistry.set(statement.id, editor);
+
+    // Track which editor was most recently focused (never cleared on blur)
+    editor.onDidFocusEditorText(() => {
+      setFocusedEditorId(statement.id);
+    });
+
+    // On dispose, remove from registry and clear focusedEditorId if this was the focused editor
+    editor.onDidDispose(() => {
+      editorRegistry.delete(statement.id);
+      if (focusedEditorId === statement.id) {
+        setFocusedEditorId(null);
+      }
+    });
   };
 
   const handleEditorChange = useCallback(
@@ -475,7 +539,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               value={statement.code}
               onChange={handleEditorChange}
               onMount={handleEditorMount}
-              theme="vs-light"
+              theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
               options={{
                 minimap: { enabled: false },
                 fontSize: 13,
