@@ -165,9 +165,10 @@ export const getComputePoolStatus = async (): Promise<ComputePoolStatus | null> 
 /**
  * List all statements
  */
-export const listStatements = async (): Promise<StatementResponse[]> => {
+export const listStatements = async (pageSize?: number): Promise<StatementResponse[]> => {
   try {
-    const response = await confluentClient.get(buildStatementsUrl());
+    const url = pageSize ? `${buildStatementsUrl()}?page_size=${pageSize}` : buildStatementsUrl();
+    const response = await confluentClient.get(url);
     return response.data.data || [];
   } catch (error) {
     throw handleApiError(error);

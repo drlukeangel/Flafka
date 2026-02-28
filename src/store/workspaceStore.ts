@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import * as flinkApi from '../api/flink-api';
+import type { StatementResponse } from '../api/flink-api';
 import { env } from '../config/environment';
 import type { SQLStatement, StatementStatus, TreeNode, Column, Toast } from '../types';
 
@@ -35,6 +36,11 @@ interface WorkspaceState {
   computePoolPhase: string | null;
   computePoolCfu: number | null;
 
+  // Statement History (runtime only, not persisted)
+  statementHistory: StatementResponse[];
+  historyLoading: boolean;
+  historyError: string | null;
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
@@ -61,6 +67,8 @@ interface WorkspaceState {
   removeToast: (id: string) => void;
   toggleSidebar: () => void;
   loadComputePoolStatus: () => Promise<void>;
+  loadStatementHistory: () => Promise<void>;
+  clearHistoryError: () => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -98,6 +106,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       computePoolPhase: null,
       computePoolCfu: null,
+
+      statementHistory: [],
+      historyLoading: false,
+      historyError: null,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -589,6 +601,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           console.error('Failed to load compute pool status:', error);
           set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null });
         }
+      },
+
+      // Statement History Actions
+      loadStatementHistory: async () => {
+        set({ historyLoading: true, historyError: null });
+        try {
+          const statements = await flinkApi.listStatements(50);
+          set({ statementHistory: statements, historyLoading: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load statement history';
+          console.error('Failed to load statement history:', error);
+          set({ historyError: errorMessage, historyLoading: false });
+        }
+      },
+
+      clearHistoryError: () => {
+        set({ historyError: null });
       },
     }),
     {

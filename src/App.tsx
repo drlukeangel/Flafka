@@ -2,10 +2,11 @@ import { useEffect, useState, useRef } from 'react';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { TreeNavigator } from './components/TreeNavigator';
 import { EditorCell } from './components/EditorCell';
+import { HistoryPanel } from './components/HistoryPanel';
 import { Dropdown } from './components/Dropdown';
 import Toast from './components/ui/Toast';
 import { env } from './config/environment';
-import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock } from 'react-icons/fi';
 import './App.css';
 
 // Helper: map compute pool phase to dot CSS class
@@ -42,6 +43,8 @@ function App() {
     sidebarCollapsed,
     computePoolPhase,
     computePoolCfu,
+    statementHistory,
+    historyLoading,
     setCatalog,
     setDatabase,
     loadCatalogs,
@@ -50,6 +53,7 @@ function App() {
     runAllStatements,
     toggleSidebar,
     loadComputePoolStatus,
+    loadStatementHistory,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
@@ -58,6 +62,9 @@ function App() {
 
   const [showSettings, setShowSettings] = useState(false);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
+
+  const [showHistory, setShowHistory] = useState(false);
+  const historyPanelRef = useRef<HTMLDivElement>(null);
 
   const totalRowsCached = statements.reduce((sum, s) => sum + (s.results?.length ?? 0), 0);
 
@@ -88,6 +95,27 @@ function App() {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showSettings]);
 
+  // Close history panel when clicking outside
+  useEffect(() => {
+    if (!showHistory) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (historyPanelRef.current && !historyPanelRef.current.contains(e.target as Node)) {
+        setShowHistory(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showHistory]);
+
+  const handleOpenHistory = () => {
+    if (!showHistory) {
+      if (!statementHistory.length && !historyLoading) {
+        loadStatementHistory();
+      }
+    }
+    setShowHistory(true);
+  };
+
   return (
     <div className="app">
       {/* Header */}
@@ -109,6 +137,24 @@ function App() {
           </div>
         </div>
         <div className="header-right">
+          <div className="history-wrapper" ref={historyPanelRef}>
+            <button
+              className={`header-btn${showHistory ? ' active' : ''}`}
+              onClick={handleOpenHistory}
+              title="Statement History"
+              aria-label="Toggle statement history panel"
+            >
+              <FiClock size={18} />
+            </button>
+
+            {showHistory && (
+              <HistoryPanel
+                onClose={() => setShowHistory(false)}
+                onRefresh={loadStatementHistory}
+              />
+            )}
+          </div>
+
           <div className="settings-wrapper" ref={settingsPanelRef}>
             <button
               className={`header-btn${showSettings ? ' active' : ''}`}
