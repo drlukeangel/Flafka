@@ -130,7 +130,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
       case 'RUNNING':
         return (
           <span className="status-badge running">
-            <span className="status-dot running"></span>
+            <span className="status-dot running" role="img" aria-label="RUNNING"></span>
             <span>Running</span>
           </span>
         );
@@ -282,7 +282,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               </div>
               <div className="status-bar-item">
                 <span className="status-bar-label">STATUS:</span>
-                <span className={`status-dot ${statement.status.toLowerCase()}`}></span>
+                <span className={`status-dot ${statement.status.toLowerCase()}`} role="img" aria-label={statement.status}></span>
                 <span>{statement.status}</span>
               </div>
               {statement.statementName && (

@@ -72,7 +72,7 @@ const TreeNavigator: React.FC = () => {
         )}
       </div>
       {selectedTableName && (
-        <div className="schema-panel">
+        <div className="schema-panel" role="region" aria-label="Table schema">
           <div className="schema-header">
             <h4>{selectedTableName}</h4>
           </div>

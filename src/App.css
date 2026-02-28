@@ -319,7 +319,7 @@
 }
 
 .column-type {
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-family: monospace;
   font-size: 11px;
 }
@@ -715,7 +715,7 @@
 }
 
 .status-dot.running {
-  background-color: var(--color-success);
+  background-color: var(--color-primary);
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -1111,9 +1111,12 @@
   background-color: var(--color-warning);
 }
 
-.status-dot.cancelled,
 .status-dot.idle {
   background-color: var(--color-text-tertiary);
+}
+
+.status-dot.cancelled {
+  background-color: var(--color-error);
 }
 
 .statement-name {
@@ -1121,7 +1124,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-primary);
+  color: var(--color-text-primary);
 }
 
 /* Responsive */

@@ -240,6 +240,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             set({ selectedTableName: node.name });
             get().loadTableSchema(catalog, database, node.name);
           }
+        } else {
+          set({ selectedTableName: null, selectedTableSchema: [] });
         }
       },
 
@@ -273,10 +275,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             if (index !== -1) {
               const newStatements = [...state.statements];
               newStatements.splice(index + 1, 0, newStatement);
-              return { statements: newStatements };
+              return { statements: newStatements, lastSavedAt: new Date().toISOString() };
             }
           }
-          return { statements: [...state.statements, newStatement] };
+          return { statements: [...state.statements, newStatement], lastSavedAt: new Date().toISOString() };
         });
       },
 
@@ -285,6 +287,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           statements: state.statements.map((s) =>
             s.id === id ? { ...s, code, updatedAt: new Date() } : s
           ),
+          lastSavedAt: new Date().toISOString(),
         }));
       },
 
@@ -298,6 +301,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               status: 'IDLE' as const,
               createdAt: new Date(),
             }],
+            lastSavedAt: new Date().toISOString(),
           };
         });
         get().addToast({ type: 'success', message: 'Statement deleted' });
@@ -314,11 +318,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           results: undefined,
           error: undefined,
           statementName: undefined,
+          startedAt: undefined,
           createdAt: new Date(),
         };
 
         set((state) => ({
           statements: [...state.statements, newStatement],
+          lastSavedAt: new Date().toISOString(),
         }));
       },
 
@@ -569,7 +575,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
         catalog: state.catalog,
         database: state.database,
-        lastSavedAt: new Date().toISOString(),
+        lastSavedAt: state.lastSavedAt,
       }),
     }
   )
