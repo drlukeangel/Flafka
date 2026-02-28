@@ -21,6 +21,17 @@ interface EditorCellProps {
   index: number;
 }
 
+const getPreviewLine = (code: string): string => {
+  const lines = code.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith('--')) {
+      return trimmed.length > 60 ? trimmed.slice(0, 60) + '...' : trimmed;
+    }
+  }
+  return code.trim().slice(0, 60) || '(empty)';
+};
+
 const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const {
     updateStatement,
@@ -307,6 +318,8 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
                 data={statement.results || []}
                 columns={statement.columns || []}
                 totalRowsReceived={statement.totalRowsReceived}
+                statementIndex={index}
+                statementName={statement.statementName}
               />
             </div>
           )}
@@ -315,7 +328,15 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
 
       {statement.isCollapsed && (
         <div className="cell-collapsed-preview">
-          <code>{statement.code.split('\n')[0].substring(0, 80)}...</code>
+          <code className="cell-collapsed-sql">{getPreviewLine(statement.code)}</code>
+          {getStatusBadge()}
+          {hasResults && (
+            <span className="cell-collapsed-rows">
+              ({statement.totalRowsReceived != null && statement.totalRowsReceived > (statement.results?.length ?? 0)
+                ? `${statement.totalRowsReceived.toLocaleString()}`
+                : statement.results?.length} rows)
+            </span>
+          )}
         </div>
       )}
     </div>
