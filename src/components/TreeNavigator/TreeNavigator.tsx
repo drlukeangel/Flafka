@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TreeNode as TreeNodeType } from '../../types';
+import { insertTextAtCursor } from '../EditorCell/editorRegistry';
 import {
   FiChevronRight,
   FiChevronDown,
@@ -125,6 +126,16 @@ const TreeNavigator: React.FC = () => {
     }
   };
 
+  const handleSchemaColumnDoubleClick = (columnName: string) => {
+    const quoted = quoteIdentifierIfNeeded(columnName);
+    const inserted = insertTextAtCursor(quoted);
+    if (inserted) {
+      addToast({ type: 'success', message: `Inserted: ${columnName}` });
+    } else {
+      addToast({ type: 'warning', message: 'No active editor. Click an editor first.' });
+    }
+  };
+
   useEffect(() => {
     loadTreeData();
   }, [loadTreeData]);
@@ -212,7 +223,8 @@ const TreeNavigator: React.FC = () => {
                   key={col.name}
                   className={`schema-column${copiedColName === col.name ? ' schema-column--copied' : ''}`}
                   onClick={() => handleSchemaColumnClick(col.name)}
-                  title={`Click to copy: ${quoteIdentifierIfNeeded(col.name)}`}
+                  onDoubleClick={(e) => { e.preventDefault(); handleSchemaColumnDoubleClick(col.name); }}
+                  title="Single-click to copy, double-click to insert at cursor"
                 >
                   <span className="column-name">{col.name}</span>
                   <span className="column-type">{col.type}</span>
