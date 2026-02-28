@@ -17,6 +17,7 @@ export interface SQLStatement {
   startedAt?: Date;
   isCollapsed?: boolean;
   lastExecutedCode?: string | null;
+  label?: string;
 }
 
 export interface Column {
@@ -63,3 +64,32 @@ export interface Toast {
   duration?: number;
 }
 
+// Workspace Import/Export Types
+export interface WorkspaceExportData {
+  statements: Array<{
+    id: string;
+    code: string;
+    createdAt: Date;
+    isCollapsed?: boolean;
+    lastExecutedCode?: string | null;
+  }>;
+  catalog: string;
+  database: string;
+  workspaceName: string;
+}
+
+export interface WorkspaceImportData {
+  statements: Array<{
+    id: string;
+    code: string;
+    status?: string;
+    createdAt: string;
+    isCollapsed?: boolean;
+    lastExecutedCode?: string | null;
+  }>;
+  catalog: string;
+  database: string;
+  workspaceName: string;
+  exportedAt?: string;
+  version?: string;
+}

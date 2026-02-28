@@ -257,6 +257,13 @@ const TreeNavigator: React.FC = () => {
   );
 };
 
+/**
+ * Check if a node type is a category node that should display a count badge.
+ */
+function isCategoryNode(nodeType: string): boolean {
+  return ['tables', 'views', 'models', 'functions', 'externalTables'].includes(nodeType);
+}
+
 interface TreeNodeProps {
   node: TreeNodeType;
   level: number;
@@ -356,6 +363,11 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         </span>
         {getIcon()}
         <HighlightedLabel name={node.name} query={searchQuery} />
+        {isCategoryNode(node.type) && (
+          <span className={`tree-node-badge${(node.children?.length || 0) === 0 ? ' tree-node-badge--empty' : ''}`}>
+            {node.children?.length || 0}
+          </span>
+        )}
         {node.isLoading && <FiLoader className="animate-spin node-loading" size={12} />}
         {isCopyableNode && (
           <span

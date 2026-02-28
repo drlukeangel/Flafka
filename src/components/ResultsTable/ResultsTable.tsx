@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Column, SortConfig } from '../../types';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -20,6 +21,21 @@ interface ResultsTableProps {
   statementName?: string;
 }
 
+// Helper function to check if a value is expandable (object or array)
+// exported for testing purposes and potential future use
+export const isExpandable = (value: unknown): boolean => {
+  return value !== null && value !== undefined && typeof value === 'object';
+};
+
+// Helper function to format values as pretty-printed JSON
+export const formatJSON = (value: unknown): string => {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return '[Unable to display]';
+  }
+};
+
 const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsReceived, statementIndex = 0, statementName }) => {
   const addToast = useWorkspaceStore((s) => s.addToast);
   const [searchTerm, setSearchTerm] = useState('');
@@ -28,6 +44,9 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
+  const [expandedCell, setExpandedCell] = useState<string | null>(null);
+  const [expandedCellRect, setExpandedCellRect] = useState<DOMRect | null>(null);
+  const [expandedCellValue, setExpandedCellValue] = useState<unknown>(null);
   const columnsDropdownRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isPinnedToBottom = useRef(true);
@@ -48,6 +67,48 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [columnsDropdownOpen]);
+
+  useEffect(() => {
+    if (!expandedCell) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setExpandedCell(null);
+        setExpandedCellRect(null);
+        setExpandedCellValue(null);
+      }
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const pane = document.querySelector('.json-expander-pane');
+      if (pane && !pane.contains(e.target as Node)) {
+        setExpandedCell(null);
+        setExpandedCellRect(null);
+        setExpandedCellValue(null);
+      }
+    };
+
+    const handleScroll = () => {
+      setExpandedCell(null);
+      setExpandedCellRect(null);
+      setExpandedCellValue(null);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleMouseDown);
+    containerRef.current?.addEventListener('scroll', handleScroll);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleMouseDown);
+      containerRef.current?.removeEventListener('scroll', handleScroll);
+    };
+  }, [expandedCell]);
+
+  const formattedJSON = useMemo(() => {
+    if (expandedCellValue === null || expandedCellValue === undefined) return '';
+    return formatJSON(expandedCellValue);
+  }, [expandedCellValue]);
 
   // Filter data by search term
   const filteredData = useMemo(() => {
@@ -132,6 +193,30 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       setTimeout(() => setCopiedCell(null), 600);
     }).catch(() => {
       addToast({ type: 'error', message: 'Failed to copy to clipboard', duration: 2000 });
+    });
+  };
+
+  const handleExpandClick = (e: React.MouseEvent<HTMLButtonElement>, cellKey: string, value: unknown, td: HTMLTableCellElement) => {
+    e.stopPropagation();
+    if (expandedCell === cellKey) {
+      setExpandedCell(null);
+      setExpandedCellRect(null);
+      setExpandedCellValue(null);
+    } else {
+      // Close columns dropdown if open
+      setColumnsDropdownOpen(false);
+      const rect = td.getBoundingClientRect();
+      setExpandedCell(cellKey);
+      setExpandedCellRect(rect);
+      setExpandedCellValue(value);
+    }
+  };
+
+  const handleCopyJSON = () => {
+    navigator.clipboard.writeText(formattedJSON).then(() => {
+      addToast({ type: 'success', message: 'JSON copied to clipboard', duration: 2000 });
+    }).catch(() => {
+      addToast({ type: 'error', message: 'Failed to copy JSON', duration: 2000 });
     });
   };
 
@@ -247,7 +332,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
             <button
               className={`export-btn${columnsDropdownOpen ? ' active' : ''}`}
               title="Toggle column visibility"
-              onClick={() => setColumnsDropdownOpen(o => !o)}
+              onClick={() => { setColumnsDropdownOpen(o => !o); setExpandedCell(null); setExpandedCellRect(null); setExpandedCellValue(null); }}
             >
               <FiColumns size={14} />
               <span>Columns{hiddenColumns.size > 0 ? ` (${visibleColumnNames.length}/${columnNames.length})` : ''}</span>
@@ -342,7 +427,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
                           {row[colName] === null || row[colName] === undefined ? (
                             <span className="null-value">null</span>
                           ) : typeof row[colName] === 'object' ? (
-                            JSON.stringify(row[colName])
+                            <span className="results-cell-json">
+                              <span className="results-cell-json-preview">{JSON.stringify(row[colName])}</span>
+                              <button
+                                className="json-expand-btn"
+                                onClick={(e) => handleExpandClick(e, cellKey, row[colName], e.currentTarget.closest('td')!)}
+                                title="Expand JSON"
+                              >
+                                {expandedCell === cellKey ? '▲' : '▼'}
+                              </button>
+                            </span>
                           ) : (
                             String(row[colName])
                           )}
@@ -405,7 +499,16 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
                           {row[colName] === null || row[colName] === undefined ? (
                             <span className="null-value">null</span>
                           ) : typeof row[colName] === 'object' ? (
-                            JSON.stringify(row[colName])
+                            <span className="results-cell-json">
+                              <span className="results-cell-json-preview">{JSON.stringify(row[colName])}</span>
+                              <button
+                                className="json-expand-btn"
+                                onClick={(e) => handleExpandClick(e, cellKey, row[colName], e.currentTarget.closest('td')!)}
+                                title="Expand JSON"
+                              >
+                                {expandedCell === cellKey ? '▲' : '▼'}
+                              </button>
+                            </span>
                           ) : (
                             String(row[colName])
                           )}
@@ -419,6 +522,29 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
           </table>
         )}
       </div>
+
+      {expandedCell && expandedCellRect && createPortal(
+        <div
+          className="json-expander-pane"
+          style={{
+            position: 'fixed',
+            top: expandedCellRect.bottom + 4,
+            left: expandedCellRect.left,
+            minWidth: Math.max(expandedCellRect.width, 300),
+            maxWidth: 600,
+            zIndex: 9999,
+          }}
+        >
+          <div className="json-expander-header">
+            <span className="json-expander-title">JSON Viewer</span>
+            <button className="json-expander-copy-btn" onClick={handleCopyJSON}>
+              Copy JSON
+            </button>
+          </div>
+          <pre className="json-viewer">{formattedJSON}</pre>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };

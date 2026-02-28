@@ -3,12 +3,14 @@ import { useWorkspaceStore } from './store/workspaceStore';
 import { TreeNavigator } from './components/TreeNavigator';
 import { EditorCell } from './components/EditorCell';
 import { HistoryPanel } from './components/HistoryPanel';
+import { HelpPanel } from './components/HelpPanel/HelpPanel';
 import { Dropdown } from './components/Dropdown';
 import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
 import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun, FiEdit2, FiHelpCircle } from 'react-icons/fi';
+import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import './App.css';
 
 // Helper: map compute pool phase to dot CSS class
@@ -61,6 +63,8 @@ function App() {
     loadStatementHistory,
     setWorkspaceName,
     dismissOnboardingHint,
+    importWorkspace,
+    addToast,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
@@ -75,11 +79,17 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const historyPanelRef = useRef<HTMLDivElement>(null);
 
-  const [showHelp, setShowHelp] = useState(false);
-  const showHelpRef = useRef(false);
+  const [helpPanelOpen, setHelpPanelOpen] = useState(false);
+  const [helpTopicId, setHelpTopicId] = useState<string | undefined>(undefined);
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importConfirmation, setImportConfirmation] = useState<{
+    data: Record<string, unknown>;
+    fileName: string;
+  } | null>(null);
 
   const totalRowsCached = statements.reduce((sum, s) => sum + (s.results?.length ?? 0), 0);
 
@@ -87,11 +97,6 @@ function App() {
     // Sync theme to DOM attribute on mount and whenever it changes
     document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  // Sync showHelpRef with showHelp state
-  useEffect(() => {
-    showHelpRef.current = showHelp;
-  }, [showHelp]);
 
   useEffect(() => {
     // Load initial data
@@ -132,7 +137,7 @@ function App() {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showHistory]);
 
-  // Keyboard listener for help modal
+  // Keyboard listener for help panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip if in input, textarea, or Monaco editor
@@ -142,18 +147,19 @@ function App() {
 
       if (e.key === '?') {
         e.preventDefault();
-        setShowHelp(prev => !prev);
+        setHelpPanelOpen(prev => !prev);
         return;
       }
-      if (e.key === 'Escape' && showHelpRef.current) {
+      if (e.key === 'Escape' && helpPanelOpen) {
         e.preventDefault();
         e.stopPropagation();
-        setShowHelp(false);
+        setHelpPanelOpen(false);
+        setHelpTopicId(undefined);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [helpPanelOpen]);
 
   const handleOpenHistory = () => {
     if (!showHistory) {
@@ -192,6 +198,80 @@ function App() {
   const handleTitleBlur = () => {
     if (!isEditingTitle) return;
     handleTitleSave();
+  };
+
+  const handleExportWorkspace = () => {
+    const state = useWorkspaceStore.getState();
+    const jsonStr = exportWorkspace({
+      statements: state.statements.map(s => ({
+        id: s.id,
+        code: s.code,
+        createdAt: s.createdAt,
+        isCollapsed: s.isCollapsed,
+        lastExecutedCode: s.lastExecutedCode ?? null,
+      })),
+      catalog: state.catalog,
+      database: state.database,
+      workspaceName: state.workspaceName,
+    });
+
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = generateExportFilename(state.workspaceName);
+    link.click();
+    URL.revokeObjectURL(url);
+    addToast({ type: 'success', message: 'Workspace exported' });
+  };
+
+  const MAX_IMPORT_FILE_SIZE = 5 * 1024 * 1024;
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.currentTarget.files?.[0];
+    if (!file) return;
+
+    if (file.size > MAX_IMPORT_FILE_SIZE) {
+      addToast({
+        type: 'error',
+        message: `File too large: ${(file.size / 1024 / 1024).toFixed(2)}MB (max 5MB)`,
+      });
+      e.currentTarget.value = '';
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      setImportConfirmation({ data, fileName: file.name });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      addToast({ type: 'error', message: `Import failed: ${msg}` });
+    }
+
+    e.currentTarget.value = '';
+  };
+
+  const handleImportConfirm = () => {
+    if (!importConfirmation?.data) return;
+
+    try {
+      importWorkspace(importConfirmation.data);
+      addToast({ type: 'success', message: 'Workspace imported successfully' });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      addToast({ type: 'error', message: `Import failed: ${msg}` });
+    }
+
+    setImportConfirmation(null);
+  };
+
+  const handleImportCancel = () => {
+    setImportConfirmation(null);
   };
 
   return (
@@ -260,10 +340,10 @@ function App() {
           </div>
 
           <button
-            className={`header-btn${showHelp ? ' active' : ''}`}
-            onClick={() => setShowHelp(prev => !prev)}
-            title="Keyboard shortcuts (?)"
-            aria-label="Toggle keyboard shortcuts help"
+            className={`header-btn${helpPanelOpen ? ' active' : ''}`}
+            onClick={() => setHelpPanelOpen(prev => !prev)}
+            title="Help (?)"
+            aria-label="Toggle help panel"
           >
             <FiHelpCircle size={18} />
           </button>
@@ -321,6 +401,14 @@ function App() {
                   <div className="settings-row">
                     <span className="settings-label">Rows Cached</span>
                     <span className="settings-value">{totalRowsCached.toLocaleString()}</span>
+                  </div>
+                  <div className="settings-row settings-row--actions">
+                    <button className="settings-action-btn" onClick={handleExportWorkspace}>
+                      Export Workspace
+                    </button>
+                    <button className="settings-action-btn" onClick={handleImportClick}>
+                      Import Workspace
+                    </button>
                   </div>
                 </div>
               </div>
@@ -398,32 +486,56 @@ function App() {
 
           {/* Footer Status */}
           <FooterStatus />
+
+          {/* Help Panel */}
+          <HelpPanel
+            isOpen={helpPanelOpen}
+            onClose={() => {
+              setHelpPanelOpen(false);
+              setHelpTopicId(undefined);
+            }}
+            activeTopicId={helpTopicId}
+          />
         </main>
       </div>
 
-      {/* Keyboard Shortcuts Help Modal */}
-      {showHelp && (
-        <div className="help-modal-overlay" onClick={() => setShowHelp(false)}>
-          <div className="help-modal-container" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" onClick={e => e.stopPropagation()}>
-            <h2 id="help-modal-title">Keyboard Shortcuts</h2>
-            <div className="help-shortcuts-grid">
-              <div className="help-shortcut-row">
-                <kbd>Ctrl+Enter</kbd><span>Run statement</span>
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleFileSelected}
+        style={{ display: 'none' }}
+      />
+
+      {/* Import Confirmation Dialog */}
+      {importConfirmation && (
+        <div className="import-confirm-overlay" onClick={handleImportCancel}>
+          <div className="import-confirm-dialog" onClick={e => e.stopPropagation()}>
+            <h3 className="import-confirm-title">Import Workspace?</h3>
+            <div className="import-confirm-details">
+              <div className="import-confirm-row">
+                <span className="import-confirm-label">Name:</span>
+                <span>{(importConfirmation.data as Record<string, unknown>).workspaceName as string || 'Unknown'}</span>
               </div>
-              <div className="help-shortcut-row">
-                <kbd>Escape</kbd><span>Cancel running statement</span>
+              <div className="import-confirm-row">
+                <span className="import-confirm-label">Statements:</span>
+                <span>{Array.isArray((importConfirmation.data as Record<string, unknown>).statements) ? ((importConfirmation.data as Record<string, unknown>).statements as unknown[]).length : 0}</span>
               </div>
-              <div className="help-shortcut-row">
-                <kbd>Ctrl+Alt+↓</kbd><span>Navigate to next cell</span>
+              <div className="import-confirm-row">
+                <span className="import-confirm-label">Catalog:</span>
+                <span>{(importConfirmation.data as Record<string, unknown>).catalog as string || 'Unknown'}</span>
               </div>
-              <div className="help-shortcut-row">
-                <kbd>Ctrl+Alt+↑</kbd><span>Navigate to previous cell</span>
-              </div>
-              <div className="help-shortcut-row">
-                <kbd>?</kbd><span>Toggle this help</span>
+              <div className="import-confirm-row">
+                <span className="import-confirm-label">Database:</span>
+                <span>{(importConfirmation.data as Record<string, unknown>).database as string || 'Unknown'}</span>
               </div>
             </div>
-            <button className="help-modal-close" onClick={() => setShowHelp(false)}>Close</button>
+            <p className="import-confirm-warning">This will replace your current workspace.</p>
+            <div className="import-confirm-actions">
+              <button className="import-confirm-btn import-confirm-btn--cancel" onClick={handleImportCancel}>Cancel</button>
+              <button className="import-confirm-btn import-confirm-btn--confirm" onClick={handleImportConfirm}>Confirm Import</button>
+            </div>
           </div>
         </div>
       )}

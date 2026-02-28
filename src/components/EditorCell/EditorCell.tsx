@@ -153,6 +153,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     addStatement,
     reorderStatements,
     dismissOnboardingHint,
+    updateStatementLabel,
   } = useWorkspaceStore();
 
   const theme = useWorkspaceStore((s) => s.theme);
@@ -164,6 +165,9 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragOver, setDragOver] = useState<'top' | 'bottom' | null>(null);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
+  const [isEditingLabel, setIsEditingLabel] = useState(false);
+  const [editLabelValue, setEditLabelValue] = useState(statement.label ?? '');
+  const labelCancelledRef = useRef(false);
 
   // Auto-close error details panel when status changes away from error
   useEffect(() => {
@@ -362,6 +366,35 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     addStatement(undefined, statement.id);
   };
 
+  const handleLabelClick = () => {
+    labelCancelledRef.current = false;
+    setEditLabelValue(statement.label ?? '');
+    setIsEditingLabel(true);
+  };
+
+  const handleLabelSave = () => {
+    updateStatementLabel(statement.id, editLabelValue);
+    setIsEditingLabel(false);
+  };
+
+  const handleLabelKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      labelCancelledRef.current = false;
+      handleLabelSave();
+    } else if (e.key === 'Escape') {
+      labelCancelledRef.current = true;
+      setIsEditingLabel(false);
+    }
+  };
+
+  const handleLabelBlur = () => {
+    if (labelCancelledRef.current) {
+      labelCancelledRef.current = false;
+      return;
+    }
+    handleLabelSave();
+  };
+
   const handleDragStart = (e: React.DragEvent<HTMLSpanElement>) => {
     e.dataTransfer.setData('text/plain', index.toString());
     e.dataTransfer.effectAllowed = 'move';
@@ -506,6 +539,28 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             <FiPlus size={16} />
           </button>
           <span className="cell-number">#{index + 1}</span>
+          <div className="cell-label-group" onClick={!isEditingLabel ? handleLabelClick : undefined}>
+            {isEditingLabel ? (
+              <input
+                className="cell-label-input"
+                value={editLabelValue}
+                onChange={(e) => setEditLabelValue(e.target.value)}
+                onKeyDown={handleLabelKeyDown}
+                onBlur={handleLabelBlur}
+                autoFocus
+                maxLength={50}
+                placeholder="Add label..."
+              />
+            ) : (
+              <>
+                {statement.label ? (
+                  <span className="cell-label">{statement.label}</span>
+                ) : (
+                  <span className="cell-label-placeholder">Add label...</span>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         <div className="cell-header-center">
@@ -707,7 +762,11 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
 
       {statement.isCollapsed && (
         <div className="cell-collapsed-preview">
-          <code className="cell-collapsed-sql">{getPreviewLine(statement.code)}</code>
+          {statement.label ? (
+            <span className="cell-collapsed-label">{statement.label}</span>
+          ) : (
+            <code className="cell-collapsed-sql">{getPreviewLine(statement.code)}</code>
+          )}
           {getStatusBadge(false)}
           {hasResults && (
             <span className="cell-collapsed-rows">

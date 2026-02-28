@@ -4,6 +4,7 @@ import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
 import { env } from '../config/environment';
 import type { SQLStatement, StatementStatus, TreeNode, Column, Toast } from '../types';
+import { validateWorkspaceJSON } from '../utils/workspace-export';
 
 export interface WorkspaceState {
   // Catalog & Database
@@ -83,6 +84,8 @@ export interface WorkspaceState {
   clearHistoryError: () => void;
   setWorkspaceName: (name: string) => void;
   dismissOnboardingHint: () => void;
+  importWorkspace: (fileData: unknown) => void;
+  updateStatementLabel: (id: string, label: string) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -354,6 +357,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           statementName: undefined,
           startedAt: undefined,
           lastExecutedCode: null,
+          label: statement.label ? `${statement.label} Copy` : undefined,
           createdAt: new Date(),
         };
 
@@ -658,6 +662,47 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       dismissOnboardingHint: () => {
         set({ hasSeenOnboardingHint: true });
       },
+
+      importWorkspace: (fileData) => {
+        const validation = validateWorkspaceJSON(fileData);
+        if (!validation.valid) {
+          throw new Error(`Invalid workspace file: ${validation.errors.join(', ')}`);
+        }
+
+        const data = fileData as { statements: Array<{ id: string; code: string; createdAt: string; isCollapsed?: boolean; lastExecutedCode?: string | null }>; catalog: string; database: string; workspaceName: string };
+
+        set({
+          statements: data.statements.map((s) => ({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            code: s.code,
+            status: 'IDLE' as const,
+            createdAt: new Date(s.createdAt),
+            isCollapsed: s.isCollapsed,
+            lastExecutedCode: s.lastExecutedCode ?? null,
+          })),
+          catalog: data.catalog,
+          database: data.database,
+          workspaceName: data.workspaceName,
+          lastSavedAt: new Date().toISOString(),
+        });
+
+        try {
+          get().loadTreeData();
+        } catch (error) {
+          console.warn('Failed to load tree data after import:', error);
+        }
+      },
+
+      updateStatementLabel: (id, label) => {
+        set((state) => ({
+          statements: state.statements.map((s) =>
+            s.id === id
+              ? { ...s, label: label.trim() === '' ? undefined : label.trim() }
+              : s
+          ),
+          lastSavedAt: new Date().toISOString(),
+        }));
+      },
     }),
     {
       name: 'flink-workspace',
@@ -669,6 +714,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           createdAt: s.createdAt,
           isCollapsed: s.isCollapsed,
           lastExecutedCode: s.lastExecutedCode ?? null,
+          label: s.label,
           // Don't persist results, error, statementName (transient)
         })),
         catalog: state.catalog,
