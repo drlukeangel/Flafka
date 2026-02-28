@@ -26,9 +26,14 @@ interface WorkspaceState {
 
   // UI State
   toasts: Toast[];
+  sidebarCollapsed: boolean;
 
   // Persistence
   lastSavedAt: string | null;
+
+  // Compute Pool Status (runtime only, not persisted)
+  computePoolPhase: string | null;
+  computePoolCfu: number | null;
 
   // Actions
   setCatalog: (catalog: string) => void;
@@ -52,6 +57,8 @@ interface WorkspaceState {
 
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
+  toggleSidebar: () => void;
+  loadComputePoolStatus: () => Promise<void>;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -83,8 +90,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       ],
 
       toasts: [],
+      sidebarCollapsed: false,
 
       lastSavedAt: null,
+
+      computePoolPhase: null,
+      computePoolCfu: null,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -524,6 +535,25 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => ({
           toasts: state.toasts.filter((t) => t.id !== id),
         }));
+      },
+
+      toggleSidebar: () => {
+        set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
+      },
+
+      // Compute Pool Status Action
+      loadComputePoolStatus: async () => {
+        try {
+          const status = await flinkApi.getComputePoolStatus();
+          if (status) {
+            set({ computePoolPhase: status.phase, computePoolCfu: status.currentCfu });
+          } else {
+            set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null });
+          }
+        } catch (error) {
+          console.error('Failed to load compute pool status:', error);
+          set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null });
+        }
       },
     }),
     {

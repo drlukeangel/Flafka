@@ -50,6 +50,38 @@
   border-radius: 4px;
 }
 
+/* Compute Pool Status */
+.compute-pool-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pool-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--color-text-tertiary);
+}
+
+.pool-status-dot.running {
+  background-color: var(--color-success);
+}
+
+.pool-status-dot.provisioning {
+  background-color: var(--color-warning);
+}
+
+.pool-status-dot.error {
+  background-color: var(--color-error);
+}
+
+.pool-status-dot.unknown {
+  background-color: var(--color-text-tertiary);
+}
+
 .header-right {
   display: flex;
   align-items: center;
@@ -91,6 +123,43 @@
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
+  position: relative;
+  transition: width 0.2s ease;
+}
+
+.sidebar--collapsed {
+  width: 0;
+  border-right: none;
+}
+
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 50%;
+  right: -12px;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 36px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0 4px 4px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  z-index: 10;
+  padding: 0;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-collapse-btn:hover {
+  background-color: var(--color-surface-hover, var(--color-border));
+  color: var(--color-text-primary);
+}
+
+.sidebar--collapsed .sidebar-collapse-btn {
+  right: -20px;
+  border-radius: 0 4px 4px 0;
 }
 
 /* Tree Navigator */

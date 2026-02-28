@@ -5,8 +5,25 @@ import { EditorCell } from './components/EditorCell';
 import { Dropdown } from './components/Dropdown';
 import Toast from './components/ui/Toast';
 import { env } from './config/environment';
-import { FiDatabase, FiPlus, FiSettings, FiCpu } from 'react-icons/fi';
+import { FiDatabase, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import './App.css';
+
+// Helper: map compute pool phase to dot CSS class
+function getPoolDotClass(phase: string | null): string {
+  if (!phase) return 'unknown';
+  const p = phase.toUpperCase();
+  if (p === 'RUNNING' || p === 'PROVISIONED') return 'running';
+  if (p === 'PROVISIONING') return 'provisioning';
+  return 'error';
+}
+
+// Helper: format display text for compute pool status
+function getPoolStatusText(phase: string | null, cfu: number | null): string {
+  if (!phase) return 'Loading...';
+  if (phase === 'UNKNOWN') return 'Unknown';
+  const cfuSuffix = cfu !== null && cfu > 0 ? ` · ${cfu} CFU` : '';
+  return `${phase}${cfuSuffix}`;
+}
 
 function App() {
   const {
@@ -16,17 +33,31 @@ function App() {
     databases,
     statements,
     lastSavedAt,
+    sidebarCollapsed,
+    computePoolPhase,
+    computePoolCfu,
     setCatalog,
     setDatabase,
     loadCatalogs,
     loadDatabases,
     addStatement,
+    toggleSidebar,
+    loadComputePoolStatus,
   } = useWorkspaceStore();
 
   useEffect(() => {
     // Load initial data
     loadCatalogs();
     loadDatabases(catalog);
+  }, []);
+
+  useEffect(() => {
+    // Load compute pool status on mount and poll every 30s
+    loadComputePoolStatus();
+    const interval = setInterval(() => {
+      loadComputePoolStatus();
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -40,9 +71,13 @@ function App() {
           </div>
         </div>
         <div className="header-center">
-          <div className="environment-info">
+          <div className="environment-info compute-pool-status">
             <FiCpu size={14} />
-            <span>Compute Pool: {env.computePoolId}</span>
+            <span
+              className={`pool-status-dot ${getPoolDotClass(computePoolPhase)}`}
+              title={`Compute Pool: ${env.computePoolId}`}
+            />
+            <span>{getPoolStatusText(computePoolPhase, computePoolCfu)}</span>
           </div>
         </div>
         <div className="header-right">
@@ -54,8 +89,15 @@ function App() {
 
       <div className="app-content">
         {/* Sidebar - Tree Navigator */}
-        <aside className="sidebar">
+        <aside className={`sidebar${sidebarCollapsed ? ' sidebar--collapsed' : ''}`}>
           <TreeNavigator />
+          <button
+            className="sidebar-collapse-btn"
+            onClick={toggleSidebar}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? <FiChevronRight size={14} /> : <FiChevronLeft size={14} />}
+          </button>
         </aside>
 
         {/* Main Content - Editor Area */}
