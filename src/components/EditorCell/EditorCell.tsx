@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -152,6 +152,14 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const [editorHeight, setEditorHeight] = useState(100);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOver, setDragOver] = useState<'top' | 'bottom' | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
+
+  // Auto-close error details panel when status changes away from error
+  useEffect(() => {
+    if (statement.status !== 'ERROR') {
+      setShowErrorDetails(false);
+    }
+  }, [statement.status]);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -388,46 +396,65 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const isRunning = statement.status === 'RUNNING' || statement.status === 'PENDING';
   const hasResults = statement.results && statement.results.length > 0;
   const hasError = statement.status === 'ERROR';
+  const isModified = statement.lastExecutedCode != null &&
+    statement.code.trim() !== statement.lastExecutedCode.trim();
 
-  const getStatusBadge = () => {
-    switch (statement.status) {
-      case 'PENDING':
-        return (
-          <span className="status-badge pending">
-            <FiLoader className="animate-spin" size={12} />
-            <span>Pending</span>
-          </span>
-        );
-      case 'RUNNING':
-        return (
-          <span className="status-badge running">
-            <span className="status-dot running" role="img" aria-label="RUNNING"></span>
-            <span>Running</span>
-          </span>
-        );
-      case 'COMPLETED':
-        return (
-          <span className="status-badge completed">
-            <FiCheckCircle size={12} />
-            <span>Completed</span>
-          </span>
-        );
-      case 'ERROR':
-        return (
-          <span className="status-badge error">
-            <FiAlertCircle size={12} />
-            <span>Error</span>
-          </span>
-        );
-      case 'CANCELLED':
-        return (
-          <span className="status-badge cancelled">
-            <span>Cancelled</span>
-          </span>
-        );
-      default:
-        return null;
+  const getStatusBadge = (clickable: boolean = false) => {
+    const badge = (() => {
+      switch (statement.status) {
+        case 'PENDING':
+          return (
+            <span className="status-badge pending">
+              <FiLoader className="animate-spin" size={12} />
+              <span>Pending</span>
+            </span>
+          );
+        case 'RUNNING':
+          return (
+            <span className="status-badge running">
+              <span className="status-dot running" role="img" aria-label="RUNNING"></span>
+              <span>Running</span>
+            </span>
+          );
+        case 'COMPLETED':
+          return (
+            <span className="status-badge completed">
+              <FiCheckCircle size={12} />
+              <span>Completed</span>
+            </span>
+          );
+        case 'ERROR':
+          return (
+            <span className="status-badge error">
+              <FiAlertCircle size={12} />
+              <span>Error</span>
+            </span>
+          );
+        case 'CANCELLED':
+          return (
+            <span className="status-badge cancelled">
+              <span>Cancelled</span>
+            </span>
+          );
+        default:
+          return null;
+      }
+    })();
+
+    // Make error badge clickable only in status bar context (clickable=true)
+    if (clickable && statement.status === 'ERROR' && hasError) {
+      return (
+        <button
+          className="status-badge-button"
+          onClick={() => setShowErrorDetails(prev => !prev)}
+          title="Click to see error details"
+        >
+          {badge}
+        </button>
+      );
     }
+
+    return badge;
   };
 
   const cellClassName = [
@@ -469,7 +496,8 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         </div>
 
         <div className="cell-header-center">
-          {getStatusBadge()}
+          {getStatusBadge(true)}
+          {isModified && <span className="status-badge modified">Modified</span>}
           {statement.executionTime && (
             <span className="execution-time">
               {(statement.executionTime / 1000).toFixed(2)}s
@@ -539,105 +567,119 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         </div>
       </div>
 
-      {!statement.isCollapsed && (
-        <>
-          <div className="cell-editor">
-            <Editor
-              height={`${editorHeight}px`}
-              defaultLanguage="sql"
-              value={statement.code}
-              onChange={handleEditorChange}
-              onMount={handleEditorMount}
-              theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                automaticLayout: true,
-                padding: { top: 12, bottom: 12 },
-                folding: true,
-                lineDecorationsWidth: 0,
-                lineNumbersMinChars: 3,
-                renderLineHighlight: 'line',
-                scrollbar: {
-                  vertical: 'visible',
-                  horizontal: 'auto',
-                  verticalScrollbarSize: 10,
-                  alwaysConsumeMouseWheel: false,
-                },
-              }}
+      <div className={`cell-content-wrapper ${statement.isCollapsed ? 'collapsed' : ''}`}>
+        <div className="cell-editor">
+          <Editor
+            height={`${editorHeight}px`}
+            defaultLanguage="sql"
+            value={statement.code}
+            onChange={handleEditorChange}
+            onMount={handleEditorMount}
+            theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineNumbers: 'on',
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              automaticLayout: true,
+              padding: { top: 12, bottom: 12 },
+              folding: true,
+              lineDecorationsWidth: 0,
+              lineNumbersMinChars: 3,
+              renderLineHighlight: 'line',
+              scrollbar: {
+                vertical: 'visible',
+                horizontal: 'auto',
+                verticalScrollbarSize: 10,
+                alwaysConsumeMouseWheel: false,
+              },
+            }}
+          />
+        </div>
+
+        {statement.startedAt && (
+          <div className="statement-status-bar">
+            <div className="status-bar-item">
+              <span className="status-bar-label">START TIME:</span>
+              <span>{statement.startedAt.toLocaleTimeString()}</span>
+            </div>
+            <div className="status-bar-item">
+              <span className="status-bar-label">STATUS:</span>
+              <span className={`status-dot ${statement.status.toLowerCase()}`} role="img" aria-label={statement.status}></span>
+              <span>{statement.status}</span>
+            </div>
+            {statement.statementName && (
+              <div className="status-bar-item">
+                <span className="status-bar-label">STATEMENT:</span>
+                <span className="statement-name">{statement.statementName}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {hasError && statement.error && (
+          <div className={`error-details-panel ${showErrorDetails ? 'expanded' : ''}`}>
+            <div className="error-details-header" onClick={() => setShowErrorDetails(prev => !prev)}>
+              <span className="error-details-title">Error Details</span>
+              <span className="error-details-toggle">{showErrorDetails ? '▲' : '▼'}</span>
+            </div>
+            {showErrorDetails && (
+              <div className="error-details-content">
+                {statement.statementName && (
+                  <div className="error-details-field">
+                    <span className="error-details-label">STATEMENT:</span>
+                    <span>{statement.statementName}</span>
+                  </div>
+                )}
+                {statement.startedAt && (
+                  <div className="error-details-field">
+                    <span className="error-details-label">STARTED AT:</span>
+                    <span>{new Date(statement.startedAt).toLocaleTimeString()}</span>
+                  </div>
+                )}
+                <div className="error-details-message">
+                  <pre>{statement.error}</pre>
+                </div>
+                <button className="retry-btn" onClick={() => executeStatement(statement.id)}>
+                  ↻ Retry
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {statement.status === 'CANCELLED' && !hasError && (
+          <div className="cell-cancelled">
+            <span>Statement was cancelled.</span>
+            <button
+              className="retry-btn"
+              onClick={() => executeStatement(statement.id)}
+              title="Retry this statement"
+            >
+              <FiRefreshCw size={12} />
+              <span>Retry</span>
+            </button>
+          </div>
+        )}
+
+        {hasResults && (
+          <div className="cell-results">
+            <ResultsTable
+              data={statement.results || []}
+              columns={statement.columns || []}
+              totalRowsReceived={statement.totalRowsReceived}
+              statementIndex={index}
+              statementName={statement.statementName}
             />
           </div>
-
-          {statement.startedAt && (
-            <div className="statement-status-bar">
-              <div className="status-bar-item">
-                <span className="status-bar-label">START TIME:</span>
-                <span>{statement.startedAt.toLocaleTimeString()}</span>
-              </div>
-              <div className="status-bar-item">
-                <span className="status-bar-label">STATUS:</span>
-                <span className={`status-dot ${statement.status.toLowerCase()}`} role="img" aria-label={statement.status}></span>
-                <span>{statement.status}</span>
-              </div>
-              {statement.statementName && (
-                <div className="status-bar-item">
-                  <span className="status-bar-label">STATEMENT:</span>
-                  <span className="statement-name">{statement.statementName}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {hasError && statement.error && (
-            <div className="cell-error">
-              <FiAlertCircle size={16} />
-              <span>{statement.error}</span>
-              <button
-                className="retry-btn"
-                onClick={() => executeStatement(statement.id)}
-                title="Retry this statement"
-              >
-                <FiRefreshCw size={12} />
-                <span>Retry</span>
-              </button>
-            </div>
-          )}
-
-          {statement.status === 'CANCELLED' && !hasError && (
-            <div className="cell-cancelled">
-              <span>Statement was cancelled.</span>
-              <button
-                className="retry-btn"
-                onClick={() => executeStatement(statement.id)}
-                title="Retry this statement"
-              >
-                <FiRefreshCw size={12} />
-                <span>Retry</span>
-              </button>
-            </div>
-          )}
-
-          {hasResults && (
-            <div className="cell-results">
-              <ResultsTable
-                data={statement.results || []}
-                columns={statement.columns || []}
-                totalRowsReceived={statement.totalRowsReceived}
-                statementIndex={index}
-                statementName={statement.statementName}
-              />
-            </div>
-          )}
-        </>
-      )}
+        )}
+      </div>
 
       {statement.isCollapsed && (
         <div className="cell-collapsed-preview">
           <code className="cell-collapsed-sql">{getPreviewLine(statement.code)}</code>
-          {getStatusBadge()}
+          {getStatusBadge(false)}
           {hasResults && (
             <span className="cell-collapsed-rows">
               ({statement.totalRowsReceived != null && statement.totalRowsReceived > (statement.results?.length ?? 0)

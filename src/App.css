@@ -1309,6 +1309,20 @@
   color: var(--color-text-secondary);
 }
 
+/* Cell Content Wrapper - Collapse Animation */
+.cell-content-wrapper {
+  max-height: 4000px;
+  overflow: hidden;
+  transition: max-height 0.25s ease-out, opacity 0.2s ease-out;
+  opacity: 1;
+}
+
+.cell-content-wrapper.collapsed {
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+}
+
 /* Cell Editor */
 .cell-editor {
   border-bottom: 1px solid var(--color-border);
@@ -1356,6 +1370,82 @@
 .retry-btn:hover {
   background-color: var(--color-error);
   color: white;
+}
+
+/* Status Badge Button (for clickable error badges) */
+.status-badge-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: opacity var(--transition-fast);
+}
+
+.status-badge-button:hover {
+  opacity: 0.8;
+}
+
+/* Error Details Panel */
+.error-details-panel {
+  background-color: var(--color-surface-error);
+  border-bottom: 1px solid var(--color-error);
+}
+
+.error-details-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--color-error);
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+}
+
+.error-details-header:hover {
+  opacity: 0.8;
+}
+
+.error-details-toggle {
+  font-size: 11px;
+}
+
+.error-details-content {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--color-error);
+}
+
+.error-details-field {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-error);
+  margin-bottom: 6px;
+}
+
+.error-details-label {
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.error-details-message {
+  margin-top: 8px;
+}
+
+.error-details-message pre {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--color-error);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 /* Cell Cancelled notice */
