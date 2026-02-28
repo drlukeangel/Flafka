@@ -1,15 +1,12 @@
 import * as monaco from 'monaco-editor';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 
 export const editorRegistry = new Map<string, monaco.editor.IStandaloneCodeEditor>();
-export let focusedEditorId: string | null = null;
 
-export function setFocusedEditorId(id: string | null) {
-  focusedEditorId = id;
-}
-
-export function getFocusedEditor(): monaco.editor.IStandaloneCodeEditor | undefined {
-  if (!focusedEditorId) return undefined;
-  return editorRegistry.get(focusedEditorId);
+export function getFocusedEditor(): monaco.editor.IStandaloneCodeEditor | null {
+  const focusedId = useWorkspaceStore.getState().focusedStatementId;
+  if (!focusedId) return null;
+  return editorRegistry.get(focusedId) || null;
 }
 
 export function insertTextAtCursor(text: string): boolean {

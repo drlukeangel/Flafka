@@ -16,6 +16,7 @@ import {
   FiSearch,
   FiX,
   FiCopy,
+  FiRefreshCw,
 } from 'react-icons/fi';
 
 /**
@@ -109,6 +110,7 @@ const TreeNavigator: React.FC = () => {
     selectedTableName,
     schemaLoading,
     addToast,
+    loadTableSchema,
   } = useWorkspaceStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -133,6 +135,12 @@ const TreeNavigator: React.FC = () => {
       addToast({ type: 'success', message: `Inserted: ${columnName}` });
     } else {
       addToast({ type: 'warning', message: 'No active editor. Click an editor first.' });
+    }
+  };
+
+  const handleSchemaRefresh = () => {
+    if (selectedTableName) {
+      loadTableSchema(catalog, database, selectedTableName);
     }
   };
 
@@ -210,6 +218,15 @@ const TreeNavigator: React.FC = () => {
         <div className="schema-panel" role="region" aria-label="Table schema">
           <div className="schema-header">
             <h4>{selectedTableName}</h4>
+            <button
+              className={`schema-refresh-btn ${schemaLoading ? 'loading' : ''}`}
+              onClick={handleSchemaRefresh}
+              disabled={schemaLoading}
+              title="Refresh schema"
+              aria-label="Refresh schema"
+            >
+              <FiRefreshCw size={14} />
+            </button>
           </div>
           {schemaLoading ? (
             <div className="schema-loading"><FiLoader className="animate-spin" /> Loading...</div>

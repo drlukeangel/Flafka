@@ -34,6 +34,47 @@
   color: var(--color-primary);
 }
 
+.logo-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.logo-edit-icon {
+  opacity: 0;
+  transition: opacity 150ms ease;
+  color: var(--color-text-secondary);
+}
+
+.logo-title-group:hover .logo-edit-icon {
+  opacity: 1;
+}
+
+.logo-text {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logo-editable-input {
+  font-size: 18px;
+  font-weight: 600;
+  font-family: inherit;
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  max-width: 300px;
+}
+
+.logo-editable-input:focus {
+  border-color: var(--color-primary);
+}
+
 .header-center {
   display: flex;
   align-items: center;
@@ -740,6 +781,31 @@
   font-size: 12px;
   color: var(--color-text-tertiary);
   font-style: italic;
+}
+
+.schema-refresh-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.schema-refresh-btn:hover {
+  color: var(--text-primary);
+}
+
+.schema-refresh-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.schema-refresh-btn.loading svg {
+  animation: history-spin 0.8s linear infinite;
 }
 
 /* Main Content */
@@ -1645,6 +1711,11 @@
 .last-saved {
   font-size: 12px;
   color: var(--color-text-tertiary);
+}
+
+.cell-count--focused {
+  font-weight: 500;
+  color: var(--color-primary);
 }
 
 /* Toast Notifications */

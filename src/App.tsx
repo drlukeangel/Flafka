@@ -5,8 +5,9 @@ import { EditorCell } from './components/EditorCell';
 import { HistoryPanel } from './components/HistoryPanel';
 import { Dropdown } from './components/Dropdown';
 import Toast from './components/ui/Toast';
+import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
-import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun } from 'react-icons/fi';
+import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun, FiEdit2 } from 'react-icons/fi';
 import './App.css';
 
 // Helper: map compute pool phase to dot CSS class
@@ -39,13 +40,13 @@ function App() {
     catalogs,
     databases,
     statements,
-    lastSavedAt,
     sidebarCollapsed,
     computePoolPhase,
     computePoolCfu,
     statementHistory,
     historyLoading,
     theme,
+    workspaceName,
     setCatalog,
     setDatabase,
     loadCatalogs,
@@ -56,6 +57,7 @@ function App() {
     toggleTheme,
     loadComputePoolStatus,
     loadStatementHistory,
+    setWorkspaceName,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
@@ -67,6 +69,9 @@ function App() {
 
   const [showHistory, setShowHistory] = useState(false);
   const historyPanelRef = useRef<HTMLDivElement>(null);
+
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitleValue, setEditTitleValue] = useState('');
 
   const totalRowsCached = statements.reduce((sum, s) => sum + (s.results?.length ?? 0), 0);
 
@@ -123,6 +128,36 @@ function App() {
     setShowHistory(true);
   };
 
+  const handleTitleClick = () => {
+    setEditTitleValue(workspaceName);
+    setIsEditingTitle(true);
+  };
+
+  const handleTitleSave = () => {
+    const trimmed = editTitleValue.trim();
+    if (trimmed) {
+      setWorkspaceName(trimmed);
+    }
+    setIsEditingTitle(false);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      setIsEditingTitle(false);
+      const trimmed = editTitleValue.trim();
+      if (trimmed) {
+        setWorkspaceName(trimmed);
+      }
+    } else if (e.key === 'Escape') {
+      setIsEditingTitle(false);
+    }
+  };
+
+  const handleTitleBlur = () => {
+    if (!isEditingTitle) return;
+    handleTitleSave();
+  };
+
   return (
     <div className="app">
       {/* Header */}
@@ -130,7 +165,24 @@ function App() {
         <div className="header-left">
           <div className="logo">
             <FiDatabase size={24} />
-            <span>SQL Workspace</span>
+            <div className="logo-title-group" onClick={!isEditingTitle ? handleTitleClick : undefined}>
+              {isEditingTitle ? (
+                <input
+                  className="logo-editable-input"
+                  value={editTitleValue}
+                  onChange={(e) => setEditTitleValue(e.target.value)}
+                  onKeyDown={handleTitleKeyDown}
+                  onBlur={handleTitleBlur}
+                  autoFocus
+                  maxLength={60}
+                />
+              ) : (
+                <>
+                  <span className="logo-text">{workspaceName}</span>
+                  <FiEdit2 className="logo-edit-icon" size={14} />
+                </>
+              )}
+            </div>
           </div>
         </div>
         <div className="header-center">
@@ -290,17 +342,7 @@ function App() {
           </div>
 
           {/* Footer Status */}
-          <div className="editor-footer">
-            <span className="cell-count">{statements.length} statement(s)</span>
-            {lastSavedAt && (
-              <span className="last-saved">
-                Last saved at {new Date(lastSavedAt).toLocaleTimeString()}
-              </span>
-            )}
-            <span className="env-info">
-              {env.cloudProvider.toUpperCase()} | {env.cloudRegion}
-            </span>
-          </div>
+          <FooterStatus />
         </main>
       </div>
 

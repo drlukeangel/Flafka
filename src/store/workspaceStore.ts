@@ -5,7 +5,7 @@ import type { StatementResponse } from '../api/flink-api';
 import { env } from '../config/environment';
 import type { SQLStatement, StatementStatus, TreeNode, Column, Toast } from '../types';
 
-interface WorkspaceState {
+export interface WorkspaceState {
   // Catalog & Database
   catalog: string;
   database: string;
@@ -28,6 +28,7 @@ interface WorkspaceState {
   // UI State
   toasts: Toast[];
   sidebarCollapsed: boolean;
+  workspaceName: string;
 
   // Persistence
   lastSavedAt: string | null;
@@ -44,9 +45,13 @@ interface WorkspaceState {
   // Theme
   theme: 'light' | 'dark';
 
+  // Focus State (runtime only, not persisted)
+  focusedStatementId: string | null;
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
+  setFocusedStatementId: (id: string | null) => void;
   loadCatalogs: () => Promise<void>;
   loadDatabases: (catalog: string) => Promise<void>;
   loadTreeData: () => Promise<void>;
@@ -73,6 +78,7 @@ interface WorkspaceState {
   loadComputePoolStatus: () => Promise<void>;
   loadStatementHistory: () => Promise<void>;
   clearHistoryError: () => void;
+  setWorkspaceName: (name: string) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -105,6 +111,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       toasts: [],
       sidebarCollapsed: false,
+      workspaceName: 'SQL Workspace',
       theme: 'light',
 
       lastSavedAt: null,
@@ -115,6 +122,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       statementHistory: [],
       historyLoading: false,
       historyError: null,
+
+      focusedStatementId: null,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -628,6 +637,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       clearHistoryError: () => {
         set({ historyError: null });
       },
+
+      setWorkspaceName: (name) => {
+        set({ workspaceName: name });
+      },
+
+      setFocusedStatementId: (id) => {
+        set({ focusedStatementId: id });
+      },
     }),
     {
       name: 'flink-workspace',
@@ -644,6 +661,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         database: state.database,
         lastSavedAt: state.lastSavedAt,
         theme: state.theme,
+        workspaceName: state.workspaceName,
       }),
     }
   )

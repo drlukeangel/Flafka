@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { editorRegistry, setFocusedEditorId, focusedEditorId } from './editorRegistry';
+import { editorRegistry } from './editorRegistry';
 import type { SQLStatement, TreeNode, Column } from '../../types';
 import {
   FiPlay,
@@ -283,16 +283,22 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     // Register this editor instance in the module-level registry
     editorRegistry.set(statement.id, editor);
 
-    // Track which editor was most recently focused (never cleared on blur)
+    // Track focused editor in store
     editor.onDidFocusEditorText(() => {
-      setFocusedEditorId(statement.id);
+      useWorkspaceStore.getState().setFocusedStatementId(statement.id);
     });
 
-    // On dispose, remove from registry and clear focusedEditorId if this was the focused editor
+    // Clear focus when editor loses focus
+    editor.onDidBlurEditorText(() => {
+      useWorkspaceStore.getState().setFocusedStatementId(null);
+    });
+
+    // On dispose, remove from registry and clear focusedStatementId if this was the focused editor
     editor.onDidDispose(() => {
       editorRegistry.delete(statement.id);
-      if (focusedEditorId === statement.id) {
-        setFocusedEditorId(null);
+      const currentFocused = useWorkspaceStore.getState().focusedStatementId;
+      if (currentFocused === statement.id) {
+        useWorkspaceStore.getState().setFocusedStatementId(null);
       }
     });
   };
