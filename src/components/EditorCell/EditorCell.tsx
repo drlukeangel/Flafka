@@ -3,6 +3,7 @@ import Editor, { OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { editorRegistry } from './editorRegistry';
+import { formatSQL } from '../../utils/sqlFormatter';
 import type { SQLStatement, TreeNode, Column } from '../../types';
 import {
   FiPlay,
@@ -17,6 +18,7 @@ import {
   FiCheckCircle,
   FiRefreshCw,
   FiMoreVertical,
+  FiAlignLeft,
 } from 'react-icons/fi';
 import ResultsTable from '../ResultsTable/ResultsTable';
 
@@ -119,6 +121,7 @@ function extractColumnCompletions(
 interface EditorCellProps {
   statement: SQLStatement;
   index: number;
+  onOpenHelp?: (topicId: string) => void;
 }
 
 const formatDuration = (startedAt?: Date, lastExecutedAt?: Date): string => {
@@ -142,7 +145,7 @@ const getPreviewLine = (code: string): string => {
   return code.trim().slice(0, 60) || '(empty)';
 };
 
-const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
+const EditorCell: React.FC<EditorCellProps> = ({ statement, index, onOpenHelp }) => {
   const {
     updateStatement,
     deleteStatement,
@@ -154,6 +157,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     reorderStatements,
     dismissOnboardingHint,
     updateStatementLabel,
+    addToast,
   } = useWorkspaceStore();
 
   const theme = useWorkspaceStore((s) => s.theme);
@@ -245,6 +249,25 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
           } else {
             editorRegistry.get(prevStatement.id)?.focus();
           }
+        }
+      },
+    });
+
+    editor.addAction({
+      id: `sql-formatter-${statement.id}`,
+      label: 'Format SQL',
+      keybindings: [monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF],
+      contextMenuGroupId: '1_modification',
+      run: (ed) => {
+        const sql = ed.getValue();
+        const formatted = formatSQL(sql);
+        if (formatted !== sql) {
+          const fullRange = ed.getModel()?.getFullModelRange();
+          if (fullRange) {
+            ed.executeEdits('sql-formatter', [{ range: fullRange, text: formatted }]);
+            ed.pushUndoStop();
+          }
+          useWorkspaceStore.getState().addToast({ type: 'success', message: 'SQL formatted', duration: 2000 });
         }
       },
     });
@@ -584,6 +607,27 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
           <div className="cell-actions">
             <button
               className="icon-btn"
+              onClick={() => {
+                const editor = editorRef.current;
+                if (!editor) return;
+                const sql = editor.getValue();
+                const formatted = formatSQL(sql);
+                if (formatted !== sql) {
+                  const fullRange = editor.getModel()?.getFullModelRange();
+                  if (fullRange) {
+                    editor.executeEdits('sql-formatter', [{ range: fullRange, text: formatted }]);
+                    editor.pushUndoStop();
+                  }
+                  addToast({ type: 'success', message: 'SQL formatted', duration: 2000 });
+                }
+              }}
+              title="Format SQL (Shift+Alt+F)"
+              disabled={!statement.code?.trim()}
+            >
+              <FiAlignLeft size={14} />
+            </button>
+            <button
+              className="icon-btn"
               onClick={handleDuplicate}
               title="Duplicate statement"
             >
@@ -664,6 +708,18 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               },
             }}
           />
+          <div className="editor-cell-autocomplete-help">
+            {onOpenHelp && (
+              <button
+                onClick={() => onOpenHelp('troubleshoot-autocomplete-limitation')}
+                className="help-button-small"
+                title="Help: How do I autocomplete SQL?"
+                aria-label="Help: SQL autocomplete"
+              >
+                ?
+              </button>
+            )}
+          </div>
         </div>
 
         {statement.startedAt && (
@@ -755,6 +811,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               totalRowsReceived={statement.totalRowsReceived}
               statementIndex={index}
               statementName={statement.statementName}
+              onOpenHelp={onOpenHelp}
             />
           </div>
         )}
