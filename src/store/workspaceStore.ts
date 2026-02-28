@@ -52,6 +52,9 @@ export interface WorkspaceState {
   // Onboarding
   hasSeenOnboardingHint: boolean;
 
+  // Session Properties
+  sessionProperties: Record<string, string>;
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
@@ -86,6 +89,9 @@ export interface WorkspaceState {
   dismissOnboardingHint: () => void;
   importWorkspace: (fileData: unknown) => void;
   updateStatementLabel: (id: string, label: string) => void;
+  setSessionProperty: (key: string, value: string) => void;
+  removeSessionProperty: (key: string) => void;
+  resetSessionProperties: () => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -133,6 +139,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       focusedStatementId: null,
 
       hasSeenOnboardingHint: false,
+
+      sessionProperties: {
+        'sql.local-time-zone': 'UTC',
+        'parallelism.default': '1',
+      },
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -357,14 +368,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           statementName: undefined,
           startedAt: undefined,
           lastExecutedCode: null,
+          updatedAt: undefined,
           label: statement.label ? `${statement.label} Copy` : undefined,
           createdAt: new Date(),
         };
 
-        set((state) => ({
-          statements: [...state.statements, newStatement],
-          lastSavedAt: new Date().toISOString(),
-        }));
+        set((state) => {
+          const sourceIndex = state.statements.findIndex(s => s.id === id);
+          const newStatements = [...state.statements];
+          newStatements.splice(sourceIndex + 1, 0, newStatement);
+          return {
+            statements: newStatements,
+            lastSavedAt: new Date().toISOString(),
+          };
+        });
       },
 
       toggleStatementCollapse: (id) => {
@@ -403,7 +420,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         try {
           // Execute the SQL
-          const result = await flinkApi.executeSQL(statement.code);
+          const result = await flinkApi.executeSQL(statement.code, undefined, get().sessionProperties);
           const statementName = result.name;
 
           // Update with statement name and RUNNING status
@@ -703,6 +720,43 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           lastSavedAt: new Date().toISOString(),
         }));
       },
+
+      setSessionProperty: (key, value) => {
+        const trimmedKey = key.trim();
+        if (!trimmedKey) return;
+
+        const reserved = ['sql.current-catalog', 'sql.current-database'];
+        if (reserved.includes(trimmedKey)) {
+          get().addToast({ type: 'error', message: `Cannot override reserved property: ${trimmedKey}`, duration: 3000 });
+          return;
+        }
+
+        set(state => ({
+          sessionProperties: {
+            ...state.sessionProperties,
+            [trimmedKey]: value,
+          },
+          lastSavedAt: new Date().toISOString(),
+        }));
+      },
+
+      removeSessionProperty: (key) => {
+        set(state => {
+          const updated = { ...state.sessionProperties };
+          delete updated[key];
+          return { sessionProperties: updated, lastSavedAt: new Date().toISOString() };
+        });
+      },
+
+      resetSessionProperties: () => {
+        set({
+          sessionProperties: {
+            'sql.local-time-zone': 'UTC',
+            'parallelism.default': '1',
+          },
+          lastSavedAt: new Date().toISOString(),
+        });
+      },
     }),
     {
       name: 'flink-workspace',
@@ -723,6 +777,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         theme: state.theme,
         workspaceName: state.workspaceName,
         hasSeenOnboardingHint: state.hasSeenOnboardingHint,
+        sessionProperties: state.sessionProperties,
       }),
     }
   )

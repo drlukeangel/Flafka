@@ -51,6 +51,10 @@ function App() {
     theme,
     workspaceName,
     hasSeenOnboardingHint,
+    sessionProperties,
+    setSessionProperty,
+    removeSessionProperty,
+    resetSessionProperties,
     setCatalog,
     setDatabase,
     loadCatalogs,
@@ -335,6 +339,10 @@ function App() {
               <HistoryPanel
                 onClose={() => setShowHistory(false)}
                 onRefresh={loadStatementHistory}
+                onOpenHelp={(topicId) => {
+                  setHelpPanelOpen(true);
+                  setHelpTopicId(topicId);
+                }}
               />
             )}
           </div>
@@ -411,6 +419,53 @@ function App() {
                     </button>
                   </div>
                 </div>
+
+                <div className="settings-section">
+                  <span className="settings-section-title">Session Properties</span>
+                  <p className="settings-help-text">
+                    Flink SQL session properties applied to all statements.
+                  </p>
+                  <div className="property-editor">
+                    {Object.entries(sessionProperties).map(([key, value]) => (
+                      <div key={key} className="property-row">
+                        <span className="property-key" title={key}>{key}</span>
+                        <input
+                          type="text"
+                          value={value}
+                          onChange={(e) => setSessionProperty(key, e.target.value)}
+                          className="property-value"
+                          placeholder="value"
+                        />
+                        <button
+                          onClick={() => removeSessionProperty(key)}
+                          className="property-delete-btn"
+                          title="Remove property"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="property-actions">
+                    <button
+                      onClick={() => {
+                        const newKey = prompt('Property key (e.g., sql.tables.scan.startup.mode):');
+                        if (newKey?.trim()) {
+                          setSessionProperty(newKey.trim(), '');
+                        }
+                      }}
+                      className="settings-action-btn"
+                    >
+                      + Add Property
+                    </button>
+                    <button
+                      onClick={() => resetSessionProperties()}
+                      className="settings-action-btn"
+                    >
+                      Reset Defaults
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -479,7 +534,15 @@ function App() {
           {/* Editor Cells */}
           <div className="editor-cells">
             {statements.map((statement, index) => (
-              <EditorCell key={statement.id} statement={statement} index={index} />
+              <EditorCell
+                key={statement.id}
+                statement={statement}
+                index={index}
+                onOpenHelp={(topicId) => {
+                  setHelpPanelOpen(true);
+                  setHelpTopicId(topicId);
+                }}
+              />
             ))}
             {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
           </div>

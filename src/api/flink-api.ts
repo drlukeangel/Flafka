@@ -55,7 +55,7 @@ const generateStatementName = (): string => {
 /**
  * Execute a SQL statement
  */
-export const executeSQL = async (sql: string, name?: string): Promise<StatementResponse> => {
+export const executeSQL = async (sql: string, name?: string, sessionProperties?: Record<string, string>): Promise<StatementResponse> => {
   const statementName = name || generateStatementName();
 
   const payload = {
@@ -64,9 +64,10 @@ export const executeSQL = async (sql: string, name?: string): Promise<StatementR
       statement: sql,
       compute_pool_id: env.computePoolId,
       properties: {
+        ...(sessionProperties || {}),
+        // Reserved keys always enforced - cannot be overridden by user
         'sql.current-catalog': env.flinkCatalog,
         'sql.current-database': env.flinkDatabase,
-        'sql.tables.scan.startup.mode': 'earliest-offset',
       },
     },
   };
