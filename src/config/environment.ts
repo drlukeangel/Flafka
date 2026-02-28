@@ -1,0 +1,50 @@
+export interface EnvironmentConfig {
+  orgId: string;
+  environmentId: string;
+  computePoolId: string;
+  flinkApiKey: string;
+  flinkApiSecret: string;
+  cloudApiKey: string;
+  cloudApiSecret: string;
+  flinkCatalog: string;
+  flinkDatabase: string;
+  cloudProvider: string;
+  cloudRegion: string;
+}
+
+export const getEnv = (): EnvironmentConfig => {
+  const requiredVars = [
+    'VITE_ORG_ID',
+    'VITE_ENV_ID',
+    'VITE_COMPUTE_POOL_ID',
+    'VITE_FLINK_API_KEY',
+    'VITE_FLINK_API_SECRET',
+    'VITE_CLOUD_API_KEY',
+    'VITE_CLOUD_API_SECRET',
+  ];
+
+  const missing = requiredVars.filter(key => !import.meta.env[key]);
+
+  if (missing.length > 0) {
+    console.error(
+      `Missing required environment variables: ${missing.join(', ')}\n` +
+      `Please create a .env file with the required Confluent Cloud credentials.`
+    );
+  }
+
+  return {
+    orgId: import.meta.env.VITE_ORG_ID || '',
+    environmentId: import.meta.env.VITE_ENV_ID || '',
+    computePoolId: import.meta.env.VITE_COMPUTE_POOL_ID || '',
+    flinkApiKey: import.meta.env.VITE_FLINK_API_KEY || '',
+    flinkApiSecret: import.meta.env.VITE_FLINK_API_SECRET || '',
+    cloudApiKey: import.meta.env.VITE_CLOUD_API_KEY || '',
+    cloudApiSecret: import.meta.env.VITE_CLOUD_API_SECRET || '',
+    flinkCatalog: import.meta.env.VITE_FLINK_CATALOG || 'default',
+    flinkDatabase: import.meta.env.VITE_FLINK_DATABASE || 'public',
+    cloudProvider: import.meta.env.VITE_CLOUD_PROVIDER || 'aws',
+    cloudRegion: import.meta.env.VITE_CLOUD_REGION || 'us-east-1',
+  };
+};
+
+export const env = getEnv();

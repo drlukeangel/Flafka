@@ -1,9 +1,16 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { env } from '../config/environment';
 
-// Create Basic Auth header for Confluent Cloud
+// Create Basic Auth header for Flink SQL API
 const createAuthHeader = (): string => {
   const credentials = `${env.flinkApiKey}:${env.flinkApiSecret}`;
+  const encoded = btoa(credentials);
+  return `Basic ${encoded}`;
+};
+
+// Create Basic Auth header for Cloud management API (FCPM)
+const createCloudAuthHeader = (): string => {
+  const credentials = `${env.cloudApiKey}:${env.cloudApiSecret}`;
   const encoded = btoa(credentials);
   return `Basic ${encoded}`;
 };
@@ -21,11 +28,11 @@ export const confluentClient: AxiosInstance = axios.create({
   },
 });
 
-// Separate client for FCPM API (different base path)
+// Separate client for FCPM API (different base path and credentials)
 export const fcpmClient: AxiosInstance = axios.create({
   baseURL: FCPM_API_BASE,
   headers: {
-    'Authorization': createAuthHeader(),
+    'Authorization': createCloudAuthHeader(),
     'Content-Type': 'application/json',
   },
 });
