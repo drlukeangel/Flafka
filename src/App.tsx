@@ -7,7 +7,7 @@ import { Dropdown } from './components/Dropdown';
 import Toast from './components/ui/Toast';
 import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
-import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun, FiEdit2 } from 'react-icons/fi';
+import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun, FiEdit2, FiHelpCircle } from 'react-icons/fi';
 import './App.css';
 
 // Helper: map compute pool phase to dot CSS class
@@ -70,6 +70,9 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const historyPanelRef = useRef<HTMLDivElement>(null);
 
+  const [showHelp, setShowHelp] = useState(false);
+  const showHelpRef = useRef(false);
+
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitleValue, setEditTitleValue] = useState('');
 
@@ -79,6 +82,11 @@ function App() {
     // Sync theme to DOM attribute on mount and whenever it changes
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  // Sync showHelpRef with showHelp state
+  useEffect(() => {
+    showHelpRef.current = showHelp;
+  }, [showHelp]);
 
   useEffect(() => {
     // Load initial data
@@ -118,6 +126,29 @@ function App() {
     document.addEventListener('mousedown', handleOutsideClick);
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [showHistory]);
+
+  // Keyboard listener for help modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if in input, textarea, or Monaco editor
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if ((e.target as HTMLElement)?.closest('.monaco-editor')) return;
+
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowHelp(prev => !prev);
+        return;
+      }
+      if (e.key === 'Escape' && showHelpRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowHelp(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleOpenHistory = () => {
     if (!showHistory) {
@@ -222,6 +253,15 @@ function App() {
               />
             )}
           </div>
+
+          <button
+            className={`header-btn${showHelp ? ' active' : ''}`}
+            onClick={() => setShowHelp(prev => !prev)}
+            title="Keyboard shortcuts (?)"
+            aria-label="Toggle keyboard shortcuts help"
+          >
+            <FiHelpCircle size={18} />
+          </button>
 
           <div className="settings-wrapper" ref={settingsPanelRef}>
             <button
@@ -345,6 +385,33 @@ function App() {
           <FooterStatus />
         </main>
       </div>
+
+      {/* Keyboard Shortcuts Help Modal */}
+      {showHelp && (
+        <div className="help-modal-overlay" onClick={() => setShowHelp(false)}>
+          <div className="help-modal-container" role="dialog" aria-modal="true" aria-labelledby="help-modal-title" onClick={e => e.stopPropagation()}>
+            <h2 id="help-modal-title">Keyboard Shortcuts</h2>
+            <div className="help-shortcuts-grid">
+              <div className="help-shortcut-row">
+                <kbd>Ctrl+Enter</kbd><span>Run statement</span>
+              </div>
+              <div className="help-shortcut-row">
+                <kbd>Escape</kbd><span>Cancel running statement</span>
+              </div>
+              <div className="help-shortcut-row">
+                <kbd>Ctrl+Alt+↓</kbd><span>Navigate to next cell</span>
+              </div>
+              <div className="help-shortcut-row">
+                <kbd>Ctrl+Alt+↑</kbd><span>Navigate to previous cell</span>
+              </div>
+              <div className="help-shortcut-row">
+                <kbd>?</kbd><span>Toggle this help</span>
+              </div>
+            </div>
+            <button className="help-modal-close" onClick={() => setShowHelp(false)}>Close</button>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notifications */}
       <Toast />

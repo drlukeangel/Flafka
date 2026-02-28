@@ -1283,6 +1283,15 @@
   background-color: var(--color-surface-secondary);
 }
 
+.status-badge.modified {
+  background-color: #d97706;
+  color: white;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
@@ -1858,6 +1867,79 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-primary);
+}
+
+/* Help Modal */
+.help-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.help-modal-container {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 24px 32px;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.help-modal-container h2 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+
+.help-shortcuts-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.help-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.help-shortcut-row kbd {
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  min-width: 100px;
+  text-align: center;
+}
+
+.help-shortcut-row span {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.help-modal-close {
+  margin-top: 20px;
+  width: 100%;
+  padding: 8px;
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.help-modal-close:hover {
+  background: var(--color-surface-tertiary, var(--color-surface-secondary));
 }
 
 /* Responsive */
