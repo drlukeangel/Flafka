@@ -15,6 +15,11 @@ interface WorkspaceState {
   selectedNodeId: string | null;
   treeLoading: boolean;
 
+  // Schema Panel
+  selectedTableSchema: Column[];
+  selectedTableName: string | null;
+  schemaLoading: boolean;
+
   // Statements
   statements: SQLStatement[];
 
@@ -30,6 +35,7 @@ interface WorkspaceState {
   toggleTreeNode: (nodeId: string) => void;
   selectTreeNode: (nodeId: string) => void;
   loadTreeNodeChildren: (nodeId: string) => Promise<void>;
+  loadTableSchema: (catalog: string, database: string, tableName: string) => Promise<void>;
 
   addStatement: (code?: string, afterId?: string) => void;
   updateStatement: (id: string, code: string) => void;
@@ -56,6 +62,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   treeNodes: [],
   selectedNodeId: null,
   treeLoading: false,
+
+  selectedTableSchema: [],
+  selectedTableName: null,
+  schemaLoading: false,
 
   statements: [
     {
@@ -203,10 +213,30 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   selectTreeNode: (nodeId) => {
     set({ selectedNodeId: nodeId });
+    const node = findNodeById(get().treeNodes, nodeId);
+    if (node && (node.type === 'table' || node.type === 'view')) {
+      const catalog = node.metadata?.catalog;
+      const database = node.metadata?.database;
+      if (catalog && database) {
+        set({ selectedTableName: node.name });
+        get().loadTableSchema(catalog, database, node.name);
+      }
+    }
   },
 
   loadTreeNodeChildren: async (nodeId) => {
     console.log('Load children for:', nodeId);
+  },
+
+  loadTableSchema: async (catalog, database, tableName) => {
+    set({ schemaLoading: true, selectedTableSchema: [] });
+    try {
+      const schema = await flinkApi.getTableSchema(catalog, database, tableName);
+      set({ selectedTableSchema: schema, schemaLoading: false });
+    } catch (error) {
+      console.error('Failed to load table schema:', error);
+      set({ schemaLoading: false });
+    }
   },
 
   // Statement Actions
@@ -289,7 +319,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     // Update status to PENDING
     set((state) => ({
       statements: state.statements.map((s) =>
-        s.id === id ? { ...s, status: 'PENDING' as StatementStatus, error: undefined, results: undefined } : s
+        s.id === id ? { ...s, status: 'PENDING' as StatementStatus, error: undefined, results: undefined, startedAt: new Date() } : s
       ),
     }));
 
@@ -500,4 +530,16 @@ function toggleNodeExpanded(nodes: TreeNode[], nodeId: string): TreeNode[] {
     }
     return node;
   });
+}
+
+// Helper function to find a node by ID in the tree
+function findNodeById(nodes: TreeNode[], nodeId: string): TreeNode | null {
+  for (const node of nodes) {
+    if (node.id === nodeId) return node;
+    if (node.children) {
+      const found = findNodeById(node.children, nodeId);
+      if (found) return found;
+    }
+  }
+  return null;
 }

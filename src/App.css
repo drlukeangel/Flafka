@@ -201,6 +201,76 @@
   font-style: italic;
 }
 
+/* Schema Panel */
+.schema-panel {
+  border-top: 1px solid var(--color-border);
+  padding: 12px;
+  flex-shrink: 0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.schema-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.schema-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.schema-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+  display: block;
+}
+
+.schema-column {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+.schema-column:hover {
+  background-color: var(--color-surface-secondary);
+}
+
+.column-name {
+  color: var(--color-text-primary);
+  font-family: monospace;
+}
+
+.column-type {
+  color: var(--color-text-tertiary);
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.schema-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.schema-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
 /* Main Content */
 .main-content {
   flex: 1;
@@ -928,6 +998,56 @@
 .toast-close:hover {
   background-color: rgba(0, 0, 0, 0.05);
   color: var(--color-text-primary);
+}
+
+/* Statement Status Bar */
+.statement-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 16px;
+  background-color: var(--color-surface-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.status-bar-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-bar-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.status-dot.completed {
+  background-color: var(--color-success);
+}
+
+.status-dot.error {
+  background-color: var(--color-error);
+}
+
+.status-dot.pending {
+  background-color: var(--color-warning);
+}
+
+.status-dot.cancelled,
+.status-dot.idle {
+  background-color: var(--color-text-tertiary);
+}
+
+.statement-name {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-primary);
 }
 
 /* Responsive */

@@ -14,6 +14,7 @@ export interface SQLStatement {
   createdAt: Date;
   updatedAt?: Date;
   lastExecutedAt?: Date;
+  startedAt?: Date;
   isCollapsed?: boolean;
 }
 

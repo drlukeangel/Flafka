@@ -274,6 +274,26 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             />
           </div>
 
+          {statement.startedAt && (
+            <div className="statement-status-bar">
+              <div className="status-bar-item">
+                <span className="status-bar-label">START TIME:</span>
+                <span>{statement.startedAt.toLocaleTimeString()}</span>
+              </div>
+              <div className="status-bar-item">
+                <span className="status-bar-label">STATUS:</span>
+                <span className={`status-dot ${statement.status.toLowerCase()}`}></span>
+                <span>{statement.status}</span>
+              </div>
+              {statement.statementName && (
+                <div className="status-bar-item">
+                  <span className="status-bar-label">STATEMENT:</span>
+                  <span className="statement-name">{statement.statementName}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {hasError && statement.error && (
             <div className="cell-error">
               <FiAlertCircle size={16} />
