@@ -51,6 +51,7 @@ interface WorkspaceState {
   deleteStatement: (id: string) => void;
   duplicateStatement: (id: string) => void;
   toggleStatementCollapse: (id: string) => void;
+  reorderStatements: (fromIndex: number, toIndex: number) => void;
 
   executeStatement: (id: string) => Promise<void>;
   cancelStatement: (id: string) => Promise<void>;
@@ -335,6 +336,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             s.id === id ? { ...s, isCollapsed: !s.isCollapsed } : s
           ),
         }));
+      },
+
+      reorderStatements: (fromIndex, toIndex) => {
+        if (fromIndex === toIndex) return;
+        set((state) => {
+          const statements = [...state.statements];
+          const [removed] = statements.splice(fromIndex, 1);
+          statements.splice(toIndex, 0, removed);
+          return { statements, lastSavedAt: new Date().toISOString() };
+        });
       },
 
       // Execution Actions

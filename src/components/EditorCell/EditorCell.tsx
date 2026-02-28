@@ -14,6 +14,7 @@ import {
   FiAlertCircle,
   FiCheckCircle,
   FiRefreshCw,
+  FiMoreVertical,
 } from 'react-icons/fi';
 import ResultsTable from '../ResultsTable/ResultsTable';
 
@@ -42,11 +43,15 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     executeStatement,
     cancelStatement,
     addStatement,
+    reorderStatements,
   } = useWorkspaceStore();
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const cellRef = useRef<HTMLDivElement>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [editorHeight, setEditorHeight] = useState(100);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOver, setDragOver] = useState<'top' | 'bottom' | null>(null);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -126,6 +131,50 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     addStatement(undefined, statement.id);
   };
 
+  const handleDragStart = (e: React.DragEvent<HTMLSpanElement>) => {
+    e.dataTransfer.setData('text/plain', index.toString());
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!cellRef.current) return;
+    const rect = cellRef.current.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    setDragOver(e.clientY < midY ? 'top' : 'bottom');
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    // Only clear if leaving the cell entirely (not entering a child)
+    if (!cellRef.current?.contains(e.relatedTarget as Node)) {
+      setDragOver(null);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (isNaN(fromIndex)) return;
+
+    let toIndex = index;
+    if (dragOver === 'bottom') {
+      toIndex = index + 1;
+    }
+    // Adjust for the fact that removing fromIndex shifts indices
+    if (fromIndex < toIndex) {
+      toIndex -= 1;
+    }
+
+    setDragOver(null);
+    reorderStatements(fromIndex, toIndex);
+  };
+
   const isRunning = statement.status === 'RUNNING' || statement.status === 'PENDING';
   const hasResults = statement.results && statement.results.length > 0;
   const hasError = statement.status === 'ERROR';
@@ -171,10 +220,33 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     }
   };
 
+  const cellClassName = [
+    'editor-cell',
+    statement.isCollapsed ? 'collapsed' : '',
+    isDragging ? 'dragging' : '',
+    dragOver === 'top' ? 'drag-over-top' : '',
+    dragOver === 'bottom' ? 'drag-over-bottom' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className={`editor-cell ${statement.isCollapsed ? 'collapsed' : ''}`}>
+    <div
+      ref={cellRef}
+      className={cellClassName}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <div className={`cell-header ${showDeleteConfirm ? 'confirming-delete' : ''}`}>
         <div className="cell-header-left">
+          <span
+            className="drag-handle"
+            draggable
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            title="Drag to reorder"
+          >
+            <FiMoreVertical size={16} />
+          </span>
           <button
             className="icon-btn add-btn"
             onClick={handleAddCell}
