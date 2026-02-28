@@ -46,12 +46,15 @@ Launch both reviewers simultaneously:
 - Each agent gets: the PRD, exact file paths, what to change, acceptance criteria
 - Agents work in isolation on non-overlapping files
 
-#### B2. BROWSER TEST (Mandatory - Opus orchestrator)
+#### B2. BROWSER TEST (Immediate - after EACH feature commit, NEVER batched)
 - Ensure dev server is running (`npm run dev`)
 - Open the app in Chrome via browser automation tools (Claude in Chrome MCP)
 - Visually verify the feature works: take screenshots, click through UI, check renders
 - Test edge cases from the PRD in the actual browser
 - This step is NOT delegated - the orchestrator does it directly to catch real rendering/runtime issues
+- **CRITICAL**: Browser test MUST happen immediately after each feature is implemented and committed
+- If bugs are found, launch fix agents immediately before moving to the next feature
+- No feature is "done" until browser-verified in Chrome
 
 #### B3. QA VALIDATE (Sonnet subagents)
 - After browser test passes, launch QA agents for code review
@@ -81,7 +84,7 @@ Launch both reviewers simultaneously:
 ### Key Rules
 - **You (Opus) are the orchestrator** - supervise, don't implement directly
 - **NEVER skip design review** - both architect and engineer must sign off before coding
-- **NEVER skip browser testing** - every feature must be visually verified in Chrome before QA
+- **Browser test EVERY feature immediately after implementation** - never batch or skip. No feature is done until verified in Chrome.
 - **Smallest possible tasks** for maximum parallelism
 - **Never skip QA** - every feature gets validated
 - **Fix bugs in real-time** - don't batch them
