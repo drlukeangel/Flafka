@@ -430,6 +430,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     isDragging ? 'dragging' : '',
     dragOver === 'top' ? 'drag-over-top' : '',
     dragOver === 'bottom' ? 'drag-over-bottom' : '',
+    showDeleteConfirm ? 'confirming' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -478,27 +479,29 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         </div>
 
         <div className="cell-header-right">
-          <button
-            className="icon-btn"
-            onClick={handleDuplicate}
-            title="Duplicate statement"
-          >
-            <FiCopy size={14} />
-          </button>
-          {showDeleteConfirm ? (
-            <div className="delete-confirm">
-              <button className="confirm-yes" onClick={handleDelete}>Delete</button>
-              <button className="confirm-no" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
-            </div>
-          ) : (
+          <div className="cell-actions">
             <button
-              className="icon-btn delete-btn"
-              onClick={handleDelete}
-              title="Delete statement"
+              className="icon-btn"
+              onClick={handleDuplicate}
+              title="Duplicate statement"
             >
-              <FiTrash2 size={14} />
+              <FiCopy size={14} />
             </button>
-          )}
+            {showDeleteConfirm ? (
+              <div className="delete-confirm">
+                <button className="confirm-yes" onClick={handleDelete}>Delete</button>
+                <button className="confirm-no" onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+              </div>
+            ) : (
+              <button
+                className="icon-btn delete-btn"
+                onClick={handleDelete}
+                title="Delete statement"
+              >
+                <FiTrash2 size={14} />
+              </button>
+            )}
+          </div>
           <button
             className={`run-btn ${isRunning ? 'running' : ''}`}
             onClick={handleRun}

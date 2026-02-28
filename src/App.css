@@ -1058,6 +1058,46 @@
   color: var(--color-error);
 }
 
+/* Cell hover actions - hide secondary buttons by default */
+.cell-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+/* Show on hover, focus-within, or delete confirmation */
+.editor-cell:hover .cell-actions,
+.editor-cell:focus-within .cell-actions,
+.editor-cell.confirming .cell-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Add-cell button - also hide by default */
+.editor-cell .add-btn {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+
+.editor-cell:hover .add-btn,
+.editor-cell:focus-within .add-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Touch device fallback */
+@media (hover: none) {
+  .cell-actions,
+  .editor-cell .add-btn {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* Delete Confirmation */
 .delete-confirm {
   display: flex;
