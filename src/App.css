@@ -589,8 +589,8 @@
 /* Cell Editor */
 .cell-editor {
   border-bottom: 1px solid var(--color-border);
-  height: 150px !important;
-  min-height: 150px !important;
+  min-height: 80px;
+  max-height: 400px;
   overflow: hidden;
 }
 

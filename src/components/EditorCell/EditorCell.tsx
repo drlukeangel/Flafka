@@ -34,9 +34,46 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [editorHeight, setEditorHeight] = useState(100);
 
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
+
+    // --- Keyboard Shortcuts ---
+    editor.addAction({
+      id: 'run-statement',
+      label: 'Run Statement',
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+      run: () => {
+        const s = useWorkspaceStore.getState().statements.find(s => s.id === statement.id);
+        if (s && s.status !== 'RUNNING' && s.status !== 'PENDING') {
+          executeStatement(statement.id);
+        }
+      },
+    });
+
+    editor.addAction({
+      id: 'cancel-statement',
+      label: 'Cancel Statement',
+      keybindings: [monaco.KeyCode.Escape],
+      run: () => {
+        const s = useWorkspaceStore.getState().statements.find(s => s.id === statement.id);
+        if (s && (s.status === 'RUNNING' || s.status === 'PENDING')) {
+          cancelStatement(statement.id);
+        }
+      },
+    });
+
+    // --- Auto-Resize ---
+    const updateHeight = (e?: { contentHeight: number }) => {
+      const contentHeight = e?.contentHeight ?? editor.getContentHeight();
+      const newHeight = Math.min(Math.max(contentHeight, 80), 400);
+      setEditorHeight(prev => prev === newHeight ? prev : newHeight);
+    };
+
+    const disposable = editor.onDidContentSizeChange(updateHeight);
+    editor.onDidDispose(() => disposable.dispose());
+    updateHeight();
   };
 
   const handleEditorChange = useCallback(
@@ -209,7 +246,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         <>
           <div className="cell-editor">
             <Editor
-              height="150px"
+              height={`${editorHeight}px`}
               defaultLanguage="sql"
               value={statement.code}
               onChange={handleEditorChange}
