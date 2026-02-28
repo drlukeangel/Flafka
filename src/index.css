@@ -67,6 +67,7 @@
   --nav-rail-expanded-width: 220px;
   --nav-rail-transition: 200ms ease-in-out;
   --side-panel-width: 300px;
+  --schema-panel-width: 480px;
 }
 
 [data-theme="dark"] {
@@ -124,6 +125,7 @@
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
   --shadow-cell: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-focus-ring: 0 0 0 3px rgba(123, 95, 250, 0.2);
+  --schema-panel-width: 480px;
 }
 
 html {

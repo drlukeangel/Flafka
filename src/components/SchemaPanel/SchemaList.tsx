@@ -1,0 +1,400 @@
+import React, { useState, useEffect } from 'react';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import {
+  FiSearch,
+  FiX,
+  FiLoader,
+  FiFileText,
+  FiChevronRight,
+  FiAlertCircle,
+  FiPlus,
+} from 'react-icons/fi';
+import CreateSchema from './CreateSchema';
+
+const SchemaList: React.FC = () => {
+  const subjects = useWorkspaceStore((s) => s.schemaRegistrySubjects);
+  const loading = useWorkspaceStore((s) => s.schemaRegistryLoading);
+  const error = useWorkspaceStore((s) => s.schemaRegistryError);
+  const loadSchemaRegistrySubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
+  const loadSchemaDetail = useWorkspaceStore((s) => s.loadSchemaDetail);
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // Debounce the search input by 300ms
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset focused index whenever filtered list changes
+  useEffect(() => {
+    setFocusedIndex(-1);
+  }, [debouncedQuery]);
+
+  const filteredSubjects = subjects.filter((s) =>
+    s.toLowerCase().includes(debouncedQuery.toLowerCase())
+  );
+
+  const handleItemClick = (subject: string) => {
+    loadSchemaDetail(subject);
+  };
+
+  const handleItemKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, subject: string, index: number) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      loadSchemaDetail(subject);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIndex(Math.min(index + 1, filteredSubjects.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIndex(Math.max(index - 1, 0));
+    }
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown' && filteredSubjects.length > 0) {
+      e.preventDefault();
+      setFocusedIndex(0);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flex: 1,
+          gap: 10,
+          padding: 24,
+          color: 'var(--color-text-secondary)',
+          fontSize: 13,
+        }}
+        aria-live="polite"
+        aria-label="Loading schemas"
+      >
+        <FiLoader
+          size={20}
+          className="history-spin"
+          aria-hidden="true"
+        />
+        <span>Loading schemas...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: 10,
+          padding: 16,
+          color: 'var(--color-error)',
+          fontSize: 13,
+        }}
+        role="alert"
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FiAlertCircle size={14} aria-hidden="true" />
+          <span>{error}</span>
+        </div>
+        <button
+          className="history-retry-btn"
+          onClick={loadSchemaRegistrySubjects}
+          aria-label="Retry loading schemas"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <CreateSchema
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={() => {
+          setCreateOpen(false);
+          loadSchemaRegistrySubjects();
+        }}
+      />
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          overflow: 'hidden',
+        }}
+      >
+        {/* Search input + create button row */}
+        <div
+          style={{
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--color-border)',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          {/* Search box */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'var(--color-surface-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 4,
+              padding: '0 8px',
+              height: 32,
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            <FiSearch size={13} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} aria-hidden="true" />
+            <input
+              type="text"
+              placeholder="Filter subjects..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              aria-label="Filter schema subjects"
+              style={{
+                flex: 1,
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                fontSize: 13,
+                color: 'var(--color-text-primary)',
+                minWidth: 0,
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear filter"
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: 'var(--color-text-tertiary)',
+                  borderRadius: 3,
+                  flexShrink: 0,
+                }}
+              >
+                <FiX size={12} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+
+          {/* Create schema button */}
+          <button
+            onClick={() => setCreateOpen(true)}
+            title="Create new schema subject"
+            aria-label="Create new schema"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 32,
+              height: 32,
+              border: '1px solid var(--color-border)',
+              borderRadius: 4,
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              flexShrink: 0,
+              transition: 'color var(--transition-fast), background var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-primary)';
+              (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
+              (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
+            }}
+          >
+            <FiPlus size={15} aria-hidden="true" />
+          </button>
+        </div>
+
+        {/* Subject count */}
+        {subjects.length > 0 && (
+          <div
+            style={{
+              padding: '4px 12px',
+              fontSize: 11,
+              color: 'var(--color-text-tertiary)',
+              borderBottom: '1px solid var(--color-border)',
+              flexShrink: 0,
+            }}
+          >
+            {debouncedQuery
+              ? `${filteredSubjects.length} of ${subjects.length} subjects`
+              : `${subjects.length} subject${subjects.length !== 1 ? 's' : ''}`}
+          </div>
+        )}
+
+        {/* Subject list */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+          }}
+          role="list"
+          aria-label="Schema Registry subjects"
+        >
+          {filteredSubjects.length > 0 ? (
+            filteredSubjects.map((subject, index) => (
+              <div
+                key={subject}
+                role="listitem"
+                tabIndex={0}
+                onClick={() => handleItemClick(subject)}
+                onKeyDown={(e) => handleItemKeyDown(e, subject, index)}
+                ref={(el) => {
+                  if (focusedIndex === index && el) {
+                    el.focus();
+                  }
+                }}
+                aria-label={`Schema subject: ${subject}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid var(--color-border)',
+                  transition: 'background-color var(--transition-fast)',
+                  outline: 'none',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--color-bg-hover)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.backgroundColor = '';
+                }}
+                onFocus={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--color-bg-hover)';
+                  (e.currentTarget as HTMLDivElement).style.outline = '2px solid var(--color-primary)';
+                  (e.currentTarget as HTMLDivElement).style.outlineOffset = '-2px';
+                }}
+                onBlur={(e) => {
+                  (e.currentTarget as HTMLDivElement).style.backgroundColor = '';
+                  (e.currentTarget as HTMLDivElement).style.outline = '';
+                  (e.currentTarget as HTMLDivElement).style.outlineOffset = '';
+                }}
+              >
+                <FiFileText
+                  size={14}
+                  style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }}
+                  aria-hidden="true"
+                />
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    color: 'var(--color-text-primary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontFamily: 'monospace',
+                  }}
+                  title={subject}
+                >
+                  {subject}
+                </span>
+                <FiChevronRight
+                  size={13}
+                  style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}
+                  aria-hidden="true"
+                />
+              </div>
+            ))
+          ) : subjects.length === 0 ? (
+            /* Empty state — no schemas exist */
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 12,
+                padding: 32,
+                color: 'var(--color-text-tertiary)',
+                textAlign: 'center',
+              }}
+            >
+              <FiFileText size={28} aria-hidden="true" />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, color: 'var(--color-text-secondary)' }}>
+                  No schemas found
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  Schemas registered in Confluent Schema Registry will appear here.
+                </div>
+              </div>
+              <button
+                onClick={() => setCreateOpen(true)}
+                title="Create a new schema subject"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '6px 14px',
+                  border: '1px solid var(--color-primary)',
+                  background: 'transparent',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: 'var(--color-primary)',
+                  cursor: 'pointer',
+                }}
+              >
+                <FiPlus size={13} aria-hidden="true" />
+                Create Schema
+              </button>
+            </div>
+          ) : (
+            /* No filter results */
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                padding: 32,
+                color: 'var(--color-text-tertiary)',
+                textAlign: 'center',
+              }}
+            >
+              <FiSearch size={22} aria-hidden="true" />
+              <div style={{ fontSize: 13 }}>
+                No results for &ldquo;{debouncedQuery}&rdquo;
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default SchemaList;

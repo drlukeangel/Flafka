@@ -47,6 +47,18 @@ export default defineConfig(({ mode }) => {
               }
             })
           }
+        },
+        '/api/schema-registry': {
+          target: env.VITE_SCHEMA_REGISTRY_URL || 'https://psrc-placeholder.us-east-1.aws.confluent.cloud',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/schema-registry/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              if (req.headers.authorization) {
+                proxyReq.setHeader('Authorization', req.headers.authorization)
+              }
+            })
+          }
         }
       }
     },

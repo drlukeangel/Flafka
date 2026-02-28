@@ -11,6 +11,7 @@ import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
 import { FiDatabase, FiPlay, FiPlus, FiCpu, FiMoon, FiSun, FiEdit2 } from 'react-icons/fi';
 import { NavRail } from './components/NavRail/NavRail';
+import SchemaPanel from './components/SchemaPanel/SchemaPanel';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import './App.css';
 
@@ -68,6 +69,7 @@ function App() {
     dismissOnboardingHint,
     importWorkspace,
     addToast,
+    selectedSchemaSubject,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
@@ -301,7 +303,21 @@ function App() {
 
         {/* Side Panel - conditionally rendered based on active nav item */}
         {activeNavItem !== 'workspace' && (
-          <aside className="side-panel">
+          <aside
+            className="side-panel"
+            style={
+              activeNavItem === 'schemas'
+                ? {
+                    width: selectedSchemaSubject
+                      ? 'var(--schema-panel-width)'
+                      : 'var(--side-panel-width)',
+                    minWidth: selectedSchemaSubject
+                      ? 'var(--schema-panel-width)'
+                      : 'var(--side-panel-width)',
+                  }
+                : undefined
+            }
+          >
             <div className="side-panel-content">
               {activeNavItem === 'tree' && <TreeNavigator />}
               {activeNavItem === 'history' && (
@@ -433,11 +449,7 @@ function App() {
                   <span className="coming-soon-text">Topics management coming soon</span>
                 </div>
               )}
-              {activeNavItem === 'schemas' && (
-                <div className="coming-soon-panel">
-                  <span className="coming-soon-text">Schema management coming soon</span>
-                </div>
-              )}
+              {activeNavItem === 'schemas' && <SchemaPanel />}
             </div>
           </aside>
         )}

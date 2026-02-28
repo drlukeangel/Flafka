@@ -1,0 +1,1029 @@
+/**
+ * @schema-detail @schema-panel
+ * SchemaDetail - Full detail view for a selected schema subject.
+ *
+ * Read mode:
+ *   - Schema type badge + schema ID in header
+ *   - Version selector (fetched via getSchemaVersions on mount)
+ *   - Compatibility mode (fetched via getCompatibilityMode on mount)
+ *   - Code view / Tree view toggle
+ *   - Code view: formatted JSON in monospace pre block
+ *   - Tree view: SchemaTreeView component (Avro only)
+ *   - "Evolve" button → enters edit mode
+ *   - "Delete" button → shows confirmation overlay
+ *
+ * Edit mode (evolve):
+ *   - Textarea pre-filled with current schema JSON
+ *   - Version selector disabled
+ *   - Border accent on editor area
+ *   - "Validate" → calls validateCompatibility
+ *   - "Save" (disabled until validated) → calls registerSchema
+ *   - "Cancel" → restores read mode
+ *
+ * Delete flow:
+ *   - Confirmation overlay with warning text
+ *   - On confirm: deleteSubject → clearSelectedSchema + toast success
+ */
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import * as schemaRegistryApi from '../../api/schema-registry-api';
+import type { CompatibilityLevel } from '../../types';
+import SchemaTreeView from './SchemaTreeView';
+import {
+  FiRefreshCw,
+  FiX,
+  FiCheck,
+  FiAlertTriangle,
+  FiEdit2,
+  FiTrash2,
+} from 'react-icons/fi';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getSchemaTypeBadgeStyle(schemaType: string): { background: string; color: string } {
+  switch (schemaType) {
+    case 'AVRO':
+      return { background: 'rgba(73,51,215,0.12)', color: 'var(--color-primary)' };
+    case 'PROTOBUF':
+      return { background: 'rgba(245,158,11,0.12)', color: 'var(--color-warning)' };
+    case 'JSON':
+      return { background: 'rgba(34,197,94,0.12)', color: 'var(--color-success)' };
+    default:
+      return { background: 'rgba(156,163,175,0.12)', color: 'var(--color-text-secondary)' };
+  }
+}
+
+function formatSchemaJson(schema: string): string {
+  try {
+    return JSON.stringify(JSON.parse(schema), null, 2);
+  } catch {
+    return schema;
+  }
+}
+
+const COMPATIBILITY_LABELS: Record<CompatibilityLevel, string> = {
+  BACKWARD: 'Backward',
+  FORWARD: 'Forward',
+  FULL: 'Full',
+  NONE: 'None',
+  BACKWARD_TRANSITIVE: 'Backward Transitive',
+  FORWARD_TRANSITIVE: 'Forward Transitive',
+  FULL_TRANSITIVE: 'Full Transitive',
+};
+
+// ---------------------------------------------------------------------------
+// Small sub-components
+// ---------------------------------------------------------------------------
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        fontWeight: 600,
+        color: 'var(--color-text-tertiary)',
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.06em',
+        userSelect: 'none' as const,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+interface ViewToggleProps {
+  view: 'code' | 'tree';
+  onChange: (view: 'code' | 'tree') => void;
+}
+
+function ViewToggle({ view, onChange }: ViewToggleProps) {
+  const base: React.CSSProperties = {
+    padding: '4px 10px',
+    fontSize: 12,
+    border: '1px solid var(--color-border)',
+    cursor: 'pointer',
+    lineHeight: 1.4,
+    transition: `background var(--transition-fast), color var(--transition-fast)`,
+  };
+  return (
+    <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden' }} role="group" aria-label="Schema view mode">
+      <button
+        style={{
+          ...base,
+          borderRight: 'none',
+          borderRadius: '4px 0 0 4px',
+          background: view === 'code' ? 'var(--color-primary)' : 'var(--color-surface)',
+          color: view === 'code' ? '#fff' : 'var(--color-text-secondary)',
+        }}
+        onClick={() => onChange('code')}
+        aria-pressed={view === 'code'}
+        title="View formatted JSON"
+      >
+        Code
+      </button>
+      <button
+        style={{
+          ...base,
+          borderRadius: '0 4px 4px 0',
+          background: view === 'tree' ? 'var(--color-primary)' : 'var(--color-surface)',
+          color: view === 'tree' ? '#fff' : 'var(--color-text-secondary)',
+        }}
+        onClick={() => onChange('tree')}
+        aria-pressed={view === 'tree'}
+        title="View field tree"
+      >
+        Tree
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delete confirmation overlay
+// ---------------------------------------------------------------------------
+
+interface DeleteConfirmProps {
+  subject: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  isLoading: boolean;
+}
+
+function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfirmProps) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Focus cancel button on mount
+  useEffect(() => {
+    cancelBtnRef.current?.focus();
+  }, []);
+
+  // Escape to cancel
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isLoading) onCancel();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onCancel, isLoading]);
+
+  return (
+    <div
+      ref={overlayRef}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        zIndex: 20,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+      onClick={(e) => {
+        if (e.target === overlayRef.current && !isLoading) onCancel();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-dialog-title"
+    >
+      <div
+        style={{
+          background: 'var(--color-surface)',
+          borderRadius: 8,
+          padding: 24,
+          maxWidth: 340,
+          width: '100%',
+          boxShadow: 'var(--shadow-lg)',
+          border: '1px solid var(--color-border)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <FiAlertTriangle
+            size={16}
+            style={{ color: 'var(--color-error)', flexShrink: 0 }}
+            aria-hidden="true"
+          />
+          <h3
+            id="delete-dialog-title"
+            style={{
+              margin: 0,
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            Delete {subject}?
+          </h3>
+        </div>
+
+        {/* Warning body */}
+        <p
+          style={{
+            margin: '0 0 10px',
+            fontSize: 13,
+            color: 'var(--color-text-secondary)',
+            lineHeight: 1.55,
+          }}
+        >
+          This will soft-delete all versions of this subject. Schemas remain recoverable via
+          the Schema Registry API using a permanent delete.
+        </p>
+        <p
+          style={{
+            margin: '0 0 20px',
+            fontSize: 13,
+            color: 'var(--color-warning)',
+            lineHeight: 1.55,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 6,
+          }}
+        >
+          <FiAlertTriangle size={13} style={{ marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
+          Any Flink SQL tables referencing this schema subject may be affected.
+        </p>
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            ref={cancelBtnRef}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 4,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 12,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              opacity: isLoading ? 0.6 : 1,
+            }}
+            onClick={onCancel}
+            disabled={isLoading}
+          >
+            Cancel
+          </button>
+          <button
+            style={{
+              padding: '6px 14px',
+              borderRadius: 4,
+              border: 'none',
+              background: 'var(--color-error)',
+              color: '#ffffff',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+              opacity: isLoading ? 0.75 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+            onClick={onConfirm}
+            disabled={isLoading}
+            aria-label={isLoading ? 'Deleting subject…' : `Delete ${subject}`}
+          >
+            {isLoading && (
+              <span
+                className="spin"
+                style={{ width: 12, height: 12, display: 'inline-block' }}
+                aria-hidden="true"
+              />
+            )}
+            {isLoading ? 'Deleting…' : `Delete ${subject}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SchemaDetail — main exported component
+// ---------------------------------------------------------------------------
+
+export default function SchemaDetail() {
+  const selectedSchemaSubject = useWorkspaceStore((s) => s.selectedSchemaSubject);
+  const schemaRegistryLoading = useWorkspaceStore((s) => s.schemaRegistryLoading);
+  const addToast = useWorkspaceStore((s) => s.addToast);
+  const clearSelectedSchema = useWorkspaceStore((s) => s.clearSelectedSchema);
+  const loadSchemaDetail = useWorkspaceStore((s) => s.loadSchemaDetail);
+
+  // Read-mode view
+  const [view, setView] = useState<'code' | 'tree'>('code');
+
+  // Version list
+  const [versions, setVersions] = useState<number[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<number | 'latest'>('latest');
+
+  // Compatibility
+  const [compatibility, setCompatibility] = useState<CompatibilityLevel | null>(null);
+  const [compatLoading, setCompatLoading] = useState(false);
+  const [compatSaving, setCompatSaving] = useState(false);
+
+  // Edit / evolve mode
+  const [isEditing, setIsEditing] = useState(false);
+  const [editSchema, setEditSchema] = useState('');
+  const [isValidated, setIsValidated] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Delete
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const subject = selectedSchemaSubject?.subject ?? null;
+
+  // Load versions list whenever subject changes
+  useEffect(() => {
+    if (!subject) return;
+    setVersionsLoading(true);
+    setVersions([]);
+    schemaRegistryApi
+      .getSchemaVersions(subject)
+      .then((v) => setVersions(v))
+      .catch((err) => console.error('Failed to load versions:', err))
+      .finally(() => setVersionsLoading(false));
+  }, [subject]);
+
+  // Load compatibility mode whenever subject changes
+  useEffect(() => {
+    if (!subject) return;
+    setCompatLoading(true);
+    setCompatibility(null);
+    schemaRegistryApi
+      .getCompatibilityMode(subject)
+      .then((level) => setCompatibility(level))
+      .catch((err) => console.error('Failed to load compatibility mode:', err))
+      .finally(() => setCompatLoading(false));
+  }, [subject]);
+
+  // Reset UI state when subject changes
+  useEffect(() => {
+    setIsEditing(false);
+    setIsValidated(false);
+    setValidationError(null);
+    setView('code');
+    setSelectedVersion('latest');
+    setShowDeleteConfirm(false);
+    setDeleting(false);
+  }, [subject]);
+
+  const handleVersionChange = useCallback(
+    (e: React.ChangeEvent<HTMLSelectElement>) => {
+      const raw = e.target.value;
+      const version = raw === 'latest' ? 'latest' : parseInt(raw, 10);
+      setSelectedVersion(version);
+      if (subject) {
+        loadSchemaDetail(subject, version);
+      }
+    },
+    [subject, loadSchemaDetail]
+  );
+
+  const handleEvolveClick = useCallback(() => {
+    if (!selectedSchemaSubject) return;
+    setEditSchema(formatSchemaJson(selectedSchemaSubject.schema));
+    setIsValidated(false);
+    setValidationError(null);
+    setIsEditing(true);
+  }, [selectedSchemaSubject]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    setIsValidated(false);
+    setValidationError(null);
+  }, []);
+
+  const handleValidate = useCallback(async () => {
+    if (!selectedSchemaSubject) return;
+    setValidating(true);
+    setIsValidated(false);
+    setValidationError(null);
+    try {
+      const result = await schemaRegistryApi.validateCompatibility(
+        selectedSchemaSubject.subject,
+        editSchema,
+        selectedSchemaSubject.schemaType
+      );
+      if (result.is_compatible) {
+        setIsValidated(true);
+        addToast({ type: 'success', message: 'Schema is compatible', duration: 3000 });
+      } else {
+        setValidationError('Schema is not compatible with the existing versions.');
+        addToast({ type: 'error', message: 'Schema compatibility check failed' });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Validation failed';
+      setValidationError(msg);
+      addToast({ type: 'error', message: `Validation error: ${msg}` });
+    } finally {
+      setValidating(false);
+    }
+  }, [selectedSchemaSubject, editSchema, addToast]);
+
+  const handleSave = useCallback(async () => {
+    if (!selectedSchemaSubject || !isValidated) return;
+    setSaving(true);
+    try {
+      const result = await schemaRegistryApi.registerSchema(
+        selectedSchemaSubject.subject,
+        editSchema,
+        selectedSchemaSubject.schemaType
+      );
+      addToast({
+        type: 'success',
+        message: `New version registered — ID: ${result.id}`,
+        duration: 4000,
+      });
+      setIsEditing(false);
+      setIsValidated(false);
+      // Reload detail to show the new version
+      await loadSchemaDetail(selectedSchemaSubject.subject, 'latest');
+      // Refresh version list
+      const v = await schemaRegistryApi.getSchemaVersions(selectedSchemaSubject.subject);
+      setVersions(v);
+      setSelectedVersion('latest');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to register schema';
+      addToast({ type: 'error', message: msg });
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedSchemaSubject, editSchema, isValidated, addToast, loadSchemaDetail]);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!selectedSchemaSubject) return;
+    setDeleting(true);
+    try {
+      await schemaRegistryApi.deleteSubject(selectedSchemaSubject.subject);
+      addToast({
+        type: 'success',
+        message: `"${selectedSchemaSubject.subject}" deleted`,
+        duration: 4000,
+      });
+      clearSelectedSchema();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete subject';
+      addToast({ type: 'error', message: msg });
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }, [selectedSchemaSubject, addToast, clearSelectedSchema]);
+
+  const handleCompatibilityChange = useCallback(
+    async (e: React.ChangeEvent<HTMLSelectElement>) => {
+      if (!subject) return;
+      const newLevel = e.target.value as CompatibilityLevel;
+      setCompatSaving(true);
+      try {
+        await schemaRegistryApi.setCompatibilityMode(subject, newLevel);
+        setCompatibility(newLevel);
+        addToast({ type: 'success', message: `Compatibility set to ${COMPATIBILITY_LABELS[newLevel]}`, duration: 3000 });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to update compatibility';
+        addToast({ type: 'error', message: msg });
+      } finally {
+        setCompatSaving(false);
+      }
+    },
+    [subject, addToast]
+  );
+
+  const handleRefresh = useCallback(() => {
+    if (!subject) return;
+    loadSchemaDetail(subject, selectedVersion);
+  }, [subject, selectedVersion, loadSchemaDetail]);
+
+  // -------------------------------------------------------------------------
+  // Empty state — no subject selected
+  // -------------------------------------------------------------------------
+  if (!selectedSchemaSubject) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%',
+          color: 'var(--color-text-tertiary)',
+          fontSize: 13,
+          padding: 24,
+          textAlign: 'center',
+        }}
+      >
+        Select a schema subject to view its details.
+      </div>
+    );
+  }
+
+  const { schemaType, id, schema } = selectedSchemaSubject;
+  const typeBadgeStyle = getSchemaTypeBadgeStyle(schemaType);
+  const formattedSchema = formatSchemaJson(schema);
+  const isProtobuf = schemaType === 'PROTOBUF';
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        background: 'var(--color-surface)',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Delete confirmation overlay */}
+      {showDeleteConfirm && (
+        <DeleteConfirm
+          subject={selectedSchemaSubject.subject}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => {
+            if (!deleting) setShowDeleteConfirm(false);
+          }}
+          isLoading={deleting}
+        />
+      )}
+
+      {/* ── Header bar ─────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          borderBottom: '1px solid var(--color-border)',
+          flexShrink: 0,
+          flexWrap: 'wrap',
+          rowGap: 6,
+        }}
+      >
+        {/* Schema type badge */}
+        <span
+          style={{
+            ...typeBadgeStyle,
+            padding: '2px 7px',
+            borderRadius: 3,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            flexShrink: 0,
+          }}
+          title={`Schema type: ${schemaType}`}
+        >
+          {schemaType}
+        </span>
+
+        {/* Schema ID */}
+        <span
+          style={{
+            fontSize: 11,
+            color: 'var(--color-text-tertiary)',
+            fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+            flexShrink: 0,
+          }}
+          title="Schema ID"
+        >
+          ID&nbsp;{id}
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Refresh */}
+        <button
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 5,
+            border: '1px solid var(--color-border)',
+            borderRadius: 4,
+            background: 'var(--color-surface)',
+            color: 'var(--color-text-secondary)',
+            cursor: schemaRegistryLoading || isEditing ? 'not-allowed' : 'pointer',
+            opacity: isEditing ? 0.5 : 1,
+          }}
+          onClick={handleRefresh}
+          disabled={schemaRegistryLoading || isEditing}
+          title="Refresh schema"
+          aria-label="Refresh schema"
+        >
+          <FiRefreshCw
+            size={13}
+            className={schemaRegistryLoading ? 'spin' : ''}
+            aria-hidden="true"
+          />
+        </button>
+
+        {/* Close */}
+        <button
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 5,
+            border: '1px solid var(--color-border)',
+            borderRadius: 4,
+            background: 'var(--color-surface)',
+            color: 'var(--color-text-secondary)',
+            cursor: 'pointer',
+          }}
+          onClick={clearSelectedSchema}
+          title="Close detail panel"
+          aria-label="Close schema detail"
+        >
+          <FiX size={13} aria-hidden="true" />
+        </button>
+      </div>
+
+      {/* ── Meta row: version + compatibility ──────────────────────────────── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          padding: '7px 12px',
+          borderBottom: '1px solid var(--color-border)',
+          flexShrink: 0,
+          flexWrap: 'wrap',
+          rowGap: 5,
+        }}
+      >
+        {/* Version selector */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <SectionLabel>Version</SectionLabel>
+          <select
+            value={selectedVersion === 'latest' ? 'latest' : String(selectedVersion)}
+            onChange={handleVersionChange}
+            disabled={versionsLoading || isEditing}
+            aria-label="Select schema version"
+            style={{
+              padding: '3px 6px',
+              borderRadius: 4,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 12,
+              cursor: versionsLoading || isEditing ? 'not-allowed' : 'pointer',
+              opacity: isEditing ? 0.55 : 1,
+            }}
+          >
+            <option value="latest">Latest</option>
+            {versions.map((v) => (
+              <option key={v} value={String(v)}>
+                v{v}
+              </option>
+            ))}
+          </select>
+          {versionsLoading && (
+            <span
+              className="spin"
+              style={{ width: 12, height: 12, display: 'inline-block' }}
+              aria-label="Loading versions"
+            />
+          )}
+        </div>
+
+        {/* Compatibility */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <SectionLabel>Compat</SectionLabel>
+          {compatLoading ? (
+            <span
+              className="spin"
+              style={{ width: 12, height: 12, display: 'inline-block' }}
+              aria-label="Loading compatibility"
+            />
+          ) : (
+            <>
+              <select
+                value={compatibility ?? ''}
+                onChange={handleCompatibilityChange}
+                disabled={isEditing || compatSaving || !compatibility}
+                aria-label="Compatibility mode"
+                style={{
+                  padding: '3px 6px',
+                  borderRadius: 4,
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 12,
+                  cursor: isEditing || compatSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {(Object.keys(COMPATIBILITY_LABELS) as CompatibilityLevel[]).map((level) => (
+                  <option key={level} value={level}>
+                    {COMPATIBILITY_LABELS[level]}
+                  </option>
+                ))}
+              </select>
+              {compatSaving && (
+                <span
+                  className="spin"
+                  style={{ width: 12, height: 12, display: 'inline-block' }}
+                  aria-label="Saving compatibility"
+                />
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Toolbar: view toggle + action buttons ──────────────────────────── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '7px 12px',
+          borderBottom: '1px solid var(--color-border)',
+          flexShrink: 0,
+          flexWrap: 'wrap',
+          rowGap: 5,
+        }}
+      >
+        {!isEditing && <ViewToggle view={view} onChange={setView} />}
+        <div style={{ flex: 1 }} />
+
+        {!isEditing ? (
+          /* Read mode actions */
+          <>
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 12px',
+                borderRadius: 4,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-primary)',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+              onClick={handleEvolveClick}
+              title="Register a new version of this schema"
+              aria-label="Evolve schema"
+            >
+              <FiEdit2 size={12} aria-hidden="true" />
+              Evolve
+            </button>
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 12px',
+                borderRadius: 4,
+                border: '1px solid var(--color-error)',
+                background: 'transparent',
+                color: 'var(--color-error)',
+                fontSize: 12,
+                cursor: 'pointer',
+              }}
+              onClick={() => setShowDeleteConfirm(true)}
+              title="Delete all versions of this subject"
+              aria-label="Delete subject"
+            >
+              <FiTrash2 size={12} aria-hidden="true" />
+              Delete
+            </button>
+          </>
+        ) : (
+          /* Edit mode actions */
+          <>
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 12px',
+                borderRadius: 4,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                color: isValidated ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                fontSize: 12,
+                cursor: validating || saving ? 'not-allowed' : 'pointer',
+                opacity: validating || saving ? 0.7 : 1,
+              }}
+              onClick={handleValidate}
+              disabled={validating || saving}
+              title="Check compatibility against existing versions"
+            >
+              {validating ? (
+                <span
+                  className="spin"
+                  style={{ width: 12, height: 12, display: 'inline-block' }}
+                  aria-hidden="true"
+                />
+              ) : isValidated ? (
+                <FiCheck size={12} aria-hidden="true" />
+              ) : null}
+              {validating ? 'Checking…' : 'Validate'}
+            </button>
+
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 12px',
+                borderRadius: 4,
+                border: 'none',
+                background: isValidated
+                  ? 'var(--color-primary)'
+                  : 'var(--color-text-disabled)',
+                color: '#ffffff',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: !isValidated || saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.75 : 1,
+              }}
+              onClick={handleSave}
+              disabled={!isValidated || saving}
+              title={isValidated ? 'Save new schema version' : 'Validate before saving'}
+              aria-label="Save new schema version"
+            >
+              {saving && (
+                <span
+                  className="spin"
+                  style={{ width: 12, height: 12, display: 'inline-block' }}
+                  aria-hidden="true"
+                />
+              )}
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+
+            <button
+              style={{
+                padding: '5px 12px',
+                borderRadius: 4,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 12,
+                cursor: saving ? 'not-allowed' : 'pointer',
+                opacity: saving ? 0.7 : 1,
+              }}
+              onClick={handleCancelEdit}
+              disabled={saving}
+              title="Cancel editing"
+            >
+              Cancel
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ── Validation feedback banner ──────────────────────────────────────── */}
+      {isEditing && validationError && !validating && (
+        <div
+          role="alert"
+          style={{
+            padding: '7px 12px',
+            background: 'var(--color-surface-error)',
+            borderBottom: '1px solid var(--color-border)',
+            color: 'var(--color-error)',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 6,
+            flexShrink: 0,
+          }}
+        >
+          <FiAlertTriangle size={13} style={{ marginTop: 1, flexShrink: 0 }} aria-hidden="true" />
+          <span>{validationError}</span>
+        </div>
+      )}
+      {isEditing && isValidated && !validationError && !validating && (
+        <div
+          role="status"
+          style={{
+            padding: '7px 12px',
+            background: 'var(--color-surface-success)',
+            borderBottom: '1px solid var(--color-border)',
+            color: 'var(--color-success)',
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexShrink: 0,
+          }}
+        >
+          <FiCheck size={13} aria-hidden="true" />
+          Schema is compatible — ready to save.
+        </div>
+      )}
+
+      {/* ── Content area ───────────────────────────────────────────────────── */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {isEditing ? (
+          /* Edit mode: schema editor textarea */
+          <textarea
+            value={editSchema}
+            onChange={(e) => {
+              setEditSchema(e.target.value);
+              // Invalidate when schema changes after validation
+              if (isValidated) {
+                setIsValidated(false);
+                setValidationError(null);
+              }
+            }}
+            spellCheck={false}
+            aria-label="Edit schema JSON"
+            style={{
+              flex: 1,
+              width: '100%',
+              padding: 12,
+              fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+              fontSize: 12,
+              lineHeight: 1.6,
+              background: 'var(--color-surface-secondary)',
+              color: 'var(--color-text-primary)',
+              borderTop: 'none',
+              borderLeft: 'none',
+              borderRight: 'none',
+              borderBottom: 'none',
+              outline: 'none',
+              resize: 'none',
+              boxSizing: 'border-box',
+              boxShadow: 'inset 0 0 0 2px var(--color-primary)',
+            }}
+          />
+        ) : view === 'code' ? (
+          /* Read mode: formatted code */
+          <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+            <pre
+              style={{
+                margin: 0,
+                padding: 12,
+                fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+                fontSize: 12,
+                lineHeight: 1.6,
+                background: 'var(--color-surface-secondary)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 6,
+                color: 'var(--color-text-primary)',
+                overflowX: 'auto',
+                whiteSpace: 'pre',
+              }}
+            >
+              {formattedSchema}
+            </pre>
+          </div>
+        ) : (
+          /* Read mode: tree view */
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            {isProtobuf ? (
+              <div
+                style={{
+                  padding: '16px 12px',
+                  color: 'var(--color-text-secondary)',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                Tree view is not available for Protobuf schemas. Switch to Code view to inspect
+                the raw schema definition.
+              </div>
+            ) : (
+              <SchemaTreeView schema={schema} />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Loading overlay (version switching) */}
+      {schemaRegistryLoading && !isEditing && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(0,0,0,0.12)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 5,
+          }}
+          aria-live="polite"
+          aria-label="Loading schema"
+        >
+          <span
+            className="spin"
+            style={{ width: 22, height: 22, display: 'inline-block' }}
+            aria-hidden="true"
+          />
+        </div>
+      )}
+    </div>
+  );
+}

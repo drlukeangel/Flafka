@@ -96,3 +96,43 @@ export interface WorkspaceImportData {
 
 // Navigation Rail Types
 export type NavItem = 'workspace' | 'tree' | 'topics' | 'schemas' | 'history' | 'help' | 'settings';
+
+// Schema Registry Types
+export type CompatibilityLevel = 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE';
+
+export interface SchemaListItem {
+  subject: string;
+}
+
+export interface SchemaSubject {
+  subject: string;
+  version: number;
+  id: number;
+  schemaType: 'AVRO' | 'PROTOBUF' | 'JSON';
+  schema: string;
+  compatibilityLevel?: CompatibilityLevel;
+  references?: SchemaReference[];
+}
+
+export interface SchemaVersion {
+  subject: string;
+  version: number;
+  id: number;
+  schemaType: 'AVRO' | 'PROTOBUF' | 'JSON';
+  schema: string;
+  references?: SchemaReference[];
+}
+
+export interface SchemaReference {
+  name: string;
+  subject: string;
+  version: number;
+}
+
+export interface SchemaField {
+  name: string;
+  type: string | SchemaField[];
+  default?: unknown;
+  doc?: string;
+  avroMetadata?: Record<string, unknown>;
+}

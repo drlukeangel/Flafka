@@ -10,6 +10,9 @@ export interface EnvironmentConfig {
   flinkDatabase: string;
   cloudProvider: string;
   cloudRegion: string;
+  schemaRegistryUrl?: string;
+  schemaRegistryKey?: string;
+  schemaRegistrySecret?: string;
 }
 
 export const getEnv = (): EnvironmentConfig => {
@@ -44,6 +47,9 @@ export const getEnv = (): EnvironmentConfig => {
     flinkDatabase: import.meta.env.VITE_FLINK_DATABASE || 'public',
     cloudProvider: import.meta.env.VITE_CLOUD_PROVIDER || 'aws',
     cloudRegion: import.meta.env.VITE_CLOUD_REGION || 'us-east-1',
+    schemaRegistryUrl: import.meta.env.VITE_SCHEMA_REGISTRY_URL || '',
+    schemaRegistryKey: import.meta.env.VITE_SCHEMA_REGISTRY_KEY || '',
+    schemaRegistrySecret: import.meta.env.VITE_SCHEMA_REGISTRY_SECRET || '',
   };
 };
 

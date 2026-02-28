@@ -157,7 +157,7 @@ A Schema Registry management UI integrated into the navigation rail as a "Schema
 | `/compatibility/subjects/{subject}/versions/{version}` | POST | Validate schema compatibility before saving |
 | `/config/{subject}` | GET | Get compatibility mode for subject |
 | `/config/{subject}` | PUT | Set compatibility mode (BACKWARD, FORWARD, FULL, NONE) |
-| `/subjects/{subject}` | DELETE | Delete subject (soft delete - only latest version accessible) |
+| `/subjects/{subject}` | DELETE | Delete subject (soft delete - marks all versions as deleted but recoverable. Hard delete requires `?permanent=true`.) |
 | `/subjects/{subject}/versions/{version}` | DELETE | Delete specific schema version |
 
 **Endpoint**: `https://psrc-8qvw0.us-east-1.aws.confluent.cloud` (from environment)
@@ -167,29 +167,49 @@ A Schema Registry management UI integrated into the navigation rail as a "Schema
 #### New Components
 
 **SchemaList.tsx** (`src/components/SchemaPanel/SchemaList.tsx`)
-- Table view with columns: Subject, Version, Schema Type, Topics
+- Table view with columns: Subject, Inferred Topic, Schema Type
+  - "Inferred Topic" is derived from subject naming convention (`{topic}-value` → topic `{topic}`). Move to SchemaDetail sidebar if too expensive for list view.
+- Subject names only are shown in the list (no detail fetched upfront — avoids N+1 queries)
 - Search/filter by subject name (client-side or API-driven)
 - "+ Create Schema" button → opens CreateSchema dialog
-- Click row → navigates to SchemaDetail view
+- Click row → loads schema detail lazily via `getSchemaDetail(subject)` and navigates to SchemaDetail view
 - Loading spinner, empty state "No schemas found", error state with retry
 
 **SchemaDetail.tsx** (`src/components/SchemaPanel/SchemaDetail.tsx`)
-- Header: subject name, compatibility mode (editable dropdown)
+- Header: subject name, compatibility mode (editable dropdown — all 7 modes: BACKWARD, FORWARD, FULL, NONE, BACKWARD_TRANSITIVE, FORWARD_TRANSITIVE, FULL_TRANSITIVE)
 - Schema type badge (Avro/Protobuf/JSON)
-- Version selector dropdown (shows all versions)
+- Version selector dropdown (shows all versions; **disabled during evolve/edit mode**)
 - Code view toggle:
-  - JSON code view: Monaco editor (read-only by default)
+  - JSON code view: Monaco editor
   - Tree view: Hierarchical schema field visualization
-- Buttons:
-  - "Evolve" → enter edit mode, pre-fill current schema, show validation UI
-  - "Validate" → call compatibility check, show result (success/failure with details)
-  - "Save" → register new version (only enabled after validation passes)
-  - "Delete" → delete this subject (confirmation modal)
+
+**Read mode** (default):
+- Monaco `readOnly=true`
+- Buttons visible: "Evolve", "Delete"
+- Buttons hidden: "Validate", "Save", "Cancel"
+
+**Edit mode** (after clicking "Evolve"):
+- Monaco `readOnly=false` with visible border change (e.g., accent-colored border)
+- Buttons visible: "Validate", "Save", "Cancel"
+- Buttons hidden: "Evolve", "Delete"
+- Version selector disabled
+- "Cancel" restores previous schema content and returns to read mode
+- "Validate" calls compatibility check, shows inline result (success/failure with details)
+- "Save" registers new version (only enabled after validation passes)
+
+**Delete confirmation modal** (when "Delete" is clicked):
+- States the subject name being deleted
+- Shows topic-usage warning inline if applicable
+- Uses destructive button styling (`--color-error` background)
+- Explicit button label: "Delete {subject-name}"
+
 - Sidebar (right):
   - Schema ID
   - Subject name
   - Current version / total versions
+  - Inferred Topic: derived from subject naming convention (`{topic}-value` → `{topic}`)
   - References: topics using this schema (if available from metadata)
+- Panel uses `--schema-panel-width: 480px` when a schema is selected (wider than default `--side-panel-width: 300px`)
 
 **CreateSchema.tsx** (`src/components/SchemaPanel/CreateSchema.tsx`)
 - Modal dialog with form:
@@ -205,8 +225,20 @@ A Schema Registry management UI integrated into the navigation rail as a "Schema
 - Collapsible branches for nested records
 - Read-only display
 
+#### Modal Pattern (Accessibility Contract)
+
+All modal dialogs in Phase 12.2 (CreateSchema, Delete Confirmation) must implement the following pattern:
+
+- `role="dialog"` on the modal container
+- `aria-modal="true"` on the modal container
+- `aria-labelledby` pointing to the modal heading element
+- `autoFocus` on the first interactive element when modal opens
+- **Focus trap**: Tab and Shift+Tab cycle focus only within the modal while it is open
+- **Escape** closes the modal and cancels the action
+- When modal closes, focus is returned to the trigger element that opened it
+
 #### New Files
-- `src/api/schema-registry-api.ts` — API functions (listSchemas, getSchema, createSchema, evolveSchema, validateSchema, deleteSchema, etc.)
+- `src/api/schema-registry-api.ts` — API functions (listSchemas, getSchemaDetail, getSchemaVersions, createSchema, validateSchemaCompatibility, getCompatibilityMode, setCompatibilityMode, deleteSchema, deleteSchemaVersion)
 - `src/api/schema-registry-client.ts` — Axios client with Schema Registry auth (separate HTTP client for Schema Registry, similar to confluentClient)
 - `src/components/SchemaPanel/SchemaList.tsx`
 - `src/components/SchemaPanel/SchemaDetail.tsx`
@@ -219,20 +251,26 @@ A Schema Registry management UI integrated into the navigation rail as a "Schema
 |------|---------|
 | `vite.config.ts` | Add proxy: `'/api/schema-registry': { target: schemaRegistryUrl, ... }` |
 | `src/config/environment.ts` | Add: `schemaRegistryUrl`, `schemaRegistryKey`, `schemaRegistrySecret` |
-| `src/store/workspaceStore.ts` | Add schema state: `schemas: SchemaSubject[]`, `selectedSchema: SchemaSubject \| null`, `schemaLoading: boolean`, `schemaError: string \| null`, actions: `setSchemas()`, `setSelectedSchema()`, `setSchemaLoading()`, `setSchemaError()` |
-| `src/types/index.ts` | Add types: `SchemaSubject`, `SchemaVersion`, `SchemaDetail` |
+| `src/store/workspaceStore.ts` | Add schema state: `schemaRegistrySubjects: SchemaListItem[]`, `selectedSchemaSubject: SchemaSubject \| null`, `schemaRegistryLoading: boolean`, `schemaRegistryError: string \| null`, actions: `setSchemaRegistrySubjects()`, `setSelectedSchemaSubject()`, `setSchemaRegistryLoading()`, `setSchemaRegistryError()`. **Note**: names prefixed with `schemaRegistry` to avoid collision with existing `schemaLoading` in workspaceStore. |
+| `src/types/index.ts` | Add types: `SchemaListItem`, `SchemaSubject`, `SchemaVersion` |
 
 #### Type Definitions
 ```typescript
 // src/types/index.ts
 
+// Lightweight list item — returned by listSchemas() (GET /subjects)
+interface SchemaListItem {
+  subject: string           // e.g., "my-topic-value"
+}
+
+// Full detail — returned by getSchemaDetail() (GET /subjects/{subject}/versions/{version})
 interface SchemaSubject {
   subject: string           // e.g., "my-topic-value"
   version: number           // latest version number
   id: number                // schema ID
   schemaType: 'AVRO' | 'PROTOBUF' | 'JSON'
   schema: string            // JSON string of schema definition
-  compatibilityLevel?: string // e.g., 'BACKWARD', 'FORWARD', 'FULL', 'NONE'
+  compatibilityLevel?: 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE'
   references?: Array<{
     name: string
     subject: string
@@ -244,7 +282,7 @@ interface SchemaVersion {
   subject: string
   version: number
   id: number
-  schemaType: string
+  schemaType: 'AVRO' | 'PROTOBUF' | 'JSON'
   schema: string
   references?: Array<{
     name: string
@@ -258,21 +296,23 @@ interface SchemaField {
   type: string | SchemaField[]  // primitive or nested record
   default?: any
   doc?: string
-  [key: string]: any  // for extra Avro/Protobuf-specific fields
+  avroMetadata?: Record<string, unknown>  // for extra Avro/Protobuf-specific fields
 }
 ```
 
 #### Acceptance Criteria
 - [ ] List all schemas from Schema Registry
 - [ ] Search/filter schemas by subject name (real-time)
-- [ ] View schema JSON in code view (Monaco, read-only)
+- [ ] View schema JSON in code view (Monaco, read-only in read mode)
 - [ ] View schema in tree view (hierarchical field visualization)
-- [ ] Version selector dropdown shows all versions for selected schema
+- [ ] Version selector dropdown shows all versions for selected schema (disabled during evolve/edit mode)
 - [ ] Create new schema: subject name, type dropdown, code editor, validate + create buttons
-- [ ] Evolve existing schema: "Evolve" button pre-fills current schema in edit mode
-- [ ] Compatibility check before saving (shows validation result)
-- [ ] Edit compatibility mode per subject (dropdown: BACKWARD, FORWARD, FULL, NONE)
-- [ ] Delete schema with confirmation modal
+- [ ] Evolve schema — read mode: shows Evolve + Delete buttons, Monaco readOnly=true
+- [ ] Evolve schema — edit mode (after Evolve): Monaco readOnly=false with visual border, shows Validate + Save + Cancel; Cancel restores content and returns to read mode
+- [ ] Compatibility check before saving (shows inline validation result with success/failure details)
+- [ ] Edit compatibility mode per subject (dropdown: BACKWARD, FORWARD, FULL, NONE, BACKWARD_TRANSITIVE, FORWARD_TRANSITIVE, FULL_TRANSITIVE)
+- [ ] Delete schema with confirmation modal: states subject name, shows topic-usage warning, destructive button styled with `--color-error`, button label "Delete {subject-name}"
+- [ ] Modal dialogs implement full accessibility contract (role=dialog, aria-modal, focus trap, Escape-to-close, focus return)
 - [ ] Loading spinner when fetching schemas/details
 - [ ] Error state with retry button (Schema Registry unavailable)
 - [ ] Empty state: "No schemas found" with "Create Schema" prompt
@@ -420,9 +460,18 @@ Connect schemas, topics, and the SQL editor for seamless Flink engineering workf
   - Avro `string` → Flink `VARCHAR`
   - Avro `int` / `long` → Flink `INT` / `BIGINT`
   - Avro `boolean` → Flink `BOOLEAN`
+  - Avro `bytes` → Flink `BYTES`
   - Avro `array` → Flink `ARRAY<...>`
   - Avro `record` → Flink `ROW(...)`
+  - Avro `map` → Flink `MAP<K,V>`
+  - Avro `enum` → Flink `VARCHAR`
+  - Avro `fixed` → Flink `BINARY(n)`
   - Avro `union` → Flink nullable type (with NULL)
+  - Avro logical `date` → Flink `DATE`
+  - Avro logical `time-millis` → Flink `TIME`
+  - Avro logical `timestamp-millis` → Flink `TIMESTAMP(3)`
+  - Avro logical `timestamp-micros` → Flink `TIMESTAMP(6)`
+  - Avro logical `decimal` → Flink `DECIMAL`
 - Assumes topic name matches schema subject (e.g., schema subject "orders-value" → topic "orders")
 - Inserts generated DDL into current editor cell or creates new cell
 - Automatically switches to workspace panel
@@ -462,14 +511,15 @@ Connect schemas, topics, and the SQL editor for seamless Flink engineering workf
 | `src/components/SchemaPanel/SchemaDetail.tsx` | Add "Use in Flink SQL" button; generates CREATE TABLE DDL from schema fields; action: `setActiveNavItem('workspace')`, insert SQL into editor |
 | `src/components/TopicPanel/TopicDetail.tsx` | Add "Query with Flink" button; generates SELECT * FROM topic; action: `setActiveNavItem('workspace')`, insert SQL into editor |
 | `src/components/TreeNavigator/TreeNavigator.tsx` | Show schema info on table hover; click schema link navigates to SchemaPanel |
-| `src/store/workspaceStore.ts` | Add actions: `generateFlinkDDL(schema: SchemaSubject): string`, `generateTopicQuery(topic: KafkaTopic): string`, `insertSQLAtCursor(sql: string)`, `navigateAndInsertSQL(navItem, sql)` |
-| `src/utils/schema-to-flink.ts` | NEW: Helper functions for Avro→Flink type mapping |
+| `src/store/workspaceStore.ts` | No new store actions needed for SQL insertion. SQL insertion uses the existing `editorRegistry.ts` module (Phase 6.3 pattern). Navigation to workspace uses the existing `setActiveNavItem('workspace')` action. |
+| `src/utils/schema-to-flink.ts` | NEW: Helper functions (`generateFlinkDDL`, `generateTopicQuery`, `mapAvroTypeToFlink`) — pure utility, not in Zustand |
 
 #### Type Mappings (Avro → Flink SQL)
 ```typescript
 // src/utils/schema-to-flink.ts
 
 const AVRO_TO_FLINK_TYPE_MAP: Record<string, string> = {
+  // Primitive types
   'string': 'VARCHAR',
   'int': 'INT',
   'long': 'BIGINT',
@@ -478,6 +528,16 @@ const AVRO_TO_FLINK_TYPE_MAP: Record<string, string> = {
   'boolean': 'BOOLEAN',
   'bytes': 'BYTES',
   'null': 'NULL',
+  // Avro logical types
+  'date': 'DATE',                       // logicalType: "date"
+  'time-millis': 'TIME',                // logicalType: "time-millis"
+  'timestamp-millis': 'TIMESTAMP(3)',   // logicalType: "timestamp-millis"
+  'timestamp-micros': 'TIMESTAMP(6)',   // logicalType: "timestamp-micros"
+  'decimal': 'DECIMAL',                 // logicalType: "decimal" (precision/scale from schema)
+  // Complex types handled in mapAvroTypeToFlink():
+  //   map   → MAP<K,V>
+  //   enum  → VARCHAR
+  //   fixed → BINARY(n)
 }
 
 function mapAvroTypeToFlink(avroType: string | any[]): string {
@@ -522,8 +582,10 @@ ${fields}
   'connector' = 'kafka',
   'topic' = '${topicName}',
   'properties.bootstrap.servers' = '...',
-  'format' = 'avro',
-  'avro.codec' = 'snappy'
+  'properties.group.id' = '...',
+  'scan.startup.mode' = 'earliest-offset',
+  'format' = 'avro-confluent',
+  'avro-confluent.url' = '...'
 );`
 }
 ```
@@ -548,11 +610,12 @@ ${fields}
 ```typescript
 // src/api/schema-registry-api.ts
 
-export async function listSchemas(): Promise<SchemaSubject[]>
-// GET /subjects → returns string[], then fetch each
+export async function listSchemas(): Promise<string[]>
+// GET /subjects → returns string[] (subject names only; NO per-subject detail fetched here to avoid N+1 queries)
 
-export async function getSchema(subject: string, version?: 'latest' | number): Promise<SchemaSubject>
-// GET /subjects/{subject}/versions/{version} → returns SchemaVersion
+export async function getSchemaDetail(subject: string, version?: 'latest' | number): Promise<SchemaSubject>
+// GET /subjects/{subject}/versions/{version|'latest'} → returns full SchemaSubject detail
+// Called lazily on row click in SchemaList; version defaults to 'latest'
 
 export async function getSchemaVersions(subject: string): Promise<SchemaVersion[]>
 // GET /subjects/{subject}/versions → returns SchemaVersion[]
@@ -560,17 +623,26 @@ export async function getSchemaVersions(subject: string): Promise<SchemaVersion[
 export async function createSchema(subject: string, schemaObj: object, schemaType: string): Promise<{ id: number }>
 // POST /subjects/{subject}/versions → { schema: JSON.stringify(schemaObj), schemaType }
 
-export async function validateSchemaCompatibility(subject: string, version: number, schemaObj: object): Promise<{ is_compatible: boolean }>
-// POST /compatibility/subjects/{subject}/versions/{version} → { schema: JSON.stringify(schemaObj) }
+export async function validateSchemaCompatibility(
+  subject: string,
+  schemaObj: object,
+  schemaType: string,
+  version: 'latest' | number = 'latest'
+): Promise<{ is_compatible: boolean }>
+// POST /compatibility/subjects/{subject}/versions/{version}
+// Body: { schema: JSON.stringify(schemaObj), schemaType }
 
 export async function getCompatibilityMode(subject: string): Promise<{ compatibilityLevel: string }>
 // GET /config/{subject}
 
-export async function setCompatibilityMode(subject: string, level: string): Promise<{ compatibilityLevel: string }>
-// PUT /config/{subject} → { level }
+export async function setCompatibilityMode(
+  subject: string,
+  level: 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE'
+): Promise<{ compatibility: string }>
+// PUT /config/{subject} → { compatibility: level }
 
-export async function deleteSchema(subject: string): Promise<void>
-// DELETE /subjects/{subject}
+export async function deleteSchema(subject: string): Promise<number[]>
+// DELETE /subjects/{subject} → returns array of deleted version numbers
 
 export async function deleteSchemaVersion(subject: string, version: number): Promise<void>
 // DELETE /subjects/{subject}/versions/{version}
@@ -632,13 +704,28 @@ export async function updateTopicConfigs(topicName: string, configs: Record<stri
 
 type NavItem = 'workspace' | 'tree' | 'topics' | 'schemas' | 'history' | 'help' | 'settings'
 
+type CompatibilityLevel =
+  | 'BACKWARD'
+  | 'FORWARD'
+  | 'FULL'
+  | 'NONE'
+  | 'BACKWARD_TRANSITIVE'
+  | 'FORWARD_TRANSITIVE'
+  | 'FULL_TRANSITIVE'
+
+// Lightweight list item returned by listSchemas() (GET /subjects)
+interface SchemaListItem {
+  subject: string
+}
+
+// Full detail returned by getSchemaDetail()
 interface SchemaSubject {
   subject: string
   version: number
   id: number
   schemaType: 'AVRO' | 'PROTOBUF' | 'JSON'
   schema: string
-  compatibilityLevel?: string
+  compatibilityLevel?: CompatibilityLevel
   references?: SchemaReference[]
 }
 
@@ -646,7 +733,7 @@ interface SchemaVersion {
   subject: string
   version: number
   id: number
-  schemaType: string
+  schemaType: 'AVRO' | 'PROTOBUF' | 'JSON'
   schema: string
   references?: SchemaReference[]
 }
@@ -662,7 +749,7 @@ interface SchemaField {
   type: string | any[] | SchemaField[]
   default?: any
   doc?: string
-  [key: string]: any
+  avroMetadata?: Record<string, unknown>
 }
 
 interface KafkaTopic {
@@ -704,14 +791,15 @@ interface WorkspaceStore {
   toggleNavExpanded: () => void
 
   // Schemas (NEW)
-  schemas: SchemaSubject[]
-  selectedSchema: SchemaSubject | null
-  schemaLoading: boolean
-  schemaError: string | null
-  setSchemas: (schemas: SchemaSubject[]) => void
-  setSelectedSchema: (schema: SchemaSubject | null) => void
-  setSchemaLoading: (loading: boolean) => void
-  setSchemaError: (error: string | null) => void
+  // NOTE: All names prefixed with `schemaRegistry` to avoid collision with existing `schemaLoading` in workspaceStore
+  schemaRegistrySubjects: SchemaListItem[]
+  selectedSchemaSubject: SchemaSubject | null
+  schemaRegistryLoading: boolean
+  schemaRegistryError: string | null
+  setSchemaRegistrySubjects: (subjects: SchemaListItem[]) => void
+  setSelectedSchemaSubject: (schema: SchemaSubject | null) => void
+  setSchemaRegistryLoading: (loading: boolean) => void
+  setSchemaRegistryError: (error: string | null) => void
 
   // Topics (NEW)
   topics: KafkaTopic[]
@@ -724,8 +812,8 @@ interface WorkspaceStore {
   setTopicError: (error: string | null) => void
 
   // Cross-navigation (NEW)
-  insertSQLAtCursor: (sql: string) => void
-  navigateAndInsertSQL: (navItem: NavItem, sql: string) => void
+  // NOTE: SQL insertion uses the existing editorRegistry.ts module (Phase 6.3 pattern) — NOT added to Zustand.
+  // Navigation uses setActiveNavItem('workspace') which is already in the store.
 
   // Existing state & actions...
 }
@@ -771,15 +859,21 @@ interface WorkspaceStore {
 - [ ] No performance regression (smooth 300ms transition)
 
 **Phase 12.2: Schema Management**
-- [ ] List schemas with subject, version, type, topics columns
+- [ ] List schemas (subject names only, no N+1 detail fetching on list load)
 - [ ] Search/filter by subject name in real-time
-- [ ] View schema in JSON code view and tree view
-- [ ] Version selector works; shows all versions
-- [ ] Create new schema: validate before save
-- [ ] Evolve schema: pre-fill current schema in edit mode
-- [ ] Compatibility validation before save (shows success/failure)
-- [ ] Edit compatibility mode (BACKWARD, FORWARD, FULL, NONE)
-- [ ] Delete schema with confirmation
+- [ ] Schema detail loaded lazily on row click via `getSchemaDetail()`
+- [ ] View schema in JSON code view (read-only in read mode) and tree view
+- [ ] Version selector works; shows all versions; disabled during edit mode
+- [ ] Read mode: Evolve + Delete visible; Monaco readOnly=true
+- [ ] Edit mode: Validate + Save + Cancel visible; Monaco readOnly=false with visual border change
+- [ ] Cancel in edit mode restores previous content and returns to read mode
+- [ ] Create new schema: validate before save; modal uses accessibility contract
+- [ ] Compatibility validation before save (shows inline success/failure)
+- [ ] Edit compatibility mode (all 7 modes: BACKWARD, FORWARD, FULL, NONE, BACKWARD_TRANSITIVE, FORWARD_TRANSITIVE, FULL_TRANSITIVE)
+- [ ] Delete schema: confirmation modal states subject name, topic-usage warning, destructive styling, "Delete {subject-name}" label
+- [ ] Schema detail panel uses `--schema-panel-width: 480px`; schema list uses default `--side-panel-width: 300px`
+- [ ] No naming collision with existing `schemaLoading` (all new fields use `schemaRegistry` prefix)
+- [ ] SQL insertion uses `editorRegistry.ts` module (not Zustand)
 - [ ] Loading, error, empty states
 - [ ] Dark/light mode support
 
@@ -801,7 +895,7 @@ interface WorkspaceStore {
 - [ ] Schema detail shows associated topics; click navigates to TopicPanel
 - [ ] Topic detail shows associated schemas; click navigates to SchemaPanel
 - [ ] TreeNavigator shows schema info on table hover
-- [ ] Type mappings: Avro→Flink conversions correct (string→VARCHAR, int→INT, etc.)
+- [ ] Type mappings: Avro→Flink conversions correct (string→VARCHAR, int→INT, long→BIGINT, boolean→BOOLEAN, bytes→BYTES, date→DATE, time-millis→TIME, timestamp-millis→TIMESTAMP(3), timestamp-micros→TIMESTAMP(6), decimal→DECIMAL, map→MAP<K,V>, enum→VARCHAR, fixed→BINARY(n))
 - [ ] Cross-navigation smooth; state preserved
 - [ ] No console errors or warnings
 
@@ -849,6 +943,7 @@ interface WorkspaceStore {
 
 ---
 
-**PRD Version**: 1.0
+**PRD Version**: 1.1
 **Last Updated**: 2026-02-28
 **Author**: Claude Code (Opus)
+**Revision Notes**: v1.1 — Applied design review feedback: N+1 fix (listSchemas→string[], lazy getSchemaDetail), schemaRegistry prefix naming, removed insertSQLAtCursor/navigateAndInsertSQL from Zustand, 7 compatibility modes, PUT body fix ({ compatibility }), validateSchemaCompatibility signature fix (schemaType param), modal accessibility contract, read/edit mode UX split, delete modal spec, schema panel width, format=avro-confluent DDL fix, deleteSchema→Promise<number[]>, soft delete description fix, SchemaField.avroMetadata, SchemaVersion.schemaType union, Inferred Topic column, version selector disabled in edit mode, SchemaListItem split type, CompatibilityLevel union type, Avro logical type mappings.

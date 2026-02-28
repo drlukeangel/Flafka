@@ -1,3 +1,22 @@
+/* Generic spin animation — used by SchemaPanel and other components */
+.spin {
+  display: inline-block;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: history-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* Schema tree row hover */
+.schema-tree-row:hover {
+  background: var(--color-bg-hover);
+}
+.schema-tree-row:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 /* App Layout */
 .app {
   display: flex;

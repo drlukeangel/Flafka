@@ -37,17 +37,26 @@ This is the overarching orchestration framework that wraps all feature developme
 
 **Pipeline Visualization:**
 ```
-Timeline ─────────────────────────────────────────────────────────────────
-Feature A:  Phase 1 → Phase 2/3/4 (engineering) ← Phase 5 (roadmap sync)
-            ↑                                       ↓
-            └─ TPPM completes PRD                 TPPM synthesizes feedback
-                ↓
-Feature B:     ▓▓▓ Phase 1 (TPPM writes PRD) ▓▓▓ → Ready for Phase 2
-                     ↓
-                  Phase 2/3/4 starts immediately (no wait)
-                     ↓
-Feature C:          ▓▓▓ Phase 1 (TPPM writes) ▓▓▓ → Waiting in queue
+Timeline ──────────────────────────────────────────────────────────────────────────────
+Feature A:  Phase 1 → Phase 2 → Phase 2.5 → Phase 2.6 → Phase 3 → Phase 4(A/B/C/D) → Phase 5
+                       (eng)      (QA)      (UX/IA)     ↓                            (sync)
+                                                         │                            ↓
+                                           TPPM immediately starts ↓             Synthesize
+Feature B:                                 Phase 1 (PRD+tests+E2E) ↓            feedback
+                                                        ↓
+                                          ▓▓ Phase 1 complete ▓▓ ← by Phase 4 end
+                                                        ↓
+                                      Phase 2 starts immediately (no wait)
+                                                        ↓
+Feature C:                             ▓▓▓ Phase 1 drafted ▓▓▓ → Waiting in queue
 ```
+
+**Key Gates (Sequential Blockers):**
+- Phase 1 → Phase 2: TPPM "PRD SIGN-OFF APPROVED" (blocking)
+- Phase 2 → Phase 2.5: Engineering completes Phase B (blocking)
+- Phase 2.5 → Phase 2.6: QA Manager "SIGN-OFF APPROVED" (blocking)
+- Phase 2.6 → Phase 3: UX/IA Reviewer "SIGN-OFF APPROVED" (blocking)
+- Phase 3 → Phase 4: TPPM "FEATURE ACCEPTANCE APPROVED" (blocking)
 
 **Key Flow:**
 1. TPPM writes Feature B's PRD **while** engineering is building Feature A (Phases 2-4)
@@ -74,6 +83,8 @@ Feature C:          ▓▓▓ Phase 1 (TPPM writes) ▓▓▓ → Waiting in que
    - Non-functional acceptance criteria defined (performance, UX, accessibility, scalability)
    - Edge cases identified and documented
 4. TPPM writes all acceptance tests (both functional and non-functional) that will be used to validate the feature
+4a. TPPM writes E2E test specifications (user workflows, browser-level scenarios, acceptance criteria mapped to test cases)
+4b. TPPM classifies Tier 1 (blocking) vs Tier 2 (async) for every test per [docs/TESTING-STRATEGY.md](../TESTING-STRATEGY.md)
 5. TPPM explicitly signs off with **"PRD SIGN-OFF APPROVED"** — this unblocks Phase 2 when engineering is ready
 
 **If NEEDS CHANGES:** TPPM works with Haiku agent to revise until approval.
@@ -86,419 +97,384 @@ Feature C:          ▓▓▓ Phase 1 (TPPM writes) ▓▓▓ → Waiting in que
 
 **Trigger:** Phase 1 PRD SIGN-OFF APPROVED (should already be waiting in queue, no blocking wait)
 **Responsible:** Opus (orchestrator) + Haiku/Sonnet implementation + QA agents
-**Output:** Tested, documented, browser-verified code ready for acceptance validation
+**Output:** Tested, documented, browser-verified code ready for validation gates
 **Key:** Engineering should **never wait** for TPPM to finish Phase 1. TPPM gets ahead during previous feature's Phase 2-4 so this PRD is already approved.
-
-**Execution:** Follow the detailed **Feature Implementation Workflow (Phases A-C)** below.
 
 **Parallel Work:** While engineering is in Phase 2, TPPM is already working on Feature N+2's Phase 1 PRD (for the feature after this one).
 
 ---
 
-### Phase 3: Final Acceptance Validation (BLOCKING)
-
-**Trigger:** Phase 2 development + QA complete
-**Responsible Agent:** Technical Principal Product Manager (TPPM)
-**Output:** "FEATURE ACCEPTANCE APPROVED" or "NEEDS CHANGES"
-
-**Steps:**
-1. TPPM receives the developed feature + browser test screenshots + QA report
-2. TPPM validates:
-   - **All acceptance criteria met**: Every functional requirement works as specified
-   - **No edge cases broken**: All PRD edge cases handled correctly
-   - **Non-functional criteria satisfied**: Performance, UX, accessibility meet spec
-   - **Test coverage complete**: All acceptance tests pass
-3. TPPM explicitly signs off with **"FEATURE ACCEPTANCE APPROVED"** — this unblocks Phase 4
-
-**If NEEDS CHANGES:** Describe specific unmet criteria → Opus launches fix agents → Re-test → Re-validate by TPPM.
-
----
-
-### Phase 4: Parallel Post-Acceptance (Two Independent Tracks)
-
-**Trigger:** Phase 3 FEATURE ACCEPTANCE APPROVED
-**Execution:** Both tracks run in parallel immediately
-
-#### Track A: Closure (Finalization)
-**Responsible Agent:** Closer
-**Output:** Merged code, updated docs, completion report
-
-**Steps:**
-1. Closer receives approved code + documented feature
-2. Generates/updates all technical documentation (API specs, internal docs)
-3. Generates/updates user-facing changelogs and guides
-4. Performs final git operations: commit, merge to `main`, push
-5. Outputs completion summary report with commit hash and doc links
-6. **Feature is now live** — ready for user deployment
-
-#### Track B: Feedback & Stress Test (Quality Assurance)
-**Responsible Agents:** TPPM + Flink Developer
-**Output:** Structured feedback report, roadmap enhancement recommendations
-
-**Steps:**
-1. Flink Developer receives approved feature + dev environment access
-2. Performs intensive dev stress test:
-   - Heavy load testing (large datasets, many concurrent queries)
-   - Edge case discovery (boundary conditions, error scenarios)
-   - Performance bottleneck identification
-   - UX friction points in real workflows
-3. Compiles findings into **Structured Feedback Report** including:
-   - What broke or failed under stress
-   - Performance metrics and bottlenecks
-   - User workflow friction
-   - Enhancement ideas and nice-to-haves
-4. Flink Developer hands report to TPPM
-5. TPPM reads and determines priority of each feedback item
-
----
-
-### Phase 5: Roadmap Synthesis & Continuous Planning
-
-**Trigger:** Phase 4 both tracks complete (Closer finishes merging code, Flink Developer finishes stress test)
-**Responsible Agent:** Technical Principal Product Manager (TPPM)
-**Output:** Updated `roadmap.md`
-**Pipeline Model:** TPPM synthesizes feedback and re-ranks backlog; next feature's Phase 1 PRD may already be signed off and waiting in engineering queue
-
-**Steps:**
-1. TPPM synthesizes Track B (Flink Developer) stress-test feedback:
-   - Categorize findings: critical bugs, enhancements, performance improvements, nice-to-haves
-   - Determine business priority and impact for each item
-   - Estimate complexity and resource requirements
-2. TPPM updates `docs/roadmap.md`:
-   - Move completed feature to "✅ Completed" section with Closer's commit hash
-   - Add Flink Developer feedback items to "📥 Feedback & Stress Test Inbox"
-   - Re-rank the "📋 Prioritized Backlog" based on synthesis and new feedback
-3. TPPM reviews if next feature's Phase 1 PRD is already signed off:
-   - **If YES:** Engineering can immediately start Phase 2 with the approved PRD (no wait)
-   - **If NO:** TPPM should have started working on it during Phase 4; prioritize completing Phase 1 for the new top-ranked item
-4. **Documentation:** Update `roadmap.md` with synthesis results and confirm pipeline status
-
-**Key:** The next feature's Phase 1 should already be complete (or nearly complete) by Phase 5. If not, TPPM has not successfully gotten ahead. Adjust Phase 1 timing to overlap with current feature's Phase 2-4.
-
----
-
-## Subagent Profiles
-
-### Technical Principal Product Manager (TPPM)
-
-**Role:** Gatekeeper of product quality, product-market fit, and continuous roadmap momentum. Orchestrates a continuous pipeline where engineering always has a signed-off PRD waiting to be built.
-
-**Core Responsibilities:**
-
-- **Pipeline Planner (Ongoing):** Always be one feature ahead. While engineering works on Feature N (Phases 2-4), TPPM works on Feature N+1's PRD. Goal: Have next feature's Phase 1 PRD signed off before current feature's Phase 2 finishes, so engineering never waits.
-
-- **PRD Gatekeeper (Phase 1):** Write or review draft PRDs from Haiku agent. Validate and refine all functional and non-functional acceptance criteria. Write all acceptance tests (both functional and non-functional). Output **"PRD SIGN-OFF APPROVED"** to unblock Phase 2.
-
-- **Acceptance Validator (Phase 3):** Post-QA, rigorously evaluate the feature against the PRD and acceptance tests. Validate that all criteria are perfectly met. Do not approve until confident feature is production-ready. Output **"FEATURE ACCEPTANCE APPROVED"** to unblock Phase 4.
-
-- **Feedback Synthesizer & Roadmap Manager (Phase 5):** Partner with Flink Developer. Synthesize their stress-test feedback, categorize findings by priority, and translate into roadmap items. Update `roadmap.md` to reflect new backlog items and re-rank priorities based on feedback + business impact. Confirm that next feature's Phase 1 is complete and ready for engineering.
-
-**Key Outputs:**
-- **"PRD SIGN-OFF APPROVED"** (unblocks Phase 2; engineering can immediately start building)
-- **"FEATURE ACCEPTANCE APPROVED"** (unblocks Phase 4; feature is production-ready)
-- Updated `roadmap.md` with synthesis, new items, re-ranked backlog
-- Next feature's Phase 1 PRD already signed off (waiting in queue for Phase 2 to start)
-
-**Success Metric:** Engineering never experiences idle time waiting for the next PRD. Phase 2 always starts immediately when Phase 2 of previous feature completes.
-
----
-
-### Closer Subagent
-
-**Role:** Meticulous finisher. Handles asynchronous administrative and technical wrap-up so the team can move to the next feature.
-
-**Core Responsibilities:**
-- **Documentation:** Generate or update technical documentation, API specs, user-facing changelogs based on the completed feature.
-- **Code Check-in:** Perform final git operations (commit, merge to `main`, push) to officially ship code.
-- **Completion Report:** Output a summary of merged code (commit hash, branches, files) and updated doc links.
-
-**Execution Model:**
-- Runs asynchronously in parallel with Flink Developer stress test (Track B)
-- Does NOT block the next feature cycle from starting in Phase 1
-- Ensures code is officially merged before feature is considered "live"
-
-**Key Outputs:**
-- Merged code to `main`
-- Updated technical & user documentation
-- Completion summary report with commit hash
-
----
-
-### Flink Developer Subagent
-
-**Role:** Rigorous stress-tester and customer proxy. Pushes features to limits in dev environment to simulate real-world usage.
-
-**Core Responsibilities:**
-- **Dev Stress Testing:** Take the newly approved feature and conduct heavy stress testing. Simulate real-world load, edge cases, and workflows. Look for failures, performance bottlenecks, and UX friction.
-- **Feedback Generation:** Compile findings into a structured product feedback report. Highlight what broke, what was slow, what was confusing, and what could be better.
-- **Delivery to TPPM:** Hand the report directly to TPPM for roadmap synthesis and prioritization.
-
-**Testing Focus Areas:**
-- Large datasets (1000s+ rows, large result sets)
-- Concurrent query execution
-- Streaming result buffering and cursor pagination
-- Error handling and recovery
-- Performance under load
-- User workflow edge cases from daily Flink/Kafka usage
-- Real-world usage patterns (multi-workspace, multi-catalog navigation)
-
-**Key Outputs:**
-- Structured Feedback Report with severity/priority per finding
-- Performance metrics (query latency, memory usage, CPU)
-- Enhancement suggestions and workflow improvements
-- Handed to TPPM for Phase 5 synthesis
-
----
-
-## Feature Implementation Workflow (Phases A-C)
-
-This is the detailed technical implementation flow that executes during **Phase 2: Development & QA**. When implementing features, ALWAYS follow this orchestration flow. NEVER skip steps.
+## Feature Implementation Workflow (Phases A, B, C) — Executed During Phase 2
 
 ### Phase A: DESIGN (Before ANY code is written)
 
 #### A1. TECHNICAL PRD (Haiku subagent)
-- Write a technical PRD for the feature to `docs/features/{feature-name}.md`
-- PRD must include: Problem statement, proposed solution, files to modify, API changes, type changes, acceptance criteria, edge cases
-- Keep it concise but complete - this is the implementation blueprint
+Write technical PRD to `docs/features/{feature-name}.md` with: problem statement, proposed solution, files to modify, API changes, type changes, acceptance criteria, edge cases.
 
-#### A2. DESIGN REVIEW (2 Sonnet subagents in parallel)
-Launch both reviewers simultaneously:
+PRD must also include a **Test Coverage Plan** with tiers clearly labeled per [docs/TESTING-STRATEGY.md](../TESTING-STRATEGY.md):
+- **Tier 1 (BLOCKING):** Happy path + critical error scenarios (must pass before ship)
+- **Tier 2 (ASYNC):** Edge cases, concurrency, performance (completed in Track C post-ship)
 
-**Principal Architect Review:**
-- Reviews: system design, state management impact, API contract changes, performance implications, separation of concerns
-- Checks: does this fit the existing architecture? Any coupling risks? Scalability concerns?
-- Output: APPROVE / NEEDS CHANGES with specific feedback
-
-**Principal Engineer Review:**
-- Reviews: implementation approach, code patterns, edge cases, error handling, type safety, testing strategy
-- Checks: are we reusing existing code? Any simpler approach? Race conditions? Memory leaks?
-- Output: APPROVE / NEEDS CHANGES with specific feedback
-
-#### A2.1. SR FLINK/KAFKA ENGINEER REVIEW (Sonnet subagent)
-- Reviews: real-world usefulness, domain expert perspective from daily Flink/Kafka workflows
-- Checks: does this feature solve actual pain points? Are there workflow enhancements or use-cases missing? Could the solution be simplified for domain expertise? What additional capabilities would make this more valuable?
-- Output: APPROVE / NEEDS CHANGES with enhancement suggestions and workflow feedback
+#### A2. DESIGN REVIEW (5 parallel reviewers)
+All must approve before proceeding:
+1. **Principal Architect** — system design fit
+2. **Principal Engineer** — implementation approach
+3. **QA Manager** — test coverage plan validation
+4. **UX/IA/Accessibility Reviewer** — user journey, discoverability, accessibility
+5. **SR Flink/Kafka Engineer** — domain usefulness
 
 #### A3. REVISE (if needed)
-- If any reviewer flags issues or suggests enhancements, launch a haiku agent to revise the PRD
-- Re-review only the changed sections (by affected reviewers)
-- Loop until all three reviewers approve
+If any reviewer flags issues, revise PRD/tests/design and re-review affected sections until all 5 approve.
 
 ### Phase B: IMPLEMENT (After design approval)
 
 #### B1. IMPLEMENT (Haiku subagents)
 - Launch haiku subagents for each small task (1-3 files max per agent)
 - Max 3 parallel impl agents at once
-- Each agent gets: the PRD, exact file paths, what to change, acceptance criteria
 - Agents work in isolation on non-overlapping files
 
-#### B2. BROWSER TEST (Immediate - after EACH feature commit, NEVER batched)
-- Ensure dev server is running (`npm run dev`)
-- Open the app in Chrome via browser automation tools (Claude in Chrome MCP)
-- Visually verify the feature works: take screenshots, click through UI, check renders
-- Test edge cases from the PRD in the actual browser
-- This step is NOT delegated - the orchestrator does it directly to catch real rendering/runtime issues
-- **CRITICAL**: Browser test MUST happen immediately after each feature is implemented and committed
-- If bugs are found, launch fix agents immediately before moving to the next feature
-- No feature is "done" until browser-verified in Chrome
+#### B2. BROWSER TEST (Immediate - after EACH feature commit)
+**Trigger:** Phase B1 implementation complete
+**Responsible:** Opus (orchestrator) — NOT delegated
+**Output:** Browser test screenshots + verdicts for ALL PRD scenarios
+
+**Required Steps:**
+1. Ensure dev server running (`npm run dev`)
+2. Launch browser automation:
+   - **Playwright** for automated testing with screenshots, OR
+   - **Chrome Extension** for manual interaction with screenshot capture
+3. **Test Coverage:** Test every scenario from PRD:
+   - Happy path (normal operation)
+   - All edge cases
+   - Error scenarios (4xx/5xx, network failures)
+   - Dark mode rendering
+   - Light mode rendering
+   - Keyboard navigation (if interactive)
+4. **Screenshot Requirement (CRITICAL for QA Manager sign-off):**
+   - Capture screenshot for EVERY test scenario (happy path, each edge case, each error, both modes)
+   - Each screenshot shows: feature state, interaction, result
+   - Include browser address bar (proves URL/context)
+   - Document each: "Screenshot X shows [description]"
+5. **Verdict:** Mark each scenario ✅ PASS or ❌ FAIL with error details
+6. **Delivery:** Hand all screenshots + verdicts to QA Manager (Phase 2.5 input)
+7. **If Bugs Found:** Stop. Launch fix agents. Re-test and re-screenshot after fix.
+
+**Key:** QA Manager will sign off on these screenshots in Phase 2.5. Every PRD scenario must have a screenshot proving it works.
 
 #### B3. QA VALIDATE (Sonnet subagents)
-After browser test passes, launch QA agents for comprehensive code and API validation. QA must verify: test markers exist, code correctness, API compliance, and all PRD requirements are met.
-
-**PART A: Test Marker Validation (BLOCKING - Executes First)**
-
-This is the **gatekeeper check**. Zero tolerance for missing markers.
-
-- **Marker audit**: READ all new/modified code and verify EVERY changed line has test markers
-  - Markers: `@changed`, `@feature-name`, or similar identifiable tags in describe blocks
-  - Format: `describe('[@marker] description', () => {})` in test files
-  - Scope: Must cover ALL acceptance criteria + ALL edge cases from PRD
-- **Marker consistency**:
-  - Same files touched by multiple agents? Verify non-overlapping code sections have distinct markers to avoid collision
-  - Feature spanning multiple files? Each file should have feature-specific marker (e.g., `@phase-10-sidebar`)
-- **Executable verification** - QA MUST RUN subset commands:
-  - Execute: `npm test -- --grep "@changed"` (or feature-specific marker)
-  - Verify: Only tests for changed sections run, not full suite
-  - Confirm: ALL matching tests PASS (zero failures)
-  - If any test fails, QA FAILS this phase—must be fixed before proceeding
-- **PRD correlation**:
-  - Every acceptance criterion from PRD → mapped to at least one test marker
-  - Every edge case from PRD → covered by test or documented as N/A with reason
-  - Template: "PRD Requirement X → Tests: [@marker-a, @marker-b]"
-- **Failure = Show-Stopper**: Missing markers = automatic FAIL, code cannot move to next QA phase
-
----
-
-**PART B: Code Review & Logic Validation (BLOCKING)**
-
-- **Code correctness**: READ code and document bugs as structured findings with severity
-  - Business logic flows: trace execution path, verify no gaps or wrong order
-  - State management: Zustand updates correct? Selectors properly defined? Persist config correct?
-  - Error handling: Try/catch blocks in place? Errors logged? User shown feedback?
-  - Type safety: All API responses properly typed? No `any` types without justification?
-- **Edge cases**: Verify all PRD scenarios are handled
-  - Template for findings:
-    ```
-    Severity: [Critical|Major|Minor]
-    File: src/path/to/file.ts:line
-    Issue: [Description of problem]
-    Expected: [What should happen]
-    Actual: [What currently happens]
-    ```
-- **Pattern compliance**: Code follows existing codebase patterns
-  - Zustand actions follow existing store patterns?
-  - Components match file structure (barrel exports, prop types, etc.)?
-  - Consistent naming (camelCase functions, PascalCase components)?
-
----
-
-**PART C: API Validation & Testing (BLOCKING if APIs changed)**
-
-Use the separate [QA API Validation Checklist](./docs/QA-API-VALIDATION-CHECKLIST.md) as reference. Summary:
-
-**C1. REST Compliance Check:**
-- HTTP verbs correct: GET (retrieve), POST (create), PUT/PATCH (update), DELETE (remove)
-- URLs consistent: `/api/resource` not `/api/getResource`; `/api/statements/{id}` not `/api/statement?id=...`
-- Request payloads: Well-formed JSON, proper `Content-Type: application/json` header
-- Response payloads: JSON with correct structure matching TypeScript interfaces
-- Status codes semantically correct: 200 OK, 201 Created, 400 Bad Request, 401 Unauthorized, 404 Not Found, 5xx Server Error
-- Idempotency: GET requests never have side effects; safe methods used correctly
-
-**C2. Confluent Flink SQL API Contract Check:**
-See [Flink/Confluent Checkpoints](./docs/QA-API-VALIDATION-CHECKLIST.md#flink-confluent-specific-checkpoints) in checklist. Key validations:
-- Statement execution flow: POST `/statements` → GET `/statements/{id}` polling → GET `/statements/{id}/results` with cursor
-- Streaming results: Handles cursor pagination, respects 5000-row buffer limit
-- Result fetching: Cursor management correct, handles empty results gracefully
-- Workspace/catalog operations: Proper error handling for missing workspaces/tables
-- Credentials in headers: Basic Auth correctly formatted, sensitive data not logged
-
-**C3. API Contract Matching:**
-- Request structure matches `src/api/flink-api.ts` function signatures exactly
-- Request body: Field names, types, required vs optional all correct per Confluent docs
-- Response types: All response properties are defined in `src/types/index.ts` interfaces
-- Error shapes: Error responses parsed correctly (path to error message, status code handling)
-- HTTP client usage: Uses `confluentClient` for Flink SQL, `fcpmClient` for Cloud Management (not raw fetch)
-
-**C4. API Testing (EXECUTABLE - Code Must Have Tests):**
-- **Test coverage audit**: READ all modified API calls and verify test cases exist
-  - Every new/modified API call → must have test case in `src/__tests__/`
-  - Test marker: Use `@api` or feature-specific marker (e.g., `@api-phase-10-sidebar`)
-- **Test content requirements**: Tests must cover all these paths:
-  - ✅ Success path: Normal operation with valid request/response
-  - ✅ Error paths: 4xx client errors (400, 401, 404), 5xx server errors (500, 503)
-  - ✅ Network failures: Timeout, ECONNREFUSED, network error handling
-  - ✅ Edge cases: Empty results, large payloads, cursor boundaries, streaming cancellation
-  - ✅ PRD edge cases: All edge cases from PRD must have corresponding test
-- **Mock usage**: All tests use mocked API responses from `src/test/mocks/api.ts`
-  - Factories available: `mockStatement()`, `mockResults()`, `mockStatementWithStatus()`, etc.
-  - No live API calls in tests (Vite proxy should be disabled in test setup)
-- **Executable verification**:
-  - Execute: `npm test -- -t "@api"` (or feature-specific marker)
-  - Verify: Test suite runs, only tests for API changes included
-  - Confirm: ALL API tests PASS (zero failures)
-  - If any API test fails, QA FAILS—must be fixed
-- **API contract validation in tests**:
-  - Assert request payload structure matches contract (field names, types)
-  - Assert response properties exist and have correct types
-  - Assert error response shapes are handled (status code, error message path)
-  - If new endpoint added: Verify request/response match Confluent Cloud API docs (https://docs.confluent.io/cloud/current/flink/index.html)
-
----
-
-**QA Workflow: Sequential Phases**
-
-1. **Phase A (Test Markers)**: Run and pass marker validation first—if it fails, stop here
-2. **Phase B (Code Review)**: If Phase A passes, do code review and document findings
-3. **Phase C (API Validation)**: If Phase B findings are non-blocking, validate APIs
-4. **Report**: Document all findings (findings template below)
-5. **Status**: Return APPROVE or NEEDS CHANGES
-
-**Findings Template:**
-```
-[SEVERITY: Critical|Major|Minor]
-[PHASE: A|B|C]
-[CATEGORY: Test Markers|Logic|Edge Case|REST Compliance|API Contract|API Tests]
-File: src/path/to/file.ts:line
-Issue: [Clear description]
-Expected: [What should be]
-Actual: [What is]
-Fix: [Recommended fix, if obvious]
-```
+After browser tests pass:
+- **Part A:** Test marker validation — all new code has markers, tests runnable, all PASS
+- **Part B:** Code review — logic flow, error handling, type safety, patterns
+- **Part C:** API validation — REST compliance, API contracts, Confluent Flink specs
 
 #### B4. FIX (Haiku subagents)
-- For each bug found by QA, launch a fixer agent
-- Fixer gets: the bug description, file path, expected vs actual behavior
-- Re-QA after fixes if severity was high
+Fix each bug found by QA, then re-QA.
 
 #### B5. UX REVIEW (Sonnet subagent)
-- After QA passes, launch UX review agent
-- Reviews against ALL of these checkpoints:
-  - **Dark mode**: Every new element must work in light and dark modes. Check contrast, borders, backgrounds, text colors using CSS custom properties (`--flink-*`). No hardcoded hex values.
-  - **Light mode**: Verify the same elements render correctly in default light theme
-  - **Consistency**: Use existing component patterns, spacing, font sizes, border-radius from codebase
-  - **Accessibility**: Focus states, aria labels on interactive elements, keyboard navigation, color not as sole indicator
-  - **Polish**: Smooth animations, no layout shifts, proper hover states, edge case rendering
-- Documents UX issues as structured findings with severity (Critical / Major / Minor)
+Review: dark/light modes, consistency, accessibility (focus, aria, keyboard nav), polish.
 
 #### B6. FIX UX (Haiku subagents)
-- Fix any UX issues found
-- Re-test in browser after fixes to confirm dark/light mode and accessibility are correct
+Fix UX issues, re-test in browser.
+
+#### B6.5. SENIOR QA TEST PLANNING (Sonnet subagent)
+Separate tests by tier before B8:
+- Tier 1: Must be completed in B8 (before shipping)
+- Tier 2: Deferred to Track C (post-ship) — stubs created in B8
+
+#### B8. UPDATE TESTS (Haiku subagent)
+- Implement all Tier 1 tests identified in B6.5
+- Create Tier 2 stub files with `TODO` comments (not skipped, just empty)
+- Run `npm test -- -t "tier1"` — MUST pass 100%
+- Gate Rule: TPPM accepts ONLY if Tier 1 tests pass 100%
+- Reference: [docs/TESTING-STRATEGY.md](../TESTING-STRATEGY.md)
 
 ### Phase C: SHIP
 
 #### C0. DOCUMENTATION REVIEW (Sonnet subagent)
-- After UX fixes pass browser testing, launch documentation review agent
-- Reviews all code documentation for clarity and completeness:
-  - **Inline comments**: Explain *why* not *what*; help junior engineers understand logic at a glance
-  - **Function/component headers**: Clear purpose, parameters, return values, usage examples where complex
-  - **Complex algorithms**: Step-by-step explanation for non-obvious code
-  - **Type definitions**: Document custom types, enums, interfaces with examples
-  - **README updates**: Feature overview added to main README; new components/modules documented
-  - **Error handling**: Document why errors occur and how they're handled
-- Checks: Is this codebase self-documenting? Can a junior engineer understand the flow without asking questions?
-- Output: List of documentation gaps with severity (Critical / Major / Minor)
-- **Critical/Major gaps block commit** - must be fixed before moving to C1
+Review code documentation clarity. Critical/Major gaps block commit.
 
 #### C1. FAQ/HOWTO (Haiku subagent)
-- Create user-facing FAQ/HowTo documentation from the technical PRD
-- Convert technical feature docs → beginner-friendly "how do I...?" guides
-- Store in `docs/faqs/{feature-name}.md` with format:
-  - **Problem/Use Case**: What user problem does this solve?
-  - **Step-by-step Guide**: Simple numbered steps (no jargon)
-  - **Common Gotchas**: Edge cases users should know about
-  - **Tips & Tricks**: Pro tips from the domain
-  - **Related Features**: Links to complementary features
-- FAQ will be loaded into app Help system (once Help feature is implemented)
-- **Link back to PRD**: FAQ references the technical PRD for developers
+Create user-facing FAQ from technical PRD. Store in `docs/faqs/{feature-name}.md`.
 
 #### C2. DOCS & COMMIT
-- Update the feature PRD in `docs/features/` with final implementation notes
-- Verify FAQ/HowTo is complete and user-friendly
-- Update README if needed
-- Stage and commit changes with descriptive message (only when user explicitly asks)
+Update PRD with implementation notes, verify FAQ complete, update README if needed.
 
-### Key Rules for Continuous Pipeline Execution
+---
+
+---
+
+### Phase 2.5: QA Manager Sign-Off (BLOCKING Gatekeeper)
+
+**Trigger:** Phase 2 development + all QA validation complete + **Browser test screenshots delivered**
+**Responsible Agent:** QA Manager
+**Output:** "QA MANAGER SIGN-OFF APPROVED" with complete test report, OR "NEEDS CHANGES"
+**Key Rule:** Phase 2.6 cannot start until QA Manager approves. This is a hard blocker.
+
+**Deliverables QA Manager Must Verify:**
+- ✅ **Tier 1 tests pass 100%** (happy path + critical errors — per Tier 1 plan in PRD)
+- ✅ Tier 1 coverage ≥ 40% (critical path covered)
+- ✅ Tier 2 stubs exist (edge cases documented in test files as TODO)
+- ✅ Tier 2 gap list delivered to Track C agent
+- ✅ All PRD acceptance criteria mapped to Tier 1 tests
+- ✅ **BROWSER TEST SCREENSHOTS:** All PRD scenarios have screenshots proving feature works end-to-end
+  - Screenshots show: feature state, user interactions, results
+  - Include browser address bar (URL/context visible)
+  - Cover: happy path, all edge cases, error states, dark mode, light mode
+  - Each screenshot documented: "Screenshot X shows [description]"
+
+**QA Manager Sign-Off Process:**
+1. Receive all test files, coverage report, AND browser test screenshots
+2. Verify test counts, pass/fail %, coverage metrics
+3. **REVIEW SCREENSHOTS:** Open each screenshot, verify it shows what's claimed
+4. **Confirm:** Feature visually works as described in PRD (screenshots prove it)
+5. Map all PRD acceptance criteria → test markers → screenshots
+6. Output: Complete test execution report with embedded/linked screenshots
+
+**Output:** Complete test execution report (test counts, pass/fail %, coverage metrics, test-to-PRD mapping, **signed-off browser screenshots**, any failures with root cause) + **"QA MANAGER SIGN-OFF APPROVED"** or **"NEEDS CHANGES"**
+
+---
+
+### Phase 2.6: UX/IA/Accessibility Validation (BLOCKING Gatekeeper)
+
+**Trigger:** Phase 2.5 QA Manager SIGN-OFF APPROVED + Phase B5 (UX Review) complete
+**Responsible Agent:** UX/IA/Accessibility Reviewer
+**Output:** "UX/IA SIGN-OFF APPROVED" with validation report, OR "UX CHANGES NEEDED"
+**Key Rule:** Phase 3 cannot start until UX/IA Reviewer approves. This is a hard blocker.
+
+**Validation Checklist:**
+- ✅ User journey is intuitive. Workflow flows logically. No confusing steps.
+- ✅ Feature is discoverable. Fits existing information architecture. Not hidden.
+- ✅ Consistent with existing component patterns & interactions. No unexpected friction.
+- ✅ Accessible: keyboard navigation, screen reader support, high contrast, all user types included.
+- ✅ Dark/light modes render correctly. No hardcoded colors breaking contrast.
+- ✅ Layouts clear, labels unambiguous, affordances match expectations.
+
+**Output:** UX/IA validation report (journey assessment, IA fit, consistency check, accessibility verdict, dark/light verdicts, flow screenshots) + **"UX/IA SIGN-OFF APPROVED"** or **"UX CHANGES NEEDED"**
+
+---
+
+### Phase 3: Final Acceptance Validation (BLOCKING)
+
+**Trigger:** Phase 2.5 QA Manager SIGN-OFF APPROVED + Phase 2.6 UX/IA SIGN-OFF APPROVED
+**Responsible Agent:** Technical Principal Product Manager (TPPM)
+**Output:** "FEATURE ACCEPTANCE APPROVED" or "NEEDS CHANGES"
+
+**TPPM validates against PRD (with QA + UX/IA reports backing all quality claims):**
+- ✅ All acceptance criteria met (from Phase 1 tests)
+- ✅ All tests passed (verified by QA Manager)
+- ✅ All edge cases covered (per QA Manager report)
+- ✅ UX/IA validated (per UX/IA Reviewer report)
+- ✅ Accessibility standards met (per UX/IA Reviewer report)
+- ✅ Coverage metrics adequate (per QA Manager report)
+
+**Output:** **"FEATURE ACCEPTANCE APPROVED"** → unblocks Phase 4 (Closer + Flink Developer)
+
+**Immediately After Approval:** TPPM begins Feature N+1 Phase 1 **without delay**:
+- Write full PRD (problem, solution, files, API changes, acceptance criteria, edge cases)
+- Write all acceptance tests (functional + non-functional)
+- Write E2E test specifications (user flows, browser-level acceptance criteria, test case mappings)
+- Classify Tier 1 (blocking) vs Tier 2 (async) for every test
+
+**Goal:** Feature N+1 Phase 1 fully signed off before Phase 4 tracks complete, so engineering starts Phase 2 with zero blocker.
+
+**If NEEDS CHANGES:** Describe specific gaps → launch fix agents → Re-test with QA Manager & UX/IA Reviewer → Re-validate by TPPM.
+
+---
+
+### Phase 4: Parallel Post-Acceptance (Four Independent Async Tracks — ALL Non-Blocking)
+
+**Trigger:** Phase 3 FEATURE ACCEPTANCE APPROVED
+**Execution:** All four tracks run in parallel immediately. **NONE of these tracks block Phase 5 or the next feature Phase 1 from starting.**
+
+#### Track A: Closure (Finalization)
+**Responsible Agent:** Closer
+
+**Steps:**
+1. Generate/update technical & user-facing documentation
+2. Clean up testing artifacts:
+   - Remove test coverage reports (`coverage/` directory)
+   - Remove `.playwright` or test automation artifacts
+   - Remove mock data files used only for testing
+   - Clean up any temporary test fixtures or debug logs
+   - **KEEP:** All `src/__tests__/` test files (these stay in repo for future test runs)
+3. Commit cleaned code + updated docs to `main`
+4. Push to remote
+5. Output completion report with commit hash & doc links
+
+**Key:** Test code stays, test artifacts go. Tests run in CI/CD, coverage lives in reports, not in repo.
+
+#### Track B: Feedback & Stress Test (Async, Non-Blocking)
+**Responsible Agents:** TPPM + Flink Developer
+
+**Runs:** In parallel with Tracks A, C, and D. Does NOT block Phase 5 or next feature.
+
+**Steps:**
+- Flink Developer conducts heavy load testing, edge cases, performance profiling, workflow stress
+- Output: Structured feedback report (what broke, perf metrics, UX friction, enhancement ideas)
+- TPPM partners with Flink Developer to ensure findings are captured
+
+#### Track C: Test Completion (Async, Non-Blocking)
+**Responsible Agent:** Test Completion Agent (Haiku)
+
+**Runs:** In parallel with Track A (Closer) and Track B (Flink Developer). Does NOT block Phase 5 or next feature.
+
+**Steps:**
+1. Receive Tier 2 gap list from QA Manager
+2. Implement all Tier 2 test stubs (edge cases, concurrency, performance)
+3. Run full test suite — Tier 1 + Tier 2 must both reach 100% pass
+4. Target: ≥ 80% total code coverage at Track C completion
+5. Commit Tier 2 tests + update test report in feature PRD
+
+**Reference:** [docs/TESTING-STRATEGY.md](../TESTING-STRATEGY.md)
+
+#### Track D: Customer & Expert Interviews (Async, Non-Blocking)
+**Responsible Agent:** Interview Analyst (Sonnet)
+
+**Runs:** In parallel with Tracks A, B, and C. Does NOT block Phase 5 or next feature.
+
+**Steps:**
+1. Conduct structured interviews with: Flink engineers (daily users), domain experts, power users
+2. Topics: What's missing? What friction exists? What would make this 10x more valuable? What to build next?
+3. Compile findings into a **Customer Interview Report** with:
+   - Feature-specific feedback (immediate improvements)
+   - Roadmap ideas (new features to consider)
+   - Pain points (workflow gaps)
+   - Priority signals (what interviewees care most about)
+4. Deliver report to TPPM for Phase 5 synthesis alongside Flink Developer stress-test feedback
+
+---
+
+### Phase 5: Roadmap Synthesis & Continuous Planning
+
+**Trigger:** Phase 4 all tracks complete (Closer, Flink Developer, Test Completion, Interview Analyst)
+**Responsible Agent:** Technical Principal Product Manager (TPPM)
+
+**Inputs:**
+- Flink Developer stress-test feedback report
+- Customer & expert interview report
+- Closer's completion summary
+- Test completion metrics from Track C
+
+**Steps:**
+1. Synthesize feedback from both sources:
+   - Flink Developer stress test: categorize critical bugs, perf issues, UX friction, enhancement ideas
+   - Customer interviews: consolidate feature requests, pain points, workflow improvements
+   - Combined: determine priority, business impact, roadmap fit
+2. Update `roadmap.md`: move completed feature to ✅, add all feedback items to inbox, re-rank backlog based on combined signals
+3. Verify next feature's Phase 1 is already signed off & waiting (if not, TPPM got behind—Phase 1 should start at Phase 3 approval, complete before Phase 4 ends)
+4. Document synthesis results in roadmap
+
+**Output:** Updated `roadmap.md` + confirmation that pipeline is ready for next feature
+
+---
+
+## Key Rules for Continuous Pipeline Execution
 
 **Pipeline & Parallelism:**
-- **TPPM must get ahead** - Phase 1 PRD work should happen during previous feature's Phases 2-4. If engineering finishes Phase 2 and is waiting for Phase 1 PRD approval, TPPM has fallen behind.
-- **Engineering never waits** - Phase 2 should start immediately with an already-approved PRD. Zero idle time waiting for TPPM.
-- **Async tracks don't block** - Phase 4 Tracks A (Closer) and B (Flink Developer) are non-blocking. Phase 5 synthesis happens in parallel with potential Phase 2 starts of next feature.
-- **Smallest possible tasks** for maximum parallelism (max 3 impl agents during Phase 2)
+- **TPPM must get ahead** - Phase 1 PRD work should overlap with previous feature's Phases 2-4
+- **TPPM starts next feature at Phase 3 approval** - Immediately after "FEATURE ACCEPTANCE APPROVED" is output, TPPM begins writing the next feature's Phase 1 (full PRD + acceptance tests + E2E specs). By the time Phase 4 completes, next feature is fully documented and ready for engineering Phase 2.
+- **Engineering never waits** - Phase 2 starts immediately with already-approved Phase 1 PRD (with tests and E2E specs pre-written)
+- **Async tracks don't block** - Phase 4 Tracks A/B/C/D run in parallel, don't block Phase 5 or next Phase 1
+- **Smallest possible tasks** - max 3 impl agents during Phase 2
 
-**Quality & Validation:**
-- **You (Opus) are the orchestrator** - supervise, don't implement directly. Launch agents for each phase.
-- **NEVER skip design review** - architect, engineer, and domain expert (SR Flink/Kafka Engineer) must all sign off before coding
-- **Browser test EVERY feature immediately after implementation** - never batch or skip. No feature is done until verified in Chrome.
-- **Test markers = HARD BLOCKER** - all new/modified code must have test markers/tags. QA MUST verify markers exist, run subset tests, and confirm they pass. Zero tolerance for missing markers.
-- **Never skip QA** - every feature gets validated (test markers → code review → API validation)
-- **Never skip documentation review** - code must be clear for junior engineers before commit
-- **Documentation is blockers** - Critical/Major doc gaps must be fixed before shipping
-- **Fix bugs in real-time** - don't batch them
+**Quality & Validation Gates:**
+- **NEVER skip design review** - 5 reviewers must approve (Architect, Engineer, QA Manager, UX/IA, SR Flink/Kafka Engineer)
+- **QA Manager gate = HARD BLOCKER (Phase 2.5)** - Tier 1 tests (100% pass) + Tier 2 stubs required before proceeding. Full 80%+ coverage completed async in Track C. See [docs/TESTING-STRATEGY.md](../TESTING-STRATEGY.md).
+- **UX/IA gate = HARD BLOCKER (Phase 2.6)** - Feature must be intuitive, discoverable, accessible, consistent before acceptance
+- **Test markers = HARD BLOCKER** - All new code must have test markers. QA verifies markers exist and tests pass.
+- **Browser test EVERY feature** - immediately after Phase B6. No feature done until verified in Chrome.
+- **Never skip documentation review** - code clarity is critical before shipping
+- **Track C completes async** - Tier 2 tests and edge cases completed post-ship in parallel with Closer and Flink Developer. Does not block next feature Phase 1.
 
-**Documentation:**
-- **Document everything** - PRDs in `docs/features/`, FAQs in `docs/faqs/`, roadmap in `roadmap.md`, inline comments in code
-- **User-facing docs matter** - Every feature ships with user-friendly FAQ/HowTo alongside technical docs
-- **Roadmap drives velocity** - `roadmap.md` is the single source of truth for what's next. TPPM updates it during Phase 5.
+**Documentation & Roadmap:**
+- **Document everything** - PRDs in `docs/features/`, FAQs in `docs/faqs/`, roadmap in `roadmap.md`
+- **Roadmap drives velocity** - `roadmap.md` is the single source of truth. TPPM updates during Phase 5.
+
+---
+
+## Subagent Profiles
+
+### Technical Principal Product Manager (TPPM)
+**Role:** Gatekeeper of product quality, product-market fit, and continuous roadmap momentum. Orchestrates continuous pipeline where engineering always has signed-off PRD waiting.
+
+**Core Responsibilities:**
+- **Pipeline Planner:** Always one feature ahead. While engineering works on Feature N (Phases 2-4), TPPM works on Feature N+1's PRD.
+- **PRD Gatekeeper (Phase 1):** Write/review draft PRDs. Validate and write all acceptance tests (functional + non-functional). Output **"PRD SIGN-OFF APPROVED"**.
+- **Acceptance Validator (Phase 3):** Rigorously evaluate feature against PRD and acceptance tests (using QA Manager + UX/IA reports). Output **"FEATURE ACCEPTANCE APPROVED"**.
+- **Feedback Synthesizer & Roadmap Manager (Phase 5):** Synthesize Flink Developer stress-test feedback. Update `roadmap.md`. Confirm next feature's Phase 1 is ready.
+
+**Success Metric:** Engineering never experiences idle time waiting for next PRD.
+
+---
+
+### QA Manager Subagent
+**Role:** Test quality gatekeeper. Ensures all functional, unit, and E2E tests are written, executed, and passing. **Also verifies browser test screenshots prove feature works end-to-end.**
+
+**Core Responsibilities:**
+- **Test Coverage Audit:** Verify all unit, integration, E2E, and acceptance tests exist and pass.
+- **Test Execution:** Run full test suite (`npm test`), verify 100% pass rate, achieve 80%+ code coverage.
+- **Test Mapping:** Map all PRD acceptance criteria → test markers. Verify all edge cases covered.
+- **Browser Screenshot Review (CRITICAL):**
+  - Receive all browser test screenshots from Phase B2 (Playwright or Chrome extension captures)
+  - Review each screenshot: verify it shows what's claimed
+  - Confirm: feature visually works as described in PRD
+  - Verify coverage: happy path ✓, all edge cases ✓, error states ✓, dark/light modes ✓
+  - Document screenshot evidence for each PRD requirement
+- **Deliver Report:** Complete test execution report with test counts, pass/fail %, coverage metrics, PRD-to-test mapping, **signed-off browser screenshots**, any failures with root cause.
+
+**Sign-Off:** **"QA MANAGER SIGN-OFF APPROVED"** (all tests pass, coverage adequate, screenshots verified) OR **"NEEDS CHANGES"** (describe gaps or missing screenshots)
+
+**Success Metric:** 100% acceptance criteria coverage with tests. Zero failures. 80%+ code coverage. **All PRD scenarios have browser test screenshots signed off by QA Manager.**
+
+---
+
+### UX/IA/Accessibility Reviewer Subagent
+**Role:** User experience gatekeeper. Ensures features are intuitive, discoverable, accessible, consistent with system.
+
+**Core Responsibilities:**
+- **Phase A2 Design Review:** Review PRD design for UX/IA/accessibility concerns before engineering starts.
+- **Phase 2.6 Implementation Validation:** Walk through live feature. Verify intuitive workflow, IA discoverability, system consistency, accessibility (keyboard, screen reader, contrast, dark/light modes).
+- **Testing:** Real user workflows from PRD, keyboard-only navigation, screen reader testing, contrast validation, all user types.
+- **Deliver Report:** UX validation report with journey assessment, IA fit, consistency check, accessibility verdict, dark/light verdict, flow screenshots.
+
+**Sign-Off:** **"UX/IA SIGN-OFF APPROVED"** (feature is user-friendly, discoverable, accessible, consistent) OR **"UX CHANGES NEEDED"** (describe friction/gaps)
+
+**Success Metric:** Users accomplish feature goals intuitively. Integrates smoothly with system. No accessibility exclusions.
+
+---
+
+### Closer Subagent
+**Role:** Meticulous finisher. Handles administrative and technical wrap-up asynchronously so team can move to next feature.
+
+**Core Responsibilities:**
+- **Documentation:** Generate/update technical docs, API specs, user-facing changelogs based on completed feature.
+- **Clean Up Testing Artifacts:**
+  - Remove `coverage/` directory (test coverage reports)
+  - Remove `.playwright-cli/` or test automation artifacts
+  - Remove temporary test fixtures, debug logs, mock data files
+  - **KEEP:** All `src/__tests__/` test files (these live in repo for future test runs)
+- **Code Check-in:** Commit cleaned code + updated docs. Merge to `main`. Push to remote.
+- **Completion Report:** Output summary with commit hash, files changed, doc links.
+
+**Execution Model:** Runs asynchronously in parallel with Flink Developer (Track B). Does NOT block next feature Phase 1 from starting.
+
+**Key Outputs:** Merged code to `main`, updated documentation, completion report with commit hash, clean repo (tests stay, artifacts removed).
+
+---
+
+### Flink Developer Subagent
+**Role:** Rigorous stress-tester and customer proxy. Pushes features to limits in dev environment to simulate real-world usage.
+
+**Core Responsibilities:**
+- **Dev Stress Testing:** Heavy load (1000s+ rows, concurrent queries), edge cases (boundary conditions, error scenarios), performance (latency, memory, CPU under load), workflow friction (real Flink/Kafka usage patterns).
+- **Feedback Generation:** Compile findings into structured feedback report. Highlight what broke, what was slow, what was confusing, what could be better.
+- **Delivery to TPPM:** Hand report directly to TPPM for Phase 5 roadmap synthesis.
+
+**Testing Focus:** Large datasets, concurrent execution, streaming scenarios, error recovery, performance bottlenecks, multi-workspace workflows, user pain points.
+
+**Key Outputs:** Structured Feedback Report (severity/priority per finding, performance metrics, enhancement suggestions) → delivered to TPPM for Phase 5.
+
+---
 
 ## Architecture
 

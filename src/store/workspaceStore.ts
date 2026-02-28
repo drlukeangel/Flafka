@@ -5,6 +5,8 @@ import type { StatementResponse } from '../api/flink-api';
 import { env } from '../config/environment';
 import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem } from '../types';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
+import * as schemaRegistryApi from '../api/schema-registry-api';
+import type { SchemaSubject } from '../types';
 
 export interface WorkspaceState {
   // Catalog & Database
@@ -59,6 +61,12 @@ export interface WorkspaceState {
   // Session Properties
   sessionProperties: Record<string, string>;
 
+  // Schema Registry (runtime only, not persisted)
+  schemaRegistrySubjects: string[];
+  selectedSchemaSubject: SchemaSubject | null;
+  schemaRegistryLoading: boolean;
+  schemaRegistryError: string | null;
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
@@ -98,6 +106,10 @@ export interface WorkspaceState {
   setSessionProperty: (key: string, value: string) => void;
   removeSessionProperty: (key: string) => void;
   resetSessionProperties: () => void;
+  loadSchemaRegistrySubjects: () => Promise<void>;
+  loadSchemaDetail: (subject: string, version?: number | 'latest') => Promise<void>;
+  clearSelectedSchema: () => void;
+  setSchemaRegistryError: (error: string | null) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -152,6 +164,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         'sql.local-time-zone': 'UTC',
         'parallelism.default': '1',
       },
+
+      schemaRegistrySubjects: [],
+      selectedSchemaSubject: null,
+      schemaRegistryLoading: false,
+      schemaRegistryError: null,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -768,6 +785,43 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           },
           lastSavedAt: new Date().toISOString(),
         });
+      },
+
+      loadSchemaRegistrySubjects: async () => {
+        set({ schemaRegistryLoading: true, schemaRegistryError: null });
+        try {
+          const subjects = await schemaRegistryApi.listSubjects();
+          set({ schemaRegistrySubjects: subjects, schemaRegistryLoading: false });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load schemas';
+          console.error('Failed to load schema subjects:', error);
+          set({ schemaRegistryError: errorMessage, schemaRegistryLoading: false });
+        }
+      },
+
+      loadSchemaDetail: async (subject, version = 'latest') => {
+        const requestId = `${subject}-${version}-${Date.now()}`;
+        (get() as unknown as Record<string, string>)._schemaDetailRequestId = requestId;
+        set({ schemaRegistryLoading: true, schemaRegistryError: null });
+        try {
+          const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
+          // Discard stale responses from superseded requests
+          if ((get() as unknown as Record<string, string>)._schemaDetailRequestId !== requestId) return;
+          set({ selectedSchemaSubject: detail, schemaRegistryLoading: false });
+        } catch (error) {
+          if ((get() as unknown as Record<string, string>)._schemaDetailRequestId !== requestId) return;
+          const errorMessage = error instanceof Error ? error.message : 'Failed to load schema detail';
+          console.error('Failed to load schema detail:', error);
+          set({ schemaRegistryError: errorMessage, schemaRegistryLoading: false });
+        }
+      },
+
+      clearSelectedSchema: () => {
+        set({ selectedSchemaSubject: null, schemaRegistryError: null });
+      },
+
+      setSchemaRegistryError: (error) => {
+        set({ schemaRegistryError: error });
       },
     }),
     {
