@@ -54,6 +54,7 @@ interface WorkspaceState {
 
   executeStatement: (id: string) => Promise<void>;
   cancelStatement: (id: string) => Promise<void>;
+  runAllStatements: () => Promise<void>;
 
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
@@ -523,6 +524,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             console.error('Failed to cancel statement on server:', error);
             // Already updated local state, so user can still re-run
           }
+        }
+      },
+
+      runAllStatements: async () => {
+        const { statements } = get();
+        const eligible = statements.filter(
+          (s) => s.status === 'IDLE' || s.status === 'ERROR' || s.status === 'CANCELLED'
+        );
+        if (eligible.length === 0) return;
+
+        get().addToast({ type: 'info', message: `Running ${eligible.length} statement(s)...` });
+
+        for (const statement of eligible) {
+          // Re-check: skip if somehow already running (e.g. user triggered individually)
+          const current = get().statements.find((s) => s.id === statement.id);
+          if (!current || current.status === 'RUNNING' || current.status === 'PENDING') continue;
+          await get().executeStatement(statement.id);
         }
       },
 
