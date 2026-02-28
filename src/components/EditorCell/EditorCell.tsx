@@ -121,6 +121,16 @@ interface EditorCellProps {
   index: number;
 }
 
+const formatDuration = (startedAt?: Date, lastExecutedAt?: Date): string => {
+  if (!startedAt || !lastExecutedAt) return '';
+  const ms = Math.max(0, lastExecutedAt.getTime() - startedAt.getTime());
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds.toFixed(0)}s`;
+};
+
 const getPreviewLine = (code: string): string => {
   const lines = code.split('\n');
   for (const line of lines) {
@@ -142,6 +152,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     cancelStatement,
     addStatement,
     reorderStatements,
+    dismissOnboardingHint,
   } = useWorkspaceStore();
 
   const theme = useWorkspaceStore((s) => s.theme);
@@ -172,6 +183,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
       run: () => {
         const s = useWorkspaceStore.getState().statements.find(s => s.id === statement.id);
         if (s && s.status !== 'RUNNING' && s.status !== 'PENDING') {
+          dismissOnboardingHint();
           executeStatement(statement.id);
         }
       },
@@ -324,6 +336,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     if (statement.status === 'RUNNING' || statement.status === 'PENDING') {
       cancelStatement(statement.id);
     } else {
+      dismissOnboardingHint();
       executeStatement(statement.id);
     }
   };
@@ -604,6 +617,22 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               <span className="status-bar-label">START TIME:</span>
               <span>{statement.startedAt.toLocaleTimeString()}</span>
             </div>
+
+            {statement.lastExecutedAt && ['COMPLETED', 'ERROR', 'CANCELLED'].includes(statement.status) && (
+              <>
+                <div className="status-bar-item">
+                  <span className="status-bar-label">FINISH TIME:</span>
+                  <span>{statement.lastExecutedAt.toLocaleTimeString()}</span>
+                </div>
+                {statement.startedAt && (
+                  <div className="status-bar-item">
+                    <span className="status-bar-label">DURATION:</span>
+                    <span>{formatDuration(statement.startedAt as Date, statement.lastExecutedAt as Date)}</span>
+                  </div>
+                )}
+              </>
+            )}
+
             <div className="status-bar-item">
               <span className="status-bar-label">STATUS:</span>
               <span className={`status-dot ${statement.status.toLowerCase()}`} role="img" aria-label={statement.status}></span>

@@ -4,6 +4,7 @@ import { TreeNavigator } from './components/TreeNavigator';
 import { EditorCell } from './components/EditorCell';
 import { HistoryPanel } from './components/HistoryPanel';
 import { Dropdown } from './components/Dropdown';
+import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
@@ -47,6 +48,7 @@ function App() {
     historyLoading,
     theme,
     workspaceName,
+    hasSeenOnboardingHint,
     setCatalog,
     setDatabase,
     loadCatalogs,
@@ -58,11 +60,14 @@ function App() {
     loadComputePoolStatus,
     loadStatementHistory,
     setWorkspaceName,
+    dismissOnboardingHint,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
     (s) => s.status === 'IDLE' || s.status === 'ERROR' || s.status === 'CANCELLED'
   );
+
+  const showOnboardingHint = !hasSeenOnboardingHint && statements.length === 1 && statements[0].status === 'IDLE';
 
   const [showSettings, setShowSettings] = useState(false);
   const settingsPanelRef = useRef<HTMLDivElement>(null);
@@ -360,14 +365,23 @@ function App() {
             <div className="toolbar-actions">
               <button
                 className="run-all-btn"
-                onClick={() => runAllStatements()}
+                onClick={() => {
+                  dismissOnboardingHint();
+                  runAllStatements();
+                }}
                 disabled={!hasRunnableStatements}
                 title="Run all idle/errored statements sequentially"
               >
                 <FiPlay size={16} />
                 <span>Run All</span>
               </button>
-              <button className="add-cell-btn" onClick={() => addStatement()}>
+              <button
+                className="add-cell-btn"
+                onClick={() => {
+                  addStatement();
+                  dismissOnboardingHint();
+                }}
+              >
                 <FiPlus size={16} />
                 <span>Add Statement</span>
               </button>
@@ -379,6 +393,7 @@ function App() {
             {statements.map((statement, index) => (
               <EditorCell key={statement.id} statement={statement} index={index} />
             ))}
+            {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
           </div>
 
           {/* Footer Status */}

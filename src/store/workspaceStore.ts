@@ -48,6 +48,9 @@ export interface WorkspaceState {
   // Focus State (runtime only, not persisted)
   focusedStatementId: string | null;
 
+  // Onboarding
+  hasSeenOnboardingHint: boolean;
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
@@ -79,6 +82,7 @@ export interface WorkspaceState {
   loadStatementHistory: () => Promise<void>;
   clearHistoryError: () => void;
   setWorkspaceName: (name: string) => void;
+  dismissOnboardingHint: () => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -124,6 +128,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       historyError: null,
 
       focusedStatementId: null,
+
+      hasSeenOnboardingHint: false,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -551,7 +557,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         // Always update local state to CANCELLED so user can re-run
         set((state) => ({
           statements: state.statements.map((s) =>
-            s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus } : s
+            s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
           ),
         }));
         get().addToast({ type: 'info', message: 'Query cancelled' });
@@ -648,6 +654,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setFocusedStatementId: (id) => {
         set({ focusedStatementId: id });
       },
+
+      dismissOnboardingHint: () => {
+        set({ hasSeenOnboardingHint: true });
+      },
     }),
     {
       name: 'flink-workspace',
@@ -666,6 +676,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         lastSavedAt: state.lastSavedAt,
         theme: state.theme,
         workspaceName: state.workspaceName,
+        hasSeenOnboardingHint: state.hasSeenOnboardingHint,
       }),
     }
   )

@@ -74,6 +74,11 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     });
   }, [filteredData, sortConfig]);
 
+  // Precompute original index mapping for O(1) lookups
+  const originalIndexMap = useMemo(() => {
+    return new Map(data.map((row, i) => [row, i + 1]));
+  }, [data]);
+
   // Virtual scrolling (grid mode only)
   const virtualizer = useVirtualizer({
     count: viewMode === 'grid' ? sortedData.length : 0,
@@ -284,8 +289,15 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       <div className="results-table-wrapper" ref={containerRef}>
         {viewMode === 'grid' ? (
           <table className="results-table">
+            <colgroup>
+              <col style={{ width: '50px' }} />
+              {visibleColumnNames.map((colName) => (
+                <col key={colName} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
+                <th className="results-index-cell">#</th>
                 {visibleColumnNames.map((colName) => (
                   <th key={colName} onClick={() => handleSort(colName)}>
                     <div className="th-content">
@@ -308,15 +320,17 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
             </thead>
             <tbody>
               {paddingTop > 0 && (
-                <tr><td colSpan={visibleColumnNames.length} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
               )}
               {virtualItems.map((virtualRow) => {
                 const row = sortedData[virtualRow.index];
+                const originalIndex = originalIndexMap.get(row);
                 return (
                   <tr
                     key={virtualRow.key}
                     className={virtualRow.index % 2 !== 0 ? 'results-row-odd' : ''}
                   >
+                    <td className="results-index-cell">{originalIndex}</td>
                     {visibleColumnNames.map((colName) => {
                       const cellKey = `${virtualRow.index}-${colName}`;
                       return (
@@ -339,14 +353,21 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
                 );
               })}
               {paddingBottom > 0 && (
-                <tr><td colSpan={visibleColumnNames.length} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
               )}
             </tbody>
           </table>
         ) : (
           <table className="results-table">
+            <colgroup>
+              <col style={{ width: '50px' }} />
+              {visibleColumnNames.map((colName) => (
+                <col key={colName} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
+                <th className="results-index-cell">#</th>
                 {visibleColumnNames.map((colName) => (
                   <th key={colName} onClick={() => handleSort(colName)}>
                     <div className="th-content">
@@ -368,28 +389,32 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
               </tr>
             </thead>
             <tbody>
-              {sortedData.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {visibleColumnNames.map((colName) => {
-                    const cellKey = `${rowIndex}-${colName}`;
-                    return (
-                      <td
-                        key={colName}
-                        className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
-                        onClick={() => handleCellClick(row[colName], cellKey)}
-                      >
-                        {row[colName] === null || row[colName] === undefined ? (
-                          <span className="null-value">null</span>
-                        ) : typeof row[colName] === 'object' ? (
-                          JSON.stringify(row[colName])
-                        ) : (
-                          String(row[colName])
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {sortedData.map((row, rowIndex) => {
+                const originalIndex = originalIndexMap.get(row);
+                return (
+                  <tr key={rowIndex}>
+                    <td className="results-index-cell">{originalIndex}</td>
+                    {visibleColumnNames.map((colName) => {
+                      const cellKey = `${rowIndex}-${colName}`;
+                      return (
+                        <td
+                          key={colName}
+                          className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
+                          onClick={() => handleCellClick(row[colName], cellKey)}
+                        >
+                          {row[colName] === null || row[colName] === undefined ? (
+                            <span className="null-value">null</span>
+                          ) : typeof row[colName] === 'object' ? (
+                            JSON.stringify(row[colName])
+                          ) : (
+                            String(row[colName])
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

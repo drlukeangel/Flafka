@@ -192,3 +192,26 @@ body {
 .animate-pulse {
   animation: pulse 2s ease-in-out infinite;
 }
+
+/* Row Index Column */
+.results-index-cell {
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
+  text-align: center;
+  color: var(--color-text-tertiary);
+  background-color: var(--color-surface-secondary);
+  padding: 8px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+  cursor: default;
+  border-right: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.results-index-cell:hover {
+  background-color: var(--color-surface-secondary);
+  color: var(--color-text-tertiary);
+  cursor: default;
+}
