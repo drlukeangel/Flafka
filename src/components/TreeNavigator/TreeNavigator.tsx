@@ -14,6 +14,7 @@ import {
   FiLoader,
   FiSearch,
   FiX,
+  FiCopy,
 } from 'react-icons/fi';
 
 /**
@@ -21,6 +22,16 @@ import {
  */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Quote SQL identifiers if they contain non-alphanumeric chars or start with digit.
+ */
+function quoteIdentifierIfNeeded(name: string): string {
+  if (/[^a-zA-Z0-9_]/.test(name) || /^[0-9]/.test(name)) {
+    return `\`${name}\``;
+  }
+  return name;
 }
 
 /**
@@ -96,9 +107,23 @@ const TreeNavigator: React.FC = () => {
     selectedTableSchema,
     selectedTableName,
     schemaLoading,
+    addToast,
   } = useWorkspaceStore();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [copiedColName, setCopiedColName] = useState<string | null>(null);
+
+  const handleSchemaColumnClick = async (columnName: string) => {
+    const quoted = quoteIdentifierIfNeeded(columnName);
+    try {
+      await navigator.clipboard.writeText(quoted);
+      addToast({ type: 'success', message: `Copied: ${columnName}` });
+      setCopiedColName(columnName);
+      setTimeout(() => setCopiedColName(null), 600);
+    } catch {
+      addToast({ type: 'error', message: 'Failed to copy' });
+    }
+  };
 
   useEffect(() => {
     loadTreeData();
@@ -157,6 +182,7 @@ const TreeNavigator: React.FC = () => {
               onSelect={selectTreeNode}
               onDoubleClick={handleDoubleClick}
               searchQuery={searchQuery}
+              addToast={addToast}
             />
           ))
         ) : isFiltering ? (
@@ -182,7 +208,12 @@ const TreeNavigator: React.FC = () => {
                 <span className="schema-section-title">Schema ({selectedTableSchema.length})</span>
               </div>
               {selectedTableSchema.map((col) => (
-                <div key={col.name} className="schema-column">
+                <div
+                  key={col.name}
+                  className={`schema-column${copiedColName === col.name ? ' schema-column--copied' : ''}`}
+                  onClick={() => handleSchemaColumnClick(col.name)}
+                  title={`Click to copy: ${quoteIdentifierIfNeeded(col.name)}`}
+                >
                   <span className="column-name">{col.name}</span>
                   <span className="column-type">{col.type}</span>
                 </div>
@@ -205,6 +236,7 @@ interface TreeNodeProps {
   onSelect: (nodeId: string) => void;
   onDoubleClick: (node: TreeNodeType) => void;
   searchQuery: string;
+  addToast: (toast: { type: 'success' | 'error' | 'info' | 'warning'; message: string }) => void;
 }
 
 const TreeNodeComponent: React.FC<TreeNodeProps> = ({
@@ -215,6 +247,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   onSelect,
   onDoubleClick,
   searchQuery,
+  addToast,
 }) => {
   const hasChildren = node.children && node.children.length > 0;
   const isExpandable = hasChildren || ['catalog', 'database', 'tables', 'views', 'models', 'functions', 'externalTables'].includes(node.type);
@@ -247,6 +280,8 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
     }
   };
 
+  const isCopyableNode = node.type === 'table' || node.type === 'view' || node.type === 'externalTable';
+
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onSelect(node.id);
@@ -258,6 +293,17 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onDoubleClick(node);
+  };
+
+  const handleTableCopyClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const quoted = quoteIdentifierIfNeeded(node.name);
+    try {
+      await navigator.clipboard.writeText(quoted);
+      addToast({ type: 'success', message: `Copied: ${node.name}` });
+    } catch {
+      addToast({ type: 'error', message: 'Failed to copy' });
+    }
   };
 
   return (
@@ -282,6 +328,16 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
         {getIcon()}
         <HighlightedLabel name={node.name} query={searchQuery} />
         {node.isLoading && <FiLoader className="animate-spin node-loading" size={12} />}
+        {isCopyableNode && (
+          <span
+            className="tree-node-copy-icon"
+            onClick={handleTableCopyClick}
+            title={`Copy: ${quoteIdentifierIfNeeded(node.name)}`}
+            aria-label={`Copy table name ${node.name}`}
+          >
+            <FiCopy size={12} />
+          </span>
+        )}
       </div>
 
       {node.isExpanded && hasChildren && (
@@ -296,6 +352,7 @@ const TreeNodeComponent: React.FC<TreeNodeProps> = ({
               onSelect={onSelect}
               onDoubleClick={onDoubleClick}
               searchQuery={searchQuery}
+              addToast={addToast}
             />
           ))}
         </div>
