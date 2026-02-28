@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Column, SortConfig } from '../../types';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import {
@@ -28,6 +29,8 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
   const columnsDropdownRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isPinnedToBottom = useRef(true);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -70,6 +73,45 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       return 0;
     });
   }, [filteredData, sortConfig]);
+
+  // Virtual scrolling (grid mode only)
+  const virtualizer = useVirtualizer({
+    count: viewMode === 'grid' ? sortedData.length : 0,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 35,
+    overscan: 10,
+  });
+
+  const virtualItems = virtualizer.getVirtualItems();
+
+  const paddingTop = viewMode === 'grid' && virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom =
+    viewMode === 'grid' && virtualItems.length > 0
+      ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+      : 0;
+
+  // Scroll-lock: auto-scroll to bottom when new streaming data arrives if pinned
+  useEffect(() => {
+    if (viewMode !== 'grid') return;
+    const el = containerRef.current;
+    if (!el) return;
+    if (isPinnedToBottom.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [sortedData.length, viewMode]);
+
+  // Track whether user has scrolled away from bottom
+  useEffect(() => {
+    if (viewMode !== 'grid') return;
+    const el = containerRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      isPinnedToBottom.current = atBottom;
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [viewMode]);
 
   const handleCellClick = (value: unknown, cellKey: string) => {
     const stringValue =
@@ -239,55 +281,118 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
         </div>
       </div>
 
-      <div className="results-table-wrapper">
-        <table className="results-table">
-          <thead>
-            <tr>
-              {visibleColumnNames.map((colName) => (
-                <th key={colName} onClick={() => handleSort(colName)}>
-                  <div className="th-content">
-                    <span>{colName}</span>
-                    <span className="sort-icons">
-                      {sortConfig?.column === colName ? (
-                        sortConfig.direction === 'asc' ? (
-                          <FiArrowUp size={12} />
+      <div className="results-table-wrapper" ref={containerRef}>
+        {viewMode === 'grid' ? (
+          <table className="results-table">
+            <thead>
+              <tr>
+                {visibleColumnNames.map((colName) => (
+                  <th key={colName} onClick={() => handleSort(colName)}>
+                    <div className="th-content">
+                      <span>{colName}</span>
+                      <span className="sort-icons">
+                        {sortConfig?.column === colName ? (
+                          sortConfig.direction === 'asc' ? (
+                            <FiArrowUp size={12} />
+                          ) : (
+                            <FiArrowDown size={12} />
+                          )
                         ) : (
-                          <FiArrowDown size={12} />
-                        )
-                      ) : (
-                        <FiArrowUp size={12} className="sort-icon-inactive" />
-                      )}
-                    </span>
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {sortedData.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                {visibleColumnNames.map((colName) => {
-                  const cellKey = `${rowIndex}-${colName}`;
-                  return (
-                    <td
-                      key={colName}
-                      className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
-                      onClick={() => handleCellClick(row[colName], cellKey)}
-                    >
-                      {row[colName] === null || row[colName] === undefined ? (
-                        <span className="null-value">null</span>
-                      ) : typeof row[colName] === 'object' ? (
-                        JSON.stringify(row[colName])
-                      ) : (
-                        String(row[colName])
-                      )}
-                    </td>
-                  );
-                })}
+                          <FiArrowUp size={12} className="sort-icon-inactive" />
+                        )}
+                      </span>
+                    </div>
+                  </th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {paddingTop > 0 && (
+                <tr><td colSpan={visibleColumnNames.length} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+              )}
+              {virtualItems.map((virtualRow) => {
+                const row = sortedData[virtualRow.index];
+                return (
+                  <tr
+                    key={virtualRow.key}
+                    className={virtualRow.index % 2 !== 0 ? 'results-row-odd' : ''}
+                  >
+                    {visibleColumnNames.map((colName) => {
+                      const cellKey = `${virtualRow.index}-${colName}`;
+                      return (
+                        <td
+                          key={colName}
+                          className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
+                          onClick={() => handleCellClick(row[colName], cellKey)}
+                        >
+                          {row[colName] === null || row[colName] === undefined ? (
+                            <span className="null-value">null</span>
+                          ) : typeof row[colName] === 'object' ? (
+                            JSON.stringify(row[colName])
+                          ) : (
+                            String(row[colName])
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              {paddingBottom > 0 && (
+                <tr><td colSpan={visibleColumnNames.length} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <table className="results-table">
+            <thead>
+              <tr>
+                {visibleColumnNames.map((colName) => (
+                  <th key={colName} onClick={() => handleSort(colName)}>
+                    <div className="th-content">
+                      <span>{colName}</span>
+                      <span className="sort-icons">
+                        {sortConfig?.column === colName ? (
+                          sortConfig.direction === 'asc' ? (
+                            <FiArrowUp size={12} />
+                          ) : (
+                            <FiArrowDown size={12} />
+                          )
+                        ) : (
+                          <FiArrowUp size={12} className="sort-icon-inactive" />
+                        )}
+                      </span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedData.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {visibleColumnNames.map((colName) => {
+                    const cellKey = `${rowIndex}-${colName}`;
+                    return (
+                      <td
+                        key={colName}
+                        className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
+                        onClick={() => handleCellClick(row[colName], cellKey)}
+                      >
+                        {row[colName] === null || row[colName] === undefined ? (
+                          <span className="null-value">null</span>
+                        ) : typeof row[colName] === 'object' ? (
+                          JSON.stringify(row[colName])
+                        ) : (
+                          String(row[colName])
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
