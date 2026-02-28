@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import type { Column, SortConfig } from '../../types';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import {
@@ -8,6 +8,7 @@ import {
   FiArrowDown,
   FiGrid,
   FiList,
+  FiColumns,
 } from 'react-icons/fi';
 
 interface ResultsTableProps {
@@ -24,6 +25,26 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
+  const columnsDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        columnsDropdownRef.current &&
+        !columnsDropdownRef.current.contains(event.target as Node)
+      ) {
+        setColumnsDropdownOpen(false);
+      }
+    };
+    if (columnsDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [columnsDropdownOpen]);
 
   // Filter data by search term
   const filteredData = useMemo(() => {
@@ -118,6 +139,23 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       ? Object.keys(data[0])
       : [];
 
+  const visibleColumnNames = columnNames.filter(c => !hiddenColumns.has(c));
+
+  const toggleColumn = (colName: string) => {
+    setHiddenColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(colName)) {
+        next.delete(colName);
+      } else {
+        next.add(colName);
+      }
+      return next;
+    });
+  };
+
+  const showAll = () => setHiddenColumns(new Set());
+  const hideAll = () => setHiddenColumns(new Set(columnNames));
+
   if (data.length === 0) {
     return (
       <div className="results-empty">
@@ -158,6 +196,36 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
           >
             <FiList size={14} />
           </button>
+          <div className="columns-dropdown-wrapper" ref={columnsDropdownRef}>
+            <button
+              className={`export-btn${columnsDropdownOpen ? ' active' : ''}`}
+              title="Toggle column visibility"
+              onClick={() => setColumnsDropdownOpen(o => !o)}
+            >
+              <FiColumns size={14} />
+              <span>Columns{hiddenColumns.size > 0 ? ` (${visibleColumnNames.length}/${columnNames.length})` : ''}</span>
+            </button>
+            {columnsDropdownOpen && (
+              <div className="columns-dropdown">
+                <div className="columns-dropdown-actions">
+                  <button onClick={showAll}>Show All</button>
+                  <button onClick={hideAll}>Hide All</button>
+                </div>
+                <div className="columns-dropdown-list">
+                  {columnNames.map(colName => (
+                    <label key={colName} className="column-toggle-item">
+                      <input
+                        type="checkbox"
+                        checked={!hiddenColumns.has(colName)}
+                        onChange={() => toggleColumn(colName)}
+                      />
+                      <span>{colName}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="export-dropdown">
             <button className="export-btn" title="Export">
               <FiDownload size={14} />
@@ -175,7 +243,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
         <table className="results-table">
           <thead>
             <tr>
-              {columnNames.map((colName) => (
+              {visibleColumnNames.map((colName) => (
                 <th key={colName} onClick={() => handleSort(colName)}>
                   <div className="th-content">
                     <span>{colName}</span>
@@ -198,7 +266,7 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
           <tbody>
             {sortedData.map((row, rowIndex) => (
               <tr key={rowIndex}>
-                {columnNames.map((colName) => {
+                {visibleColumnNames.map((colName) => {
                   const cellKey = `${rowIndex}-${colName}`;
                   return (
                     <td

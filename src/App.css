@@ -255,6 +255,67 @@
   color: var(--color-text-primary);
 }
 
+/* Tree Search */
+.tree-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.tree-search-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.tree-search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.tree-search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.tree-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  border-radius: 3px;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.tree-search-clear:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-secondary);
+}
+
+/* Tree highlight for matching text */
+.tree-highlight {
+  background-color: #FEF08A;
+  color: #78350F;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 .tree-content {
   flex: 1;
   overflow-y: auto;
@@ -1046,6 +1107,85 @@
 
 .export-menu button:hover {
   background-color: var(--color-surface-secondary);
+}
+
+/* Columns Visibility Dropdown */
+.columns-dropdown-wrapper {
+  position: relative;
+}
+
+.columns-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-shadow: var(--shadow-md);
+  z-index: 200;
+  min-width: 180px;
+  max-width: 260px;
+}
+
+.columns-dropdown-actions {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding: 4px 8px;
+}
+
+.columns-dropdown-actions button {
+  flex: 1;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-primary);
+  cursor: pointer;
+  padding: 4px 4px;
+  border-radius: 3px;
+  transition: background-color var(--transition-fast);
+  text-align: center;
+}
+
+.columns-dropdown-actions button:hover {
+  background-color: var(--color-surface-secondary);
+}
+
+.columns-dropdown-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.column-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  transition: background-color var(--transition-fast);
+  user-select: none;
+}
+
+.column-toggle-item:hover {
+  background-color: var(--color-surface-secondary);
+}
+
+.column-toggle-item input[type="checkbox"] {
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+}
+
+.column-toggle-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
 }
 
 /* Results Table */
