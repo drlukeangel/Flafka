@@ -1,7 +1,8 @@
 import React, { useCallback, useRef, useState } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import type { SQLStatement } from '../../types';
+import type { SQLStatement, TreeNode, Column } from '../../types';
 import {
   FiPlay,
   FiSquare,
@@ -17,6 +18,102 @@ import {
   FiMoreVertical,
 } from 'react-icons/fi';
 import ResultsTable from '../ResultsTable/ResultsTable';
+
+// ---------------------------------------------------------------------------
+// SQL Autocomplete - module-level disposable (prevents duplicate providers on HMR)
+// ---------------------------------------------------------------------------
+
+let completionProviderDisposable: monaco.IDisposable | null = null;
+
+// Flink-specific keywords not already handled by Monaco's built-in SQL mode
+const FLINK_KEYWORDS: string[] = [
+  'TUMBLE',
+  'HOP',
+  'CUMULATE',
+  'SESSION',
+  'MATCH_RECOGNIZE',
+  'WATERMARK',
+  'LATERAL TABLE',
+  'PROCTIME()',
+  'ROWTIME()',
+  'CURRENT_WATERMARK',
+  'SHOW CATALOGS',
+  'SHOW DATABASES',
+  'SHOW TABLES',
+  'SHOW VIEWS',
+  'SHOW JOBS',
+  'SET',
+  'RESET',
+  'EXPLAIN',
+  'CALL',
+  'EXECUTE STATEMENT SET',
+  'END',
+  'DESCRIPTOR',
+  'TABLESAMPLE',
+];
+
+/**
+ * Recursively walk treeNodes and collect completion items for tables and views.
+ * Nodes of type 'table' and 'externalTable' → CompletionItemKind.Class
+ * Nodes of type 'view' → CompletionItemKind.Interface
+ */
+function extractTableCompletions(
+  nodes: TreeNode[],
+  range: monaco.IRange
+): monaco.languages.CompletionItem[] {
+  const items: monaco.languages.CompletionItem[] = [];
+
+  const walk = (nodeList: TreeNode[], parentDb?: string) => {
+    for (const node of nodeList) {
+      if (node.type === 'table' || node.type === 'externalTable') {
+        const label = parentDb ? `${parentDb}.${node.name}` : node.name;
+        items.push({
+          label,
+          kind: monaco.languages.CompletionItemKind.Class,
+          insertText: label,
+          detail: node.type === 'externalTable' ? 'External Table' : 'Table',
+          range,
+        });
+      } else if (node.type === 'view') {
+        const label = parentDb ? `${parentDb}.${node.name}` : node.name;
+        items.push({
+          label,
+          kind: monaco.languages.CompletionItemKind.Interface,
+          insertText: label,
+          detail: 'View',
+          range,
+        });
+      }
+
+      if (node.children && node.children.length > 0) {
+        // Pass the database name down when descending from a database node
+        const nextDb = node.type === 'database' ? node.name : parentDb;
+        walk(node.children, nextDb);
+      }
+    }
+  };
+
+  walk(nodes);
+  return items;
+}
+
+/**
+ * Extract column completion items from a cached table schema.
+ */
+function extractColumnCompletions(
+  columns: Column[],
+  range: monaco.IRange
+): monaco.languages.CompletionItem[] {
+  return columns.map(col => ({
+    label: col.name,
+    kind: monaco.languages.CompletionItemKind.Field,
+    insertText: col.name,
+    detail: col.type ?? 'column',
+    range,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 
 interface EditorCellProps {
   statement: SQLStatement;
@@ -77,6 +174,49 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         const s = useWorkspaceStore.getState().statements.find(s => s.id === statement.id);
         if (s && (s.status === 'RUNNING' || s.status === 'PENDING')) {
           cancelStatement(statement.id);
+        }
+      },
+    });
+
+    // --- SQL Autocomplete Provider ---
+    // Dispose any previous registration (handles Vite HMR re-mounts)
+    if (completionProviderDisposable) {
+      completionProviderDisposable.dispose();
+      completionProviderDisposable = null;
+    }
+
+    completionProviderDisposable = monaco.languages.registerCompletionItemProvider('sql', {
+      provideCompletionItems(
+        model: monaco.editor.ITextModel,
+        position: monaco.Position
+      ) {
+        try {
+          const word = model.getWordUntilPosition(position);
+          const range: monaco.IRange = {
+            startLineNumber: position.lineNumber,
+            endLineNumber: position.lineNumber,
+            startColumn: word.startColumn,
+            endColumn: word.endColumn,
+          };
+
+          const state = useWorkspaceStore.getState();
+          const treeNodes = state.treeNodes ?? [];
+          const selectedTableSchema = state.selectedTableSchema ?? [];
+
+          const keywordItems: monaco.languages.CompletionItem[] = FLINK_KEYWORDS.map(kw => ({
+            label: kw,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: kw,
+            detail: 'Flink SQL keyword',
+            range,
+          }));
+
+          const tableItems = extractTableCompletions(treeNodes, range);
+          const columnItems = extractColumnCompletions(selectedTableSchema, range);
+
+          return { suggestions: [...keywordItems, ...tableItems, ...columnItems] };
+        } catch {
+          return { suggestions: [] };
         }
       },
     });
