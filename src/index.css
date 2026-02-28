@@ -25,16 +25,103 @@
   --color-text-tertiary: #9CA3AF;
   --color-text-disabled: #D1D5DB;
 
+  /* Semantic surface colors for notifications/alerts */
+  --color-surface-error: #FEF2F2;
+  --color-surface-warning: #FFFBEB;
+  --color-surface-success: #ECFDF5;
+  --color-surface-info: #EFF6FF;
+
+  /* Primary tint for backgrounds */
+  --color-surface-primary-tint: rgba(73, 51, 215, 0.05);
+
+  /* Table row colors */
+  --color-row-odd: #fafafa;
+  --color-row-hover: #F0F0F0;
+
+  /* Copy flash animation */
+  --color-copy-flash: #D1FAE5;
+
+  /* Highlights */
+  --color-highlight-bg: #FEF08A;
+  --color-highlight-text: #78350F;
+  --color-bg-hover: #E9ECEF;
+
+  /* Icon colors */
+  --color-table: #22C55E;
+  --color-view: #8B5CF6;
+
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
   --shadow-cell: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-focus-ring: 0 0 0 3px rgba(73, 51, 215, 0.1);
 
   /* Animation */
   --transition-fast: 100ms;
   --transition-normal: 200ms;
   --transition-slow: 300ms;
+}
+
+[data-theme="dark"] {
+  /* Brand & Accents */
+  --color-primary: #7B5FFA;
+  --color-primary-light: #9B7FFB;
+  --color-primary-dark: #6B4FE8;
+
+  /* Semantic Colors */
+  --color-success: #34D399;
+  --color-error: #F87171;
+  --color-warning: #FBBF24;
+  --color-info: #60A5FA;
+
+  /* Neutrals */
+  --color-background: #1A1A1A;
+  --color-surface: #242427;
+  --color-surface-secondary: #2D2D31;
+  --color-border: #3F3F46;
+
+  /* Text Colors */
+  --color-text-primary: #F5F5F7;
+  --color-text-secondary: #A1A1A6;
+  --color-text-tertiary: #696969;
+  --color-text-disabled: #4B5563;
+
+  /* Semantic surface colors for notifications/alerts */
+  --color-surface-error: #1F1015;
+  --color-surface-warning: #1F1810;
+  --color-surface-success: #051B10;
+  --color-surface-info: #051125;
+
+  /* Primary tint for backgrounds */
+  --color-surface-primary-tint: rgba(123, 95, 250, 0.1);
+
+  /* Table row colors */
+  --color-row-odd: #2A2A2E;
+  --color-row-hover: #323238;
+
+  /* Copy flash animation */
+  --color-copy-flash: #064E3B;
+
+  /* Highlights */
+  --color-highlight-bg: #2D2D1A;
+  --color-highlight-text: #FCD34D;
+  --color-bg-hover: #3F3F46;
+
+  /* Icon colors */
+  --color-table: #34D399;
+  --color-view: #A78BFA;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+  --shadow-cell: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-focus-ring: 0 0 0 3px rgba(123, 95, 250, 0.2);
+}
+
+html {
+  transition: background-color 0.2s, color 0.2s;
 }
 
 * {

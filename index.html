@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Confluent Cloud SQL Workspace</title>
+    <script>
+      (function() {
+        try {
+          var stored = JSON.parse(localStorage.getItem('flink-workspace') || '{}');
+          var theme = stored && stored.state && stored.state.theme
+            ? stored.state.theme
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

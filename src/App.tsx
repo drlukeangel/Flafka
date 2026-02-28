@@ -6,7 +6,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { Dropdown } from './components/Dropdown';
 import Toast from './components/ui/Toast';
 import { env } from './config/environment';
-import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock } from 'react-icons/fi';
+import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun } from 'react-icons/fi';
 import './App.css';
 
 // Helper: map compute pool phase to dot CSS class
@@ -45,6 +45,7 @@ function App() {
     computePoolCfu,
     statementHistory,
     historyLoading,
+    theme,
     setCatalog,
     setDatabase,
     loadCatalogs,
@@ -52,6 +53,7 @@ function App() {
     addStatement,
     runAllStatements,
     toggleSidebar,
+    toggleTheme,
     loadComputePoolStatus,
     loadStatementHistory,
   } = useWorkspaceStore();
@@ -67,6 +69,11 @@ function App() {
   const historyPanelRef = useRef<HTMLDivElement>(null);
 
   const totalRowsCached = statements.reduce((sum, s) => sum + (s.results?.length ?? 0), 0);
+
+  useEffect(() => {
+    // Sync theme to DOM attribute on mount and whenever it changes
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   useEffect(() => {
     // Load initial data
@@ -137,6 +144,15 @@ function App() {
           </div>
         </div>
         <div className="header-right">
+          <button
+            className="header-btn"
+            onClick={toggleTheme}
+            title="Toggle dark/light theme"
+            aria-label="Toggle dark/light theme"
+          >
+            {theme === 'light' ? <FiMoon size={18} /> : <FiSun size={18} />}
+          </button>
+
           <div className="history-wrapper" ref={historyPanelRef}>
             <button
               className={`header-btn${showHistory ? ' active' : ''}`}

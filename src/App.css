@@ -344,7 +344,7 @@
 }
 
 .history-status-dot--running {
-  background-color: var(--color-info, #3B82F6);
+  background-color: var(--color-info);
 }
 
 .history-status-dot--pending {
@@ -405,7 +405,7 @@
 .history-load-btn:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background-color: rgba(73, 51, 215, 0.05);
+  background-color: var(--color-surface-primary-tint);
 }
 
 /* App Content */
@@ -544,8 +544,8 @@
 
 /* Tree highlight for matching text */
 .tree-highlight {
-  background-color: #FEF08A;
-  color: #78350F;
+  background-color: var(--color-highlight-bg);
+  color: var(--color-highlight-text);
   border-radius: 2px;
   padding: 0 1px;
 }
@@ -583,7 +583,7 @@
 }
 
 .tree-node.selected {
-  background-color: #E5E7EB;
+  background-color: var(--color-border);
 }
 
 .node-chevron {
@@ -609,11 +609,11 @@
 }
 
 .node-icon.table {
-  color: #22C55E;
+  color: var(--color-table);
 }
 
 .node-icon.view {
-  color: #8B5CF6;
+  color: var(--color-view);
 }
 
 .node-label {
@@ -707,7 +707,7 @@
 }
 
 @keyframes schemaColCopyFlash {
-  0%   { background-color: #D1FAE5; }
+  0%   { background-color: var(--color-copy-flash); }
   100% { background-color: transparent; }
 }
 
@@ -855,7 +855,7 @@
 
 .dropdown-trigger.open {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(73, 51, 215, 0.1);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 .dropdown-value {
@@ -926,7 +926,7 @@
 }
 
 .dropdown-option.selected {
-  background-color: #EFF6FF;
+  background-color: var(--color-surface-info);
   color: var(--color-primary);
   font-weight: 500;
 }
@@ -1105,7 +1105,7 @@
 
 .cell-header.confirming-delete {
   border-left: 3px solid var(--color-error);
-  background-color: #FEF2F2;
+  background-color: var(--color-surface-error);
 }
 
 .run-btn {
@@ -1154,22 +1154,22 @@
 
 .status-badge.pending {
   color: var(--color-warning);
-  background-color: #FFFBEB;
+  background-color: var(--color-surface-warning);
 }
 
 .status-badge.running {
   color: var(--color-success);
-  background-color: #ECFDF5;
+  background-color: var(--color-surface-success);
 }
 
 .status-badge.completed {
   color: var(--color-success);
-  background-color: #ECFDF5;
+  background-color: var(--color-surface-success);
 }
 
 .status-badge.error {
   color: var(--color-error);
-  background-color: #FEF2F2;
+  background-color: var(--color-surface-error);
 }
 
 .status-badge.cancelled {
@@ -1208,8 +1208,8 @@
   align-items: flex-start;
   gap: 8px;
   padding: 12px 16px;
-  background-color: #FEF2F2;
-  border-bottom: 1px solid #FECACA;
+  background-color: var(--color-surface-error);
+  border-bottom: 1px solid var(--color-error);
   color: var(--color-error);
   font-size: 13px;
 }
@@ -1509,7 +1509,7 @@
 .results-table th {
   position: sticky;
   top: 0;
-  background-color: #F3F4F6;
+  background-color: var(--color-surface-secondary);
   border-bottom: 1px solid var(--color-border);
   text-align: left;
   font-weight: 600;
@@ -1518,7 +1518,7 @@
 }
 
 .results-table th:hover {
-  background-color: #E5E7EB;
+  background-color: var(--color-row-hover);
 }
 
 .th-content {
@@ -1552,11 +1552,11 @@
 }
 
 .results-cell:hover {
-  background: var(--color-bg-hover, #E9ECEF) !important;
+  background: var(--color-bg-hover) !important;
 }
 
 @keyframes cellCopyFlash {
-  0%   { background-color: #D1FAE5; }
+  0%   { background-color: var(--color-copy-flash); }
   100% { background-color: transparent; }
 }
 
@@ -1570,11 +1570,11 @@
 } */
 
 .results-row-odd {
-  background-color: #fafafa;
+  background-color: var(--color-row-odd);
 }
 
 .results-table tr:hover {
-  background-color: #F0F0F0;
+  background-color: var(--color-row-hover);
 }
 
 .null-value {
@@ -1631,7 +1631,7 @@
 }
 
 .toast-success {
-  background-color: #ECFDF5;
+  background-color: var(--color-surface-success);
   border-left: 4px solid var(--color-success);
 }
 
@@ -1640,7 +1640,7 @@
 }
 
 .toast-error {
-  background-color: #FEF2F2;
+  background-color: var(--color-surface-error);
   border-left: 4px solid var(--color-error);
 }
 
@@ -1649,7 +1649,7 @@
 }
 
 .toast-warning {
-  background-color: #FFFBEB;
+  background-color: var(--color-surface-warning);
   border-left: 4px solid var(--color-warning);
 }
 
@@ -1658,7 +1658,7 @@
 }
 
 .toast-info {
-  background-color: #EFF6FF;
+  background-color: var(--color-surface-info);
   border-left: 4px solid var(--color-info);
 }
 
@@ -1692,7 +1692,7 @@
 }
 
 .toast-close:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--color-surface-secondary);
   color: var(--color-text-primary);
 }
 

@@ -41,6 +41,9 @@ interface WorkspaceState {
   historyLoading: boolean;
   historyError: string | null;
 
+  // Theme
+  theme: 'light' | 'dark';
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
@@ -66,6 +69,7 @@ interface WorkspaceState {
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
   toggleSidebar: () => void;
+  toggleTheme: () => void;
   loadComputePoolStatus: () => Promise<void>;
   loadStatementHistory: () => Promise<void>;
   clearHistoryError: () => void;
@@ -101,6 +105,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       toasts: [],
       sidebarCollapsed: false,
+      theme: 'light',
 
       lastSavedAt: null,
 
@@ -588,6 +593,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
       },
 
+      toggleTheme: () => {
+        set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' }));
+      },
+
       // Compute Pool Status Action
       loadComputePoolStatus: async () => {
         try {
@@ -634,6 +643,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         catalog: state.catalog,
         database: state.database,
         lastSavedAt: state.lastSavedAt,
+        theme: state.theme,
       }),
     }
   )
