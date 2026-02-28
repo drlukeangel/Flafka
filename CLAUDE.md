@@ -46,23 +46,29 @@ Launch both reviewers simultaneously:
 - Each agent gets: the PRD, exact file paths, what to change, acceptance criteria
 - Agents work in isolation on non-overlapping files
 
-#### B2. QA VALIDATE (Sonnet subagents)
-- After impl agents complete, launch QA agents
-- QA agents validate: UI renders correctly, API calls work as expected, edge cases from PRD handled
-- QA agents READ code + use browser automation tools to verify
-- QA agents document bugs as structured findings with severity
+#### B2. BROWSER TEST (Mandatory - Opus orchestrator)
+- Ensure dev server is running (`npm run dev`)
+- Open the app in Chrome via browser automation tools (Claude in Chrome MCP)
+- Visually verify the feature works: take screenshots, click through UI, check renders
+- Test edge cases from the PRD in the actual browser
+- This step is NOT delegated - the orchestrator does it directly to catch real rendering/runtime issues
 
-#### B3. FIX (Haiku subagents)
+#### B3. QA VALIDATE (Sonnet subagents)
+- After browser test passes, launch QA agents for code review
+- QA agents validate: code correctness, API calls, edge cases from PRD handled
+- QA agents READ code and document bugs as structured findings with severity
+
+#### B4. FIX (Haiku subagents)
 - For each bug found by QA, launch a fixer agent
 - Fixer gets: the bug description, file path, expected vs actual behavior
 - Re-QA after fixes if severity was high
 
-#### B4. UX REVIEW (Sonnet subagent)
+#### B5. UX REVIEW (Sonnet subagent)
 - After QA passes, launch UX review agent
 - Reviews: consistency with existing UI, accessibility, polish, responsive behavior
 - Documents UX issues as structured findings
 
-#### B5. FIX UX (Haiku subagents)
+#### B6. FIX UX (Haiku subagents)
 - Fix any UX issues found
 
 ### Phase C: SHIP
@@ -75,6 +81,7 @@ Launch both reviewers simultaneously:
 ### Key Rules
 - **You (Opus) are the orchestrator** - supervise, don't implement directly
 - **NEVER skip design review** - both architect and engineer must sign off before coding
+- **NEVER skip browser testing** - every feature must be visually verified in Chrome before QA
 - **Smallest possible tasks** for maximum parallelism
 - **Never skip QA** - every feature gets validated
 - **Fix bugs in real-time** - don't batch them
