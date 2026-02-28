@@ -149,7 +149,7 @@ export interface ComputePoolStatus {
  */
 export const getComputePoolStatus = async (): Promise<ComputePoolStatus | null> => {
   try {
-    const url = `/fcpm/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
+    const url = `/api/fcpm/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
     const response = await confluentClient.get(url);
     const data = response.data;
     return {
