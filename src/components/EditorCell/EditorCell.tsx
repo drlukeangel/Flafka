@@ -13,6 +13,7 @@ import {
   FiLoader,
   FiAlertCircle,
   FiCheckCircle,
+  FiRefreshCw,
 } from 'react-icons/fi';
 import ResultsTable from '../ResultsTable/ResultsTable';
 
@@ -309,6 +310,28 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             <div className="cell-error">
               <FiAlertCircle size={16} />
               <span>{statement.error}</span>
+              <button
+                className="retry-btn"
+                onClick={() => executeStatement(statement.id)}
+                title="Retry this statement"
+              >
+                <FiRefreshCw size={12} />
+                <span>Retry</span>
+              </button>
+            </div>
+          )}
+
+          {statement.status === 'CANCELLED' && !hasError && (
+            <div className="cell-cancelled">
+              <span>Statement was cancelled.</span>
+              <button
+                className="retry-btn"
+                onClick={() => executeStatement(statement.id)}
+                title="Retry this statement"
+              >
+                <FiRefreshCw size={12} />
+                <span>Retry</span>
+              </button>
             </div>
           )}
 

@@ -399,6 +399,33 @@
   background-color: var(--color-primary-dark);
 }
 
+.run-all-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background-color: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.run-all-btn:hover:not(:disabled) {
+  background-color: var(--color-primary);
+  color: white;
+}
+
+.run-all-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--color-text-tertiary);
+  border-color: var(--color-border);
+}
+
 /* Dropdown */
 .dropdown {
   display: flex;
@@ -756,6 +783,42 @@
 .cell-error svg {
   flex-shrink: 0;
   margin-top: 2px;
+}
+
+/* Retry Button (inline with error/cancelled messages) */
+.retry-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--color-error);
+  background: transparent;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-error);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.retry-btn:hover {
+  background-color: var(--color-error);
+  color: white;
+}
+
+/* Cell Cancelled notice */
+.cell-cancelled {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background-color: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 13px;
 }
 
 /* Cell Results */
