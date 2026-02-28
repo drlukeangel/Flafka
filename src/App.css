@@ -154,10 +154,6 @@
 }
 
 /* Settings Panel */
-.settings-wrapper {
-  position: relative;
-}
-
 .settings-panel {
   position: absolute;
   top: calc(100% + 8px);
@@ -216,23 +212,12 @@
 }
 
 /* History Panel */
-.history-wrapper {
-  position: relative;
-}
-
 .history-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 380px;
   background-color: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: var(--shadow-lg);
-  z-index: 100;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  height: 100%;
 }
 
 .history-panel-header {
@@ -545,6 +530,55 @@
 .sidebar--collapsed .sidebar-collapse-btn {
   right: -20px;
   border-radius: 0 4px 4px 0;
+}
+
+/* Side Panel */
+.side-panel {
+  width: var(--side-panel-width, 300px);
+  min-width: var(--side-panel-width, 300px);
+  height: 100%;
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.side-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Settings in Side Panel (override absolute positioning) */
+.settings-side-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-side-panel .settings-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-side-panel .settings-section:last-child {
+  border-bottom: none;
+}
+
+/* Coming Soon Panel */
+.coming-soon-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.coming-soon-text {
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
 }
 
 /* Tree Navigator */

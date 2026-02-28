@@ -93,3 +93,6 @@ export interface WorkspaceImportData {
   exportedAt?: string;
   version?: string;
 }
+
+// Navigation Rail Types
+export type NavItem = 'workspace' | 'tree' | 'topics' | 'schemas' | 'history' | 'help' | 'settings';

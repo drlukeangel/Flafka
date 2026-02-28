@@ -9,7 +9,8 @@ import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
-import { FiDatabase, FiPlay, FiPlus, FiSettings, FiCpu, FiChevronLeft, FiChevronRight, FiClock, FiMoon, FiSun, FiEdit2, FiHelpCircle } from 'react-icons/fi';
+import { FiDatabase, FiPlay, FiPlus, FiCpu, FiMoon, FiSun, FiEdit2 } from 'react-icons/fi';
+import { NavRail } from './components/NavRail/NavRail';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import './App.css';
 
@@ -43,11 +44,10 @@ function App() {
     catalogs,
     databases,
     statements,
-    sidebarCollapsed,
+    activeNavItem,
+    setActiveNavItem,
     computePoolPhase,
     computePoolCfu,
-    statementHistory,
-    historyLoading,
     theme,
     workspaceName,
     hasSeenOnboardingHint,
@@ -61,7 +61,6 @@ function App() {
     loadDatabases,
     addStatement,
     runAllStatements,
-    toggleSidebar,
     toggleTheme,
     loadComputePoolStatus,
     loadStatementHistory,
@@ -76,12 +75,6 @@ function App() {
   );
 
   const showOnboardingHint = !hasSeenOnboardingHint && statements.length === 1 && statements[0].status === 'IDLE';
-
-  const [showSettings, setShowSettings] = useState(false);
-  const settingsPanelRef = useRef<HTMLDivElement>(null);
-
-  const [showHistory, setShowHistory] = useState(false);
-  const historyPanelRef = useRef<HTMLDivElement>(null);
 
   const [helpPanelOpen, setHelpPanelOpen] = useState(false);
   const [helpTopicId, setHelpTopicId] = useState<string | undefined>(undefined);
@@ -117,30 +110,6 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Close settings panel when clicking outside
-  useEffect(() => {
-    if (!showSettings) return;
-    function handleOutsideClick(e: MouseEvent) {
-      if (settingsPanelRef.current && !settingsPanelRef.current.contains(e.target as Node)) {
-        setShowSettings(false);
-      }
-    }
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showSettings]);
-
-  // Close history panel when clicking outside
-  useEffect(() => {
-    if (!showHistory) return;
-    function handleOutsideClick(e: MouseEvent) {
-      if (historyPanelRef.current && !historyPanelRef.current.contains(e.target as Node)) {
-        setShowHistory(false);
-      }
-    }
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [showHistory]);
-
   // Keyboard listener for help panel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -151,28 +120,27 @@ function App() {
 
       if (e.key === '?') {
         e.preventDefault();
-        setHelpPanelOpen(prev => !prev);
+        if (activeNavItem === 'help') {
+          setActiveNavItem('workspace');
+          setHelpPanelOpen(false);
+          setHelpTopicId(undefined);
+        } else {
+          setActiveNavItem('help');
+          setHelpPanelOpen(true);
+        }
         return;
       }
-      if (e.key === 'Escape' && helpPanelOpen) {
+      if (e.key === 'Escape' && activeNavItem === 'help') {
         e.preventDefault();
         e.stopPropagation();
+        setActiveNavItem('workspace');
         setHelpPanelOpen(false);
         setHelpTopicId(undefined);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [helpPanelOpen]);
-
-  const handleOpenHistory = () => {
-    if (!showHistory) {
-      if (!statementHistory.length && !historyLoading) {
-        loadStatementHistory();
-      }
-    }
-    setShowHistory(true);
-  };
+  }, [helpPanelOpen, activeNavItem, setActiveNavItem]);
 
   const handleTitleClick = () => {
     setEditTitleValue(workspaceName);
@@ -324,168 +292,155 @@ function App() {
           >
             {theme === 'light' ? <FiMoon size={18} /> : <FiSun size={18} />}
           </button>
-
-          <div className="history-wrapper" ref={historyPanelRef}>
-            <button
-              className={`header-btn${showHistory ? ' active' : ''}`}
-              onClick={handleOpenHistory}
-              title="Statement History"
-              aria-label="Toggle statement history panel"
-            >
-              <FiClock size={18} />
-            </button>
-
-            {showHistory && (
-              <HistoryPanel
-                onClose={() => setShowHistory(false)}
-                onRefresh={loadStatementHistory}
-                onOpenHelp={(topicId) => {
-                  setHelpPanelOpen(true);
-                  setHelpTopicId(topicId);
-                }}
-              />
-            )}
-          </div>
-
-          <button
-            className={`header-btn${helpPanelOpen ? ' active' : ''}`}
-            onClick={() => setHelpPanelOpen(prev => !prev)}
-            title="Help (?)"
-            aria-label="Toggle help panel"
-          >
-            <FiHelpCircle size={18} />
-          </button>
-
-          <div className="settings-wrapper" ref={settingsPanelRef}>
-            <button
-              className={`header-btn${showSettings ? ' active' : ''}`}
-              onClick={() => setShowSettings((prev) => !prev)}
-              title="Settings"
-              aria-label="Toggle settings panel"
-            >
-              <FiSettings size={18} />
-            </button>
-
-            {showSettings && (
-              <div className="settings-panel">
-                <div className="settings-section">
-                  <span className="settings-section-title">Environment</span>
-                  <div className="settings-row">
-                    <span className="settings-label">Cloud Provider</span>
-                    <span className="settings-value">{env.cloudProvider.toUpperCase() || '\u2014'}</span>
-                  </div>
-                  <div className="settings-row">
-                    <span className="settings-label">Region</span>
-                    <span className="settings-value">{env.cloudRegion || '\u2014'}</span>
-                  </div>
-                  <div className="settings-row">
-                    <span className="settings-label">Compute Pool ID</span>
-                    <span className="settings-value">{maskId(env.computePoolId)}</span>
-                  </div>
-                </div>
-
-                <div className="settings-section">
-                  <span className="settings-section-title">API</span>
-                  <div className="settings-row">
-                    <span className="settings-label">Flink Endpoint</span>
-                    <span className="settings-value">/api/flink</span>
-                  </div>
-                  <div className="settings-row">
-                    <span className="settings-label">Organization ID</span>
-                    <span className="settings-value">{maskId(env.orgId)}</span>
-                  </div>
-                  <div className="settings-row">
-                    <span className="settings-label">Environment ID</span>
-                    <span className="settings-value">{maskId(env.environmentId)}</span>
-                  </div>
-                </div>
-
-                <div className="settings-section">
-                  <span className="settings-section-title">Workspace</span>
-                  <div className="settings-row">
-                    <span className="settings-label">Statements</span>
-                    <span className="settings-value">{statements.length}</span>
-                  </div>
-                  <div className="settings-row">
-                    <span className="settings-label">Rows Cached</span>
-                    <span className="settings-value">{totalRowsCached.toLocaleString()}</span>
-                  </div>
-                  <div className="settings-row settings-row--actions">
-                    <button className="settings-action-btn" onClick={handleExportWorkspace}>
-                      Export Workspace
-                    </button>
-                    <button className="settings-action-btn" onClick={handleImportClick}>
-                      Import Workspace
-                    </button>
-                  </div>
-                </div>
-
-                <div className="settings-section">
-                  <span className="settings-section-title">Session Properties</span>
-                  <p className="settings-help-text">
-                    Flink SQL session properties applied to all statements.
-                  </p>
-                  <div className="property-editor">
-                    {Object.entries(sessionProperties).map(([key, value]) => (
-                      <div key={key} className="property-row">
-                        <span className="property-key" title={key}>{key}</span>
-                        <input
-                          type="text"
-                          value={value}
-                          onChange={(e) => setSessionProperty(key, e.target.value)}
-                          className="property-value"
-                          placeholder="value"
-                        />
-                        <button
-                          onClick={() => removeSessionProperty(key)}
-                          className="property-delete-btn"
-                          title="Remove property"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="property-actions">
-                    <button
-                      onClick={() => {
-                        const newKey = prompt('Property key (e.g., sql.tables.scan.startup.mode):');
-                        if (newKey?.trim()) {
-                          setSessionProperty(newKey.trim(), '');
-                        }
-                      }}
-                      className="settings-action-btn"
-                    >
-                      + Add Property
-                    </button>
-                    <button
-                      onClick={() => resetSessionProperties()}
-                      className="settings-action-btn"
-                    >
-                      Reset Defaults
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </header>
 
       <div className="app-content">
-        {/* Sidebar - Tree Navigator */}
-        <aside className={`sidebar${sidebarCollapsed ? ' sidebar--collapsed' : ''}`}>
-          <div className="sidebar-content">
-            <TreeNavigator />
-          </div>
-          <button
-            className="sidebar-collapse-btn"
-            onClick={toggleSidebar}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {sidebarCollapsed ? <FiChevronRight size={14} /> : <FiChevronLeft size={14} />}
-          </button>
-        </aside>
+        {/* Navigation Rail */}
+        <NavRail />
+
+        {/* Side Panel - conditionally rendered based on active nav item */}
+        {activeNavItem !== 'workspace' && (
+          <aside className="side-panel">
+            <div className="side-panel-content">
+              {activeNavItem === 'tree' && <TreeNavigator />}
+              {activeNavItem === 'history' && (
+                <HistoryPanel
+                  onClose={() => setActiveNavItem('workspace')}
+                  onRefresh={loadStatementHistory}
+                  onOpenHelp={(topicId) => {
+                    setActiveNavItem('help');
+                    setHelpPanelOpen(true);
+                    setHelpTopicId(topicId);
+                  }}
+                />
+              )}
+              {activeNavItem === 'help' && (
+                <HelpPanel
+                  isOpen={true}
+                  onClose={() => {
+                    setActiveNavItem('workspace');
+                    setHelpPanelOpen(false);
+                    setHelpTopicId(undefined);
+                  }}
+                  activeTopicId={helpTopicId}
+                />
+              )}
+              {activeNavItem === 'settings' && (
+                <div className="settings-side-panel">
+                  <div className="settings-section">
+                    <span className="settings-section-title">Environment</span>
+                    <div className="settings-row">
+                      <span className="settings-label">Cloud Provider</span>
+                      <span className="settings-value">{env.cloudProvider.toUpperCase() || '\u2014'}</span>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Region</span>
+                      <span className="settings-value">{env.cloudRegion || '\u2014'}</span>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Compute Pool ID</span>
+                      <span className="settings-value">{maskId(env.computePoolId)}</span>
+                    </div>
+                  </div>
+
+                  <div className="settings-section">
+                    <span className="settings-section-title">API</span>
+                    <div className="settings-row">
+                      <span className="settings-label">Flink Endpoint</span>
+                      <span className="settings-value">/api/flink</span>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Organization ID</span>
+                      <span className="settings-value">{maskId(env.orgId)}</span>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Environment ID</span>
+                      <span className="settings-value">{maskId(env.environmentId)}</span>
+                    </div>
+                  </div>
+
+                  <div className="settings-section">
+                    <span className="settings-section-title">Workspace</span>
+                    <div className="settings-row">
+                      <span className="settings-label">Statements</span>
+                      <span className="settings-value">{statements.length}</span>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Rows Cached</span>
+                      <span className="settings-value">{totalRowsCached.toLocaleString()}</span>
+                    </div>
+                    <div className="settings-row settings-row--actions">
+                      <button className="settings-action-btn" onClick={handleExportWorkspace}>
+                        Export Workspace
+                      </button>
+                      <button className="settings-action-btn" onClick={handleImportClick}>
+                        Import Workspace
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="settings-section">
+                    <span className="settings-section-title">Session Properties</span>
+                    <p className="settings-help-text">
+                      Flink SQL session properties applied to all statements.
+                    </p>
+                    <div className="property-editor">
+                      {Object.entries(sessionProperties).map(([key, value]) => (
+                        <div key={key} className="property-row">
+                          <span className="property-key" title={key}>{key}</span>
+                          <input
+                            type="text"
+                            value={value}
+                            onChange={(e) => setSessionProperty(key, e.target.value)}
+                            className="property-value"
+                            placeholder="value"
+                          />
+                          <button
+                            onClick={() => removeSessionProperty(key)}
+                            className="property-delete-btn"
+                            title="Remove property"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="property-actions">
+                      <button
+                        onClick={() => {
+                          const newKey = prompt('Property key (e.g., sql.tables.scan.startup.mode):');
+                          if (newKey?.trim()) {
+                            setSessionProperty(newKey.trim(), '');
+                          }
+                        }}
+                        className="settings-action-btn"
+                      >
+                        + Add Property
+                      </button>
+                      <button
+                        onClick={() => resetSessionProperties()}
+                        className="settings-action-btn"
+                      >
+                        Reset Defaults
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {activeNavItem === 'topics' && (
+                <div className="coming-soon-panel">
+                  <span className="coming-soon-text">Topics management coming soon</span>
+                </div>
+              )}
+              {activeNavItem === 'schemas' && (
+                <div className="coming-soon-panel">
+                  <span className="coming-soon-text">Schema management coming soon</span>
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
 
         {/* Main Content - Editor Area */}
         <main className="main-content">
@@ -539,6 +494,7 @@ function App() {
                 statement={statement}
                 index={index}
                 onOpenHelp={(topicId) => {
+                  setActiveNavItem('help');
                   setHelpPanelOpen(true);
                   setHelpTopicId(topicId);
                 }}
@@ -549,16 +505,6 @@ function App() {
 
           {/* Footer Status */}
           <FooterStatus />
-
-          {/* Help Panel */}
-          <HelpPanel
-            isOpen={helpPanelOpen}
-            onClose={() => {
-              setHelpPanelOpen(false);
-              setHelpTopicId(undefined);
-            }}
-            activeTopicId={helpTopicId}
-          />
         </main>
       </div>
 

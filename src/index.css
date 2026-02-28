@@ -61,6 +61,12 @@
   --transition-fast: 100ms;
   --transition-normal: 200ms;
   --transition-slow: 300ms;
+
+  /* Navigation Rail */
+  --nav-rail-width: 48px;
+  --nav-rail-expanded-width: 220px;
+  --nav-rail-transition: 200ms ease-in-out;
+  --side-panel-width: 300px;
 }
 
 [data-theme="dark"] {
@@ -214,4 +220,225 @@ body {
   background-color: var(--color-surface-secondary);
   color: var(--color-text-tertiary);
   cursor: default;
+}
+
+/* Help Panel Overlay */
+.help-panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: helpFadeIn 0.2s ease-out;
+}
+
+@keyframes helpFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes helpSlideIn {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* Help Panel Container */
+.help-panel {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 720px;
+  height: 80vh;
+  max-height: 600px;
+  display: flex;
+  flex-direction: column;
+  animation: helpSlideIn 0.3s ease-out;
+}
+
+/* Help Panel Header */
+.help-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.help-panel-search {
+  flex: 1;
+  margin-right: 12px;
+}
+
+.help-panel-search input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.help-panel-search input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-surface-primary-tint);
+}
+
+.help-panel-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s ease;
+}
+
+.help-panel-close-btn:hover {
+  color: var(--color-text-primary);
+}
+
+/* Help Panel Tabs */
+.help-panel-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px 0;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.help-panel-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.help-panel-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.help-panel-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+/* Help Panel Content */
+.help-panel-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.help-topic {
+  margin-bottom: 24px;
+}
+
+.help-heading {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--color-text-primary);
+}
+
+.help-text {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+  color: var(--color-text-secondary);
+}
+
+.help-code-block {
+  background: var(--color-surface-secondary);
+  color: var(--color-text-primary);
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 12px 0;
+  border: 1px solid var(--color-border);
+}
+
+.help-code-copy-btn {
+  float: right;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: opacity 0.2s ease;
+}
+
+.help-code-copy-btn:hover {
+  opacity: 0.8;
+}
+
+/* Help Panel Lists */
+.help-panel-content ul {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.help-panel-content li {
+  margin-bottom: 6px;
+  color: var(--color-text-secondary);
+}
+
+/* No Results */
+.help-no-results {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-secondary);
+}
+
+.help-no-results p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Contextual Help Button */
+.help-button-small {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.help-button-small:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }

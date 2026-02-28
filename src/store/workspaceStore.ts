@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
 import { env } from '../config/environment';
-import type { SQLStatement, StatementStatus, TreeNode, Column, Toast } from '../types';
+import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem } from '../types';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 
 export interface WorkspaceState {
@@ -30,6 +30,10 @@ export interface WorkspaceState {
   toasts: Toast[];
   sidebarCollapsed: boolean;
   workspaceName: string;
+
+  // Navigation Rail
+  activeNavItem: NavItem;
+  navExpanded: boolean;
 
   // Persistence
   lastSavedAt: string | null;
@@ -81,6 +85,8 @@ export interface WorkspaceState {
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
   toggleSidebar: () => void;
+  setActiveNavItem: (item: NavItem) => void;
+  toggleNavExpanded: () => void;
   toggleTheme: () => void;
   loadComputePoolStatus: () => Promise<void>;
   loadStatementHistory: () => Promise<void>;
@@ -125,6 +131,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       toasts: [],
       sidebarCollapsed: false,
       workspaceName: 'SQL Workspace',
+      activeNavItem: 'workspace' as NavItem,
+      navExpanded: false,
       theme: 'light',
 
       lastSavedAt: null,
@@ -632,6 +640,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed }));
       },
 
+      setActiveNavItem: (item) => {
+        set({ activeNavItem: item });
+      },
+
+      toggleNavExpanded: () => {
+        set((state) => ({ navExpanded: !state.navExpanded }));
+      },
+
       toggleTheme: () => {
         set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' }));
       },
@@ -640,11 +656,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadComputePoolStatus: async () => {
         try {
           const status = await flinkApi.getComputePoolStatus();
-          if (status) {
-            set({ computePoolPhase: status.phase, computePoolCfu: status.currentCfu });
-          } else {
-            set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null });
-          }
+          set({ computePoolPhase: status.phase, computePoolCfu: status.currentCfu });
         } catch (error) {
           console.error('Failed to load compute pool status:', error);
           set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null });
@@ -777,6 +789,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         theme: state.theme,
         workspaceName: state.workspaceName,
         hasSeenOnboardingHint: state.hasSeenOnboardingHint,
+        navExpanded: state.navExpanded,
         sessionProperties: state.sessionProperties,
       }),
     }
