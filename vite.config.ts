@@ -30,7 +30,7 @@ export default defineConfig(({ mode }) => {
         '/api/fcpm': {
           target: 'https://api.confluent.cloud',
           changeOrigin: true,
-          rewrite: (path) => path.replace(/^\/api\/fcpm/, ''),
+          rewrite: (path) => path.replace(/^\/api\/fcpm/, '/fcpm'),
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq, req) => {
               // Forward authorization header
