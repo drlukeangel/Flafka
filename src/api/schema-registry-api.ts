@@ -62,6 +62,28 @@ export async function getCompatibilityMode(subject: string): Promise<Compatibili
   }
 }
 
+/**
+ * Item 4: Like getCompatibilityMode but also returns whether the level is inherited
+ * from the global default (isGlobal=true) or set at the subject level (isGlobal=false).
+ */
+export async function getCompatibilityModeWithSource(
+  subject: string
+): Promise<{ level: CompatibilityLevel; isGlobal: boolean }> {
+  try {
+    const response = await schemaRegistryClient.get<{ compatibilityLevel: string }>(
+      `/config/${encodeURIComponent(subject)}`
+    );
+    return { level: response.data.compatibilityLevel as CompatibilityLevel, isGlobal: false };
+  } catch (error: unknown) {
+    const axiosError = error as { response?: { status?: number } };
+    if (axiosError.response?.status === 404) {
+      const globalResponse = await schemaRegistryClient.get<{ compatibilityLevel: string }>('/config');
+      return { level: globalResponse.data.compatibilityLevel as CompatibilityLevel, isGlobal: true };
+    }
+    throw error;
+  }
+}
+
 export async function setCompatibilityMode(subject: string, level: CompatibilityLevel): Promise<{ compatibility: string }> {
   const response = await schemaRegistryClient.put<{ compatibility: string }>(
     `/config/${encodeURIComponent(subject)}`,

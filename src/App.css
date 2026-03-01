@@ -16,6 +16,10 @@
   outline: 2px solid var(--color-primary);
   outline-offset: -2px;
 }
+/* Item 2: reveal copy button on row hover */
+.schema-tree-row:hover .field-copy-btn {
+  opacity: 1 !important;
+}
 
 /* App Layout */
 .app {

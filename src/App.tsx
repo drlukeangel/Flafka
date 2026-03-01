@@ -12,6 +12,7 @@ import { env } from './config/environment';
 import { FiDatabase, FiPlay, FiPlus, FiCpu, FiMoon, FiSun, FiEdit2 } from 'react-icons/fi';
 import { NavRail } from './components/NavRail/NavRail';
 import SchemaPanel from './components/SchemaPanel/SchemaPanel';
+import TopicPanel from './components/TopicPanel/TopicPanel';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import './App.css';
 
@@ -444,11 +445,7 @@ function App() {
                   </div>
                 </div>
               )}
-              {activeNavItem === 'topics' && (
-                <div className="coming-soon-panel">
-                  <span className="coming-soon-text">Topics management coming soon</span>
-                </div>
-              )}
+              {activeNavItem === 'topics' && <TopicPanel />}
               {activeNavItem === 'schemas' && <SchemaPanel />}
             </div>
           </aside>

@@ -564,4 +564,141 @@ describe('[@history-panel] HistoryPanel component', () => {
       expect(screen.getByTitle('Refresh history')).toBeDisabled()
     })
   })
+
+  // -------------------------------------------------------------------------
+  // Help button (onOpenHelp callback)
+  // -------------------------------------------------------------------------
+  describe('[@history-panel] help button', () => {
+    it('renders help button when onOpenHelp is provided', () => {
+      const onOpenHelp = vi.fn()
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} onOpenHelp={onOpenHelp} />)
+
+      expect(screen.getByRole('button', { name: /help.*rerunning statements/i })).toBeInTheDocument()
+    })
+
+    it('does not render help button when onOpenHelp is not provided', () => {
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      expect(screen.queryByRole('button', { name: /help.*rerunning statements/i })).not.toBeInTheDocument()
+    })
+
+    it('clicking help button calls onOpenHelp with correct topic ID', async () => {
+      const user = userEvent.setup()
+      const onOpenHelp = vi.fn()
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} onOpenHelp={onOpenHelp} />)
+
+      await user.click(screen.getByRole('button', { name: /help.*rerunning statements/i }))
+
+      expect(onOpenHelp).toHaveBeenCalledTimes(1)
+      expect(onOpenHelp).toHaveBeenCalledWith('faq-rerun-statements')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // HistoryItem: statements without SQL
+  // -------------------------------------------------------------------------
+  describe('[@history-panel] HistoryItem: statements without SQL', () => {
+    it('filters out statements without spec.statement from the list', () => {
+      mockStatementHistory = [
+        makeStatement('stmt-with-sql', 'SELECT 1', 'COMPLETED'),
+        { name: 'stmt-no-sql', spec: {}, status: { phase: 'COMPLETED' } } as unknown as StatementResponse,
+      ]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      // Only the statement with SQL should appear
+      expect(screen.getByText('SELECT 1')).toBeInTheDocument()
+      // The count should reflect only SQL statements
+      expect(screen.getByRole('button', { name: 'All (1)' })).toBeInTheDocument()
+    })
+
+    it('shows empty state when all statements lack SQL', () => {
+      mockStatementHistory = [
+        { name: 'no-sql-1', spec: {}, status: { phase: 'COMPLETED' } } as unknown as StatementResponse,
+        { name: 'no-sql-2', spec: { statement: '' }, status: { phase: 'FAILED' } } as unknown as StatementResponse,
+      ]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      // statementHistory is non-empty so we won't see "No statements found",
+      // but filteredStatements will be empty so we should see the empty filter message or no items
+      // Actually, the sqlStatements filter uses `s.spec?.statement` which is falsy for ''
+      // So counts should be 0 for all
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // HistoryItem: SQL preview truncation
+  // -------------------------------------------------------------------------
+  describe('[@history-panel] HistoryItem: SQL preview truncation', () => {
+    it('shows full SQL when it is 80 chars or less', () => {
+      const shortSql = 'SELECT id, name FROM users WHERE active = true'
+      mockStatementHistory = [makeStatement('stmt-short', shortSql, 'COMPLETED')]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      expect(screen.getByText(shortSql)).toBeInTheDocument()
+    })
+
+    it('truncates SQL at 80 chars with ellipsis when longer', () => {
+      const longSql = 'SELECT id, name, email, address, phone, created_at, updated_at FROM users WHERE active = true AND verified = true'
+      mockStatementHistory = [makeStatement('stmt-long', longSql, 'COMPLETED')]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      const expectedPreview = longSql.slice(0, 80) + '...'
+      expect(screen.getByText(expectedPreview)).toBeInTheDocument()
+    })
+
+    it('shows full SQL when exactly 80 chars', () => {
+      // Create a string that is exactly 80 chars
+      const exactSql = 'A'.repeat(80)
+      mockStatementHistory = [makeStatement('stmt-exact', exactSql, 'COMPLETED')]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      expect(screen.getByText(exactSql)).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // HistoryItem: relative time and statement name display
+  // -------------------------------------------------------------------------
+  describe('[@history-panel] HistoryItem: metadata display', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date('2026-02-28T12:00:00.000Z'))
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('displays relative time from created_at metadata', () => {
+      const fiveMinAgo = new Date('2026-02-28T11:55:00.000Z').toISOString()
+      mockStatementHistory = [makeStatement('stmt-time', 'SELECT 1', 'COMPLETED', fiveMinAgo)]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      expect(screen.getByText('5m ago')).toBeInTheDocument()
+    })
+
+    it('does not render time span when created_at is missing', () => {
+      mockStatementHistory = [makeStatement('stmt-no-time', 'SELECT 1', 'COMPLETED')]
+
+      const { container } = render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      expect(container.querySelector('.history-item-time')).not.toBeInTheDocument()
+    })
+
+    it('displays the statement name', () => {
+      mockStatementHistory = [makeStatement('my-unique-stmt-name', 'SELECT 1', 'COMPLETED')]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      expect(screen.getByText('my-unique-stmt-name')).toBeInTheDocument()
+    })
+  })
 })

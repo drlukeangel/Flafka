@@ -1,31 +1,83 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { FiArrowLeft, FiRefreshCw, FiLoader } from 'react-icons/fi';
 import SchemaList from './SchemaList';
 import SchemaDetail from './SchemaDetail';
+
+const MIN_PANEL_WIDTH = 260;
+const MAX_PANEL_WIDTH = 800;
 
 const SchemaPanel: React.FC = () => {
   const selectedSchemaSubject = useWorkspaceStore((s) => s.selectedSchemaSubject);
   const schemaRegistryLoading = useWorkspaceStore((s) => s.schemaRegistryLoading);
   const loadSchemaRegistrySubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
   const clearSelectedSchema = useWorkspaceStore((s) => s.clearSelectedSchema);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // Load subjects on mount
   useEffect(() => {
     loadSchemaRegistrySubjects();
   }, [loadSchemaRegistrySubjects]);
 
+  // Item 13: Panel resize handle drag logic
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const startWidth = panel.getBoundingClientRect().width;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      // Dragging left = make panel wider (panel is on the right)
+      const delta = startX - moveEvent.clientX;
+      const newWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, startWidth + delta));
+      document.documentElement.style.setProperty('--schema-panel-width', `${newWidth}px`);
+      document.documentElement.style.setProperty('--side-panel-width', `${newWidth}px`);
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
+
   return (
     <div
+      ref={panelRef}
       style={{
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         background: 'var(--color-surface)',
         overflow: 'hidden',
+        position: 'relative',
       }}
       aria-label="Schema Registry panel"
     >
+      {/* Item 13: Resize handle on the left edge */}
+      <div
+        onMouseDown={handleResizeStart}
+        title="Drag to resize panel"
+        aria-label="Resize schema panel"
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          cursor: 'col-resize',
+          zIndex: 10,
+          background: 'transparent',
+          transition: 'background var(--transition-fast)',
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--color-primary)'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+      />
       {/* Panel header */}
       <div
         style={{

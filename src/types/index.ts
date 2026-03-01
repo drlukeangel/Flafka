@@ -136,3 +136,20 @@ export interface SchemaField {
   doc?: string;
   avroMetadata?: Record<string, unknown>;
 }
+
+// Kafka Topic — shape returned by list and detail endpoints
+export interface KafkaTopic {
+  topic_name: string;
+  is_internal: boolean;
+  replication_factor: number;
+  partitions_count: number;
+}
+
+// Topic configuration entry — returned by the configs endpoint
+export interface TopicConfig {
+  name: string;
+  value: string | null;
+  is_default: boolean;
+  is_read_only: boolean;
+  is_sensitive: boolean;
+}

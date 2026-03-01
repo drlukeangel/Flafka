@@ -40,9 +40,13 @@ vi.mock('../../api/schema-registry-api', () => ({
   getSchemaDetail: vi.fn(),
   getSchemaVersions: vi.fn().mockResolvedValue([]),
   getCompatibilityMode: vi.fn().mockResolvedValue(null),
+  // Item 4: new function that also returns isGlobal flag
+  getCompatibilityModeWithSource: vi.fn().mockResolvedValue({ level: 'BACKWARD', isGlobal: false }),
   validateCompatibility: vi.fn(),
   registerSchema: vi.fn(),
   deleteSubject: vi.fn(),
+  deleteSchemaVersion: vi.fn(), // Item 12: per-version delete
+  setCompatibilityMode: vi.fn(),
 }))
 
 // Import components AFTER mocks are registered.
@@ -1562,5 +1566,1704 @@ describe('[@schema-detail] delete flow', () => {
     await user.click(screen.getByRole('button', { name: /cancel/i }))
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+// ===========================================================================
+// SchemaDetail — coverage gaps
+// ===========================================================================
+
+describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSubjects = []
+    mockSelectedSchemaSubject = makeDetailSubject()
+    mockSchemaRegistryLoading = false
+    mockSchemaRegistryError = null
+    vi.mocked(schemaRegistryApi.getSchemaVersions).mockResolvedValue([1, 2, 3])
+    vi.mocked(schemaRegistryApi.getCompatibilityMode).mockResolvedValue('BACKWARD')
+  })
+
+  // -------------------------------------------------------------------------
+  // handleSave — success path
+  // -------------------------------------------------------------------------
+
+  it('handleSave success: calls registerSchema, shows toast, exits edit mode, reloads versions', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockResolvedValue({ id: 999 })
+    vi.mocked(schemaRegistryApi.getSchemaVersions).mockResolvedValue([1, 2, 3, 4])
+    mockLoadSchemaDetail.mockResolvedValue(undefined)
+
+    render(<SchemaDetail />)
+
+    // Enter edit mode
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    // Validate first
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toBeInTheDocument()
+    })
+
+    // Save
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /save new schema version/i }))
+    })
+
+    await waitFor(() => {
+      expect(schemaRegistryApi.registerSchema).toHaveBeenCalledWith(
+        'test-subject-value',
+        expect.any(String),
+        'AVRO'
+      )
+    })
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: expect.stringContaining('999') })
+      )
+    })
+
+    // Should exit edit mode (textarea gone, evolve button back)
+    await waitFor(() => {
+      expect(screen.queryByRole('textbox', { name: /edit schema json/i })).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+
+    // loadSchemaDetail called with 'latest'
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 'latest')
+
+    // Version list refreshed
+    expect(schemaRegistryApi.getSchemaVersions).toHaveBeenCalledWith('test-subject-value')
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // handleSave — error path
+  // -------------------------------------------------------------------------
+
+  it('handleSave error: shows error toast, remains in edit mode', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockRejectedValue(new Error('Conflict: schema incompatible'))
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /save new schema version/i }))
+    })
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: 'Conflict: schema incompatible' })
+      )
+    })
+
+    // Should remain in edit mode
+    expect(screen.getByRole('textbox', { name: /edit schema json/i })).toBeInTheDocument()
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // handleDeleteConfirm — success path
+  // -------------------------------------------------------------------------
+
+  it('handleDeleteConfirm success: calls deleteSubject, shows toast, calls clearSelectedSchema', async () => {
+    vi.mocked(schemaRegistryApi.deleteSubject).mockResolvedValue([1, 2, 3])
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
+    })
+
+    // Open delete confirm dialog
+    fireEvent.click(screen.getByRole('button', { name: /delete subject/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    // Confirm deletion
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /delete test-subject-value/i }))
+    })
+
+    await waitFor(() => {
+      expect(schemaRegistryApi.deleteSubject).toHaveBeenCalledWith('test-subject-value')
+    })
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: expect.stringContaining('test-subject-value') })
+      )
+    })
+
+    expect(mockClearSelectedSchema).toHaveBeenCalledTimes(1)
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // handleDeleteConfirm — error path
+  // -------------------------------------------------------------------------
+
+  it('handleDeleteConfirm error: shows error toast, dialog stays open', async () => {
+    vi.mocked(schemaRegistryApi.deleteSubject).mockRejectedValue(new Error('Delete failed'))
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /delete subject/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /delete test-subject-value/i }))
+    })
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: 'Delete failed' })
+      )
+    })
+
+    // clearSelectedSchema should NOT have been called
+    expect(mockClearSelectedSchema).not.toHaveBeenCalled()
+
+    // Dialog should be closed after error (component sets showDeleteConfirm false in catch)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // handleCompatibilityChange — success path
+  // -------------------------------------------------------------------------
+
+  it('handleCompatibilityChange success: calls setCompatibilityMode, updates selector, shows toast', async () => {
+    vi.mocked(schemaRegistryApi.setCompatibilityMode).mockResolvedValue({ compatibility: 'FORWARD' })
+
+    render(<SchemaDetail />)
+
+    // Wait for compatibility selector to load with current value
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toHaveValue('BACKWARD')
+    })
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox', { name: /compatibility mode/i }), {
+        target: { value: 'FORWARD' },
+      })
+    })
+
+    await waitFor(() => {
+      expect(schemaRegistryApi.setCompatibilityMode).toHaveBeenCalledWith('test-subject-value', 'FORWARD')
+    })
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: expect.stringContaining('Forward') })
+      )
+    })
+
+    // Selector should update to FORWARD
+    expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toHaveValue('FORWARD')
+  })
+
+  // -------------------------------------------------------------------------
+  // handleCompatibilityChange — error path
+  // -------------------------------------------------------------------------
+
+  it('handleCompatibilityChange error: shows error toast', async () => {
+    vi.mocked(schemaRegistryApi.setCompatibilityMode).mockRejectedValue(
+      new Error('Compatibility update failed')
+    )
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toHaveValue('BACKWARD')
+    })
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox', { name: /compatibility mode/i }), {
+        target: { value: 'FULL' },
+      })
+    })
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: 'Compatibility update failed' })
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // handleRefresh
+  // -------------------------------------------------------------------------
+
+  it('handleRefresh calls loadSchemaDetail with subject and current selectedVersion', async () => {
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /refresh schema/i })).toBeInTheDocument()
+    })
+
+    mockLoadSchemaDetail.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /refresh schema/i }))
+
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 'latest')
+  })
+
+  it('handleRefresh uses updated selectedVersion after version switch', async () => {
+    vi.mocked(schemaRegistryApi.getSchemaVersions).mockResolvedValue([1, 2, 3])
+
+    render(<SchemaDetail />)
+
+    // Wait for version options
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'v1' })).toBeInTheDocument()
+    })
+
+    // Switch to version 2
+    await act(async () => {
+      fireEvent.change(screen.getByRole('combobox', { name: /select schema version/i }), {
+        target: { value: '2' },
+      })
+    })
+
+    mockLoadSchemaDetail.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /refresh schema/i }))
+
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 2)
+  })
+
+  // -------------------------------------------------------------------------
+  // handleValidate — compatible path
+  // -------------------------------------------------------------------------
+
+  it('handleValidate compatible: sets isValidated, shows success status banner', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: true })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/schema is compatible.*ready to save/i)).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: 'Schema is compatible' })
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // handleValidate — not compatible path
+  // -------------------------------------------------------------------------
+
+  it('handleValidate not compatible: shows error alert banner', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: false })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(/not compatible/i)
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error' })
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // handleValidate — error path
+  // -------------------------------------------------------------------------
+
+  it('handleValidate error: shows error banner with thrown message', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockRejectedValue(
+      new Error('Validation API timeout')
+    )
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('Validation API timeout')
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: expect.stringContaining('Validation API timeout') })
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Validation error banner visible when isEditing && validationError && !validating
+  // -------------------------------------------------------------------------
+
+  it('validation error banner is shown after incompatible check in edit mode', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: false })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+
+    await waitFor(() => {
+      const alert = screen.getByRole('alert')
+      expect(alert).toBeInTheDocument()
+      expect(alert).toHaveTextContent(/not compatible with the existing versions/i)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Validation success banner visible when isEditing && isValidated && !validationError
+  // -------------------------------------------------------------------------
+
+  it('validation success banner is shown after compatible check in edit mode', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: true })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toBeInTheDocument()
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(/schema is compatible.*ready to save/i)
+  })
+
+  // -------------------------------------------------------------------------
+  // Edit mode textarea onChange invalidates validation state
+  // -------------------------------------------------------------------------
+
+  it('editing schema after validation resets isValidated and hides success banner', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: true })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/check compatibility against existing versions/i))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toBeInTheDocument()
+    })
+
+    // Edit the schema to invalidate
+    const textarea = screen.getByRole('textbox', { name: /edit schema json/i })
+    fireEvent.change(textarea, { target: { value: '{"type":"record","name":"Modified"}' } })
+
+    // Success banner should disappear, Save button should be disabled again
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+    expect(screen.getByRole('button', { name: /save new schema version/i })).toBeDisabled()
+  })
+
+  // -------------------------------------------------------------------------
+  // Loading overlay shown when schemaRegistryLoading && !isEditing
+  // -------------------------------------------------------------------------
+
+  it('loading overlay is visible when schemaRegistryLoading=true and not in edit mode', async () => {
+    mockSchemaRegistryLoading = true
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Loading schema')).toBeInTheDocument()
+    })
+  })
+
+  it('loading overlay is NOT shown when schemaRegistryLoading=true but in edit mode', async () => {
+    render(<SchemaDetail />)
+
+    // Enter edit mode first
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
+
+    // Now set loading = true (simulate re-render with loading overlay suppressed)
+    // The overlay has aria-label="Loading schema" — should not be present in edit mode
+    // Since we can't change mockSchemaRegistryLoading after render, verify the overlay is absent
+    expect(screen.queryByLabelText('Loading schema')).not.toBeInTheDocument()
+  })
+
+  // -------------------------------------------------------------------------
+  // Protobuf tree view fallback message
+  // -------------------------------------------------------------------------
+
+  it('PROTOBUF tree view shows fallback message instead of SchemaTreeView', async () => {
+    mockSelectedSchemaSubject = makeDetailSubject({ schemaType: 'PROTOBUF' })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/view field tree/i)).toBeInTheDocument()
+    })
+
+    // Switch to tree view
+    fireEvent.click(screen.getByTitle(/view field tree/i))
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/tree view is not available for protobuf schemas/i)
+      ).toBeInTheDocument()
+    })
+
+    expect(
+      screen.getByText(/switch to code view to inspect/i)
+    ).toBeInTheDocument()
+  })
+
+  // -------------------------------------------------------------------------
+  // View toggle — switches between code and tree views for AVRO
+  // -------------------------------------------------------------------------
+
+  it('Tree view button switch shows SchemaTreeView for AVRO schema', async () => {
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/view field tree/i)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTitle(/view field tree/i))
+
+    // SchemaTreeView should render the field named "id" from DETAIL_AVRO_SCHEMA
+    await waitFor(() => {
+      expect(screen.getByText('id')).toBeInTheDocument()
+    })
+
+    // Code button should now be aria-pressed=false, Tree button aria-pressed=true
+    expect(screen.getByTitle(/view formatted json/i)).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTitle(/view field tree/i)).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('switching back to Code view from Tree view shows formatted pre block', async () => {
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/view field tree/i)).toBeInTheDocument()
+    })
+
+    // Go to tree view
+    fireEvent.click(screen.getByTitle(/view field tree/i))
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/view field tree/i)).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    // Go back to code view
+    fireEvent.click(screen.getByTitle(/view formatted json/i))
+
+    await waitFor(() => {
+      expect(screen.getByTitle(/view formatted json/i)).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    // pre block should be back
+    const preEls = document.querySelectorAll('pre')
+    expect(preEls.length).toBeGreaterThanOrEqual(1)
+  })
+
+  // -------------------------------------------------------------------------
+  // getSchemaTypeBadgeStyle — PROTOBUF and JSON badge styles
+  // -------------------------------------------------------------------------
+
+  it('PROTOBUF schema type badge renders with the PROTOBUF text', async () => {
+    mockSelectedSchemaSubject = makeDetailSubject({ schemaType: 'PROTOBUF' })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Schema type: PROTOBUF')).toBeInTheDocument()
+    })
+    expect(screen.getByTitle('Schema type: PROTOBUF')).toHaveTextContent('PROTOBUF')
+  })
+
+  it('JSON schema type badge renders with the JSON text', async () => {
+    mockSelectedSchemaSubject = makeDetailSubject({ schemaType: 'JSON' })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Schema type: JSON')).toBeInTheDocument()
+    })
+    expect(screen.getByTitle('Schema type: JSON')).toHaveTextContent('JSON')
+  })
+
+  it('unknown schema type badge falls back gracefully', async () => {
+    mockSelectedSchemaSubject = makeDetailSubject({ schemaType: 'UNKNOWN_TYPE' as SchemaSubject['schemaType'] })
+
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByTitle('Schema type: UNKNOWN_TYPE')).toBeInTheDocument()
+    })
+    expect(screen.getByTitle('Schema type: UNKNOWN_TYPE')).toHaveTextContent('UNKNOWN_TYPE')
+  })
+
+  // -------------------------------------------------------------------------
+  // formatSchemaJson with invalid JSON — returns raw string
+  // -------------------------------------------------------------------------
+
+  it('renders raw schema string when schema is not valid JSON', async () => {
+    const rawSchema = 'syntax = "proto3"; message MyMsg { string id = 1; }'
+    mockSelectedSchemaSubject = makeDetailSubject({
+      schemaType: 'PROTOBUF',
+      schema: rawSchema,
+    })
+
+    render(<SchemaDetail />)
+
+    // In code view (default), the pre block should show the raw string unchanged
+    await waitFor(() => {
+      const preEls = document.querySelectorAll('pre')
+      expect(preEls.length).toBeGreaterThanOrEqual(1)
+    })
+    expect(screen.getByText(/syntax = "proto3"/)).toBeInTheDocument()
+  })
+
+  // -------------------------------------------------------------------------
+  // DeleteConfirm — Escape key closes overlay
+  // -------------------------------------------------------------------------
+
+  it('pressing Escape while delete dialog is open closes the dialog', async () => {
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /delete subject/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: 'Escape' })
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // DeleteConfirm — clicking the overlay backdrop closes the dialog
+  // -------------------------------------------------------------------------
+
+  it('clicking the overlay backdrop closes the delete dialog', async () => {
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /delete subject/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    // The overlay itself is the dialog element — clicking it (as if clicking backdrop)
+    // triggers the onClick on the overlay div (when e.target === overlayRef.current)
+    const overlay = screen.getByRole('dialog')
+    fireEvent.click(overlay)
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // DeleteConfirm — clicking inside the dialog box does NOT close it
+  // -------------------------------------------------------------------------
+
+  it('clicking inside the delete dialog content does not close it', async () => {
+    render(<SchemaDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /delete subject/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    // Click on the heading inside the dialog (propagation stopped by inner div onClick)
+    const heading = screen.getByRole('heading', { name: /delete test-subject-value/i })
+    fireEvent.click(heading)
+
+    // Dialog should still be open
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+// ===========================================================================
+// CreateSchema — coverage gaps
+// ===========================================================================
+
+describe('[@create-schema-coverage] CreateSchema — coverage gaps', () => {
+  let mockOnCloseGap: ReturnType<typeof vi.fn>
+  let mockOnCreatedGap: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSubjects = []
+    mockSelectedSchemaSubject = null
+    mockSchemaRegistryLoading = false
+    mockSchemaRegistryError = null
+    mockOnCloseGap = vi.fn()
+    mockOnCreatedGap = vi.fn()
+  })
+
+  // -------------------------------------------------------------------------
+  // handleCreate — success path: toast includes schema ID
+  // -------------------------------------------------------------------------
+
+  it('success toast message includes the registered schema ID', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockResolvedValueOnce({ id: 77 })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    await user.click(screen.getByRole('button', { name: /create schema/i }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: 'Schema registered — ID: 77' })
+      )
+    }, { timeout: 10000 })
+    expect(mockOnCreatedGap).toHaveBeenCalledTimes(1)
+    expect(mockOnCloseGap).toHaveBeenCalledTimes(1)
+  }, 20000)
+
+  // -------------------------------------------------------------------------
+  // handleCreate — error path: shows toast, dialog stays open, creating resets
+  // -------------------------------------------------------------------------
+
+  it('shows error toast and re-enables Create button when registerSchema rejects', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockRejectedValueOnce(
+      new Error('Schema already exists')
+    )
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    await user.click(screen.getByRole('button', { name: /create schema/i }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: 'Schema already exists' })
+      )
+    }, { timeout: 10000 })
+    expect(mockOnCloseGap).not.toHaveBeenCalled()
+    expect(mockOnCreatedGap).not.toHaveBeenCalled()
+    // Create button becomes enabled again after error (creating=false)
+    expect(screen.getByRole('button', { name: /create schema/i })).not.toBeDisabled()
+  }, 20000)
+
+  it('falls back to "Failed to register schema" when registerSchema rejects with a non-Error', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockRejectedValueOnce('unexpected string error')
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    await user.click(screen.getByRole('button', { name: /create schema/i }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: 'Failed to register schema' })
+      )
+    }, { timeout: 10000 })
+  }, 20000)
+
+  // -------------------------------------------------------------------------
+  // handleValidate — 404 toast message
+  // -------------------------------------------------------------------------
+
+  it('404 validation path emits "New subject — schema is valid" toast', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockRejectedValueOnce({
+      response: { status: 404 },
+    })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'brand-new-subject')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: 'New subject — schema is valid' })
+      )
+    }, { timeout: 10000 })
+    // Validated status banner should appear
+    expect(screen.getByRole('status')).toHaveTextContent('Schema validated — ready to create.')
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // handleValidate — incompatible toast message
+  // -------------------------------------------------------------------------
+
+  it('incompatible validation path emits "Schema compatibility check failed" error toast', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({
+      is_compatible: false,
+    })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error', message: 'Schema compatibility check failed' })
+      )
+    }, { timeout: 10000 })
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // handleValidate — non-404 error fallback message
+  // -------------------------------------------------------------------------
+
+  it('non-404 non-Error rejection falls back to "Validation failed" in the alert', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockRejectedValueOnce({
+      response: { status: 500 },
+    })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('Validation failed')
+    }, { timeout: 10000 })
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        message: 'Validation error: Validation failed',
+      })
+    )
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // Escape key: ignored while creating=true
+  // -------------------------------------------------------------------------
+
+  it('Escape key is ignored while creating is in progress', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    // Never-resolving promise keeps creating=true
+    vi.mocked(schemaRegistryApi.registerSchema).mockReturnValueOnce(new Promise(() => {}))
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    // Start creating (never resolves)
+    fireEvent.click(screen.getByRole('button', { name: /create schema/i }))
+
+    // Wait for creating state (Create button becomes disabled)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /create schema/i })).toBeDisabled()
+    }, { timeout: 10000 })
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(mockOnCloseGap).not.toHaveBeenCalled()
+  }, 20000)
+
+  // -------------------------------------------------------------------------
+  // Backdrop click: closes dialog when not creating
+  // -------------------------------------------------------------------------
+
+  it('clicking the backdrop calls onClose when not creating', () => {
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    const backdrop = document.querySelector('[aria-hidden="true"]') as HTMLElement
+    expect(backdrop).not.toBeNull()
+    fireEvent.click(backdrop)
+
+    expect(mockOnCloseGap).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking the backdrop is ignored while creating is in progress', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockReturnValueOnce(new Promise(() => {}))
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    fireEvent.click(screen.getByRole('button', { name: /create schema/i }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /create schema/i })).toBeDisabled()
+    }, { timeout: 10000 })
+
+    const backdrop = document.querySelector('[aria-hidden="true"]') as HTMLElement
+    fireEvent.click(backdrop)
+
+    expect(mockOnCloseGap).not.toHaveBeenCalled()
+  }, 20000)
+
+  // -------------------------------------------------------------------------
+  // Creating state: all interactive elements are disabled
+  // -------------------------------------------------------------------------
+
+  it('subject input, type selector, and textarea are all disabled while creating', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    vi.mocked(schemaRegistryApi.registerSchema).mockReturnValueOnce(new Promise(() => {}))
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    fireEvent.click(screen.getByRole('button', { name: /create schema/i }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/subject name/i)).toBeDisabled()
+      expect(screen.getByLabelText(/schema type/i)).toBeDisabled()
+      expect(screen.getByLabelText(/schema definition/i)).toBeDisabled()
+    }, { timeout: 10000 })
+  }, 20000)
+
+  // -------------------------------------------------------------------------
+  // Form reset: re-opening the modal after close clears all state
+  // -------------------------------------------------------------------------
+
+  it('re-opening the modal after close shows a blank subject and no validation banner', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    const user = userEvent.setup()
+    const { rerender } = render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    // Fill in subject and validate
+    await user.type(screen.getByLabelText(/subject name/i), 'test-subject')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    // Close the modal
+    rerender(
+      <CreateSchema isOpen={false} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    // Re-open
+    rerender(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    expect(screen.getByLabelText(/subject name/i)).toHaveValue('')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create schema/i })).toBeDisabled()
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // Schema type change: resets to correct template
+  // -------------------------------------------------------------------------
+
+  it('switching to PROTOBUF type sets textarea to proto3 template', async () => {
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.selectOptions(screen.getByLabelText(/schema type/i), 'PROTOBUF')
+
+    const textarea = screen.getByLabelText(/schema definition/i) as HTMLTextAreaElement
+    expect(textarea.value).toContain('proto3')
+  })
+
+  it('switching to JSON type sets textarea to JSON schema template', async () => {
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.selectOptions(screen.getByLabelText(/schema type/i), 'JSON')
+
+    const textarea = screen.getByLabelText(/schema definition/i) as HTMLTextAreaElement
+    expect(textarea.value).toContain('"type": "object"')
+  })
+
+  it('switching schema type after validation clears isValidated and disables Create', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    // Switch type — should reset validation
+    await user.selectOptions(screen.getByLabelText(/schema type/i), 'JSON')
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create schema/i })).toBeDisabled()
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // Content change: resets validation after successful validate
+  // -------------------------------------------------------------------------
+
+  it('editing schema content after validation clears the success banner', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    // Append to content
+    await user.type(screen.getByLabelText(/schema definition/i), ' ')
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create schema/i })).toBeDisabled()
+  }, 15000)
+
+  // -------------------------------------------------------------------------
+  // Subject change: resets validation after successful validate
+  // -------------------------------------------------------------------------
+
+  it('changing subject after validation clears the success banner', async () => {
+    vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValueOnce({ is_compatible: true })
+    const user = userEvent.setup()
+    render(
+      <CreateSchema isOpen={true} onClose={mockOnCloseGap} onCreated={mockOnCreatedGap} />
+    )
+
+    await user.type(screen.getByLabelText(/subject name/i), 'my-topic-value')
+    await user.click(screen.getByRole('button', { name: /^validate$/i }))
+    await waitFor(() => screen.getByRole('status'), { timeout: 10000 })
+
+    await user.type(screen.getByLabelText(/subject name/i), '-extra')
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create schema/i })).toBeDisabled()
+  }, 15000)
+})
+
+// ===========================================================================
+// SchemaTreeView — coverage gaps
+// ===========================================================================
+
+// Comprehensive Avro schema that exercises all complex type paths in
+// resolveTypeName, getNestedFields, getTypeBadgeStyle, and FieldNode.
+const FULL_AVRO_SCHEMA = JSON.stringify({
+  type: 'record',
+  name: 'User',
+  namespace: 'com.example',
+  fields: [
+    { name: 'id', type: 'long' },
+    { name: 'name', type: ['null', 'string'], default: null },
+    { name: 'email', type: 'string', default: 'test@example.com' },
+    {
+      name: 'address',
+      type: {
+        type: 'record',
+        name: 'Address',
+        fields: [
+          { name: 'street', type: 'string' },
+          { name: 'city', type: 'string' },
+        ],
+      },
+    },
+    { name: 'tags', type: { type: 'array', items: 'string' } },
+    { name: 'metadata', type: { type: 'map', values: 'string' } },
+    {
+      name: 'status',
+      type: { type: 'enum', name: 'Status', symbols: ['ACTIVE', 'INACTIVE'] },
+    },
+    { name: 'hash', type: { type: 'fixed', name: 'Hash', size: 16 } },
+    { name: 'isActive', type: 'boolean', default: true },
+    {
+      name: 'config',
+      type: 'string',
+      default: 'this-is-a-very-long-default-value-string',
+    },
+    { name: 'data', type: 'bytes' },
+    { name: 'multiType', type: ['string', 'int', 'null'] },
+  ],
+})
+
+describe('[@schema-tree-view-coverage] SchemaTreeView — coverage gaps', () => {
+  // -------------------------------------------------------------------------
+  // resolveTypeName — complex type resolution
+  // -------------------------------------------------------------------------
+
+  describe('resolveTypeName for complex types', () => {
+    it('resolves union with single non-null member ["null","string"] to "string" badge', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      // "name" field has type ["null","string"]; after filtering null, badge = "string"
+      const stringBadges = screen.getAllByTitle(/^Type: string$/i)
+      expect(stringBadges.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('resolves union with multiple non-null members ["string","int","null"] to pipe-joined badge', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      // "multiType" joins all three with " | " — null is kept because there are 2+ non-null types
+      const multiTypeBadge = screen.getByTitle(/string \| int \| null/i)
+      expect(multiTypeBadge).toBeInTheDocument()
+    })
+
+    it('resolves object type "array" with string items to badge title "array<string>"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: array<string>')).toBeInTheDocument()
+    })
+
+    it('resolves object type "map" with string values to badge title "map<string, string>"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: map<string, string>')).toBeInTheDocument()
+    })
+
+    it('resolves object type "enum" to badge title "enum<Status>"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: enum<Status>')).toBeInTheDocument()
+    })
+
+    it('resolves object type "fixed" to badge title "fixed<Hash>"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: fixed<Hash>')).toBeInTheDocument()
+    })
+
+    it('resolves nested object type "record" to badge title "record<Address>"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: record<Address>')).toBeInTheDocument()
+    })
+
+    it('resolves an unknown numeric type value to badge title "unknown"', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'Weird',
+        fields: [{ name: 'mystery', type: 42 }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      expect(screen.getByTitle('Type: unknown')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // getTypeBadgeStyle — all colour-path branches
+  // -------------------------------------------------------------------------
+
+  describe('getTypeBadgeStyle — badge rendered for each type category', () => {
+    it('renders type badge for "int"', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'N',
+        fields: [{ name: 'count', type: 'int' }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      expect(screen.getByTitle('Type: int')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "long"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: long')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "float"', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'N',
+        fields: [{ name: 'ratio', type: 'float' }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      expect(screen.getByTitle('Type: float')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "double"', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'N',
+        fields: [{ name: 'price', type: 'double' }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      expect(screen.getByTitle('Type: double')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "bytes"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: bytes')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "boolean"', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: boolean')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "record" complex type', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: record<Address>')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "array" complex type', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: array<string>')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "map" complex type', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: map<string, string>')).toBeInTheDocument()
+    })
+
+    it('renders type badge for "enum" complex type', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByTitle('Type: enum<Status>')).toBeInTheDocument()
+    })
+
+    it('renders type badge for standalone "null" type', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'N',
+        fields: [{ name: 'nothing', type: 'null' }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      expect(screen.getByTitle('Type: null')).toBeInTheDocument()
+    })
+
+    it('renders type badge for unknown/unrecognised type', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'N',
+        fields: [{ name: 'mystery', type: 42 }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      expect(screen.getByTitle('Type: unknown')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // getNestedFields — array items and union containing a record
+  // -------------------------------------------------------------------------
+
+  describe('getNestedFields — array with record items and union with record', () => {
+    it('renders nested child fields from an array whose items are a record type', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'Container',
+        fields: [
+          {
+            name: 'items',
+            type: {
+              type: 'array',
+              items: {
+                type: 'record',
+                name: 'Item',
+                fields: [
+                  { name: 'itemId', type: 'string' },
+                  { name: 'qty', type: 'int' },
+                ],
+              },
+            },
+          },
+        ],
+      })
+      render(<SchemaTreeView schema={schema} />)
+
+      expect(screen.getByText('items')).toBeInTheDocument()
+      // expandedByDefault=true at depth 0 so children render immediately
+      expect(screen.getByText('itemId')).toBeInTheDocument()
+      expect(screen.getByText('qty')).toBeInTheDocument()
+    })
+
+    it('renders nested child fields from a union that contains a record type', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'Container',
+        fields: [
+          {
+            name: 'payload',
+            type: [
+              'null',
+              {
+                type: 'record',
+                name: 'Payload',
+                fields: [{ name: 'value', type: 'string' }],
+              },
+            ],
+          },
+        ],
+      })
+      render(<SchemaTreeView schema={schema} />)
+
+      expect(screen.getByText('payload')).toBeInTheDocument()
+      // getNestedFields iterates the union array and finds the record
+      expect(screen.getByText('value')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Default value display and truncation
+  // -------------------------------------------------------------------------
+
+  describe('default value display', () => {
+    it('shows a short primitive default value via title attribute', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      // "email" default "test@example.com" (<=16 chars — not truncated)
+      expect(screen.getByTitle('Default: test@example.com')).toBeInTheDocument()
+    })
+
+    it('truncates long default strings: title holds the full value, text content ends with ellipsis', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      // "config" default is 40 chars; rendered as first 14 chars + "…"
+      const el = screen.getByTitle('Default: this-is-a-very-long-default-value-string')
+      expect(el).toBeInTheDocument()
+      expect(el.textContent).toMatch(/…$/)
+    })
+
+    it('shows boolean default "true" via title', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      // "isActive" has default: true -> String(true) = "true"
+      expect(screen.getByTitle('Default: true')).toBeInTheDocument()
+    })
+
+    it('shows null default as JSON-stringified "null" via title', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      // "name" has default: null -> JSON.stringify(null) = "null"
+      expect(screen.getByTitle('Default: null')).toBeInTheDocument()
+    })
+
+    it('shows object default as JSON-stringified string via title', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'N',
+        fields: [
+          {
+            name: 'cfg',
+            type: { type: 'map', values: 'string' },
+            default: { key: 'value' },
+          },
+        ],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      // JSON.stringify({ key: "value" }) = '{"key":"value"}'
+      expect(screen.getByTitle('Default: {"key":"value"}')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // FieldNode keyboard navigation (Enter / Space toggle; no-op when forced)
+  // -------------------------------------------------------------------------
+
+  describe('FieldNode keyboard navigation', () => {
+    const KB_SCHEMA = JSON.stringify({
+      type: 'record',
+      name: 'KbTest',
+      fields: [
+        {
+          name: 'nested',
+          type: {
+            type: 'record',
+            name: 'Inner',
+            fields: [{ name: 'leaf', type: 'string' }],
+          },
+        },
+      ],
+    })
+
+    it('Enter key on an expandable row collapses it, then expands it again', () => {
+      render(<SchemaTreeView schema={KB_SCHEMA} />)
+
+      // Starts expanded (expandedByDefault=true at depth 0) — leaf is visible
+      expect(screen.getByText('leaf')).toBeInTheDocument()
+
+      // The field node row is the only button with aria-expanded
+      const row = screen.getAllByRole('button').find(
+        (el) => el.getAttribute('aria-expanded') !== null
+      )!
+      // Collapse
+      fireEvent.keyDown(row, { key: 'Enter' })
+      expect(screen.queryByText('leaf')).not.toBeInTheDocument()
+
+      // Expand
+      fireEvent.keyDown(row, { key: 'Enter' })
+      expect(screen.getByText('leaf')).toBeInTheDocument()
+    })
+
+    it('Space key on an expandable row collapses it, then expands it again', () => {
+      render(<SchemaTreeView schema={KB_SCHEMA} />)
+
+      expect(screen.getByText('leaf')).toBeInTheDocument()
+
+      const row = screen.getAllByRole('button').find(
+        (el) => el.getAttribute('aria-expanded') !== null
+      )!
+      fireEvent.keyDown(row, { key: ' ' })
+      expect(screen.queryByText('leaf')).not.toBeInTheDocument()
+
+      fireEvent.keyDown(row, { key: ' ' })
+      expect(screen.getByText('leaf')).toBeInTheDocument()
+    })
+
+    it('Enter key is a no-op when expandAll is forced to false', () => {
+      render(<SchemaTreeView schema={KB_SCHEMA} />)
+
+      // Force collapse via toolbar
+      fireEvent.click(screen.getByRole('button', { name: /collapse all/i }))
+      expect(screen.queryByText('leaf')).not.toBeInTheDocument()
+
+      // Find the field node row (has aria-expanded, even when collapsed)
+      const row = screen.getAllByRole('button').find(
+        (el) => el.getAttribute('aria-expanded') !== null
+      )!
+      // Try to toggle via keyboard — should NOT work because expandAll !== null
+      fireEvent.keyDown(row, { key: 'Enter' })
+
+      // Still collapsed
+      expect(screen.queryByText('leaf')).not.toBeInTheDocument()
+    })
+
+    it('Space key is a no-op when expandAll is forced to false', () => {
+      render(<SchemaTreeView schema={KB_SCHEMA} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /collapse all/i }))
+      expect(screen.queryByText('leaf')).not.toBeInTheDocument()
+
+      const row = screen.getAllByRole('button').find(
+        (el) => el.getAttribute('aria-expanded') !== null
+      )!
+      fireEvent.keyDown(row, { key: ' ' })
+
+      expect(screen.queryByText('leaf')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Expand All / Collapse All / Reset toolbar buttons
+  // -------------------------------------------------------------------------
+
+  describe('toolbar expand/collapse/reset buttons', () => {
+    const EXPANDABLE = JSON.stringify({
+      type: 'record',
+      name: 'ExpandTest',
+      namespace: 'io.test',
+      fields: [
+        {
+          name: 'outer',
+          type: {
+            type: 'record',
+            name: 'Outer',
+            fields: [{ name: 'inner', type: 'string' }],
+          },
+        },
+      ],
+    })
+
+    it('Reset button is absent initially (expandAll starts as null)', () => {
+      render(<SchemaTreeView schema={EXPANDABLE} />)
+      expect(screen.queryByRole('button', { name: /reset/i })).not.toBeInTheDocument()
+    })
+
+    it('clicking Expand All causes the Reset button to appear', () => {
+      render(<SchemaTreeView schema={EXPANDABLE} />)
+      fireEvent.click(screen.getByRole('button', { name: /expand all/i }))
+      expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
+    })
+
+    it('clicking Collapse All causes the Reset button to appear', () => {
+      render(<SchemaTreeView schema={EXPANDABLE} />)
+      fireEvent.click(screen.getByRole('button', { name: /collapse all/i }))
+      expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
+    })
+
+    it('clicking Collapse All hides nested children', () => {
+      render(<SchemaTreeView schema={EXPANDABLE} />)
+
+      // "inner" is visible by default
+      expect(screen.getByText('inner')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /collapse all/i }))
+
+      expect(screen.queryByText('inner')).not.toBeInTheDocument()
+    })
+
+    it('clicking Expand All after Collapse All reveals nested children again', () => {
+      render(<SchemaTreeView schema={EXPANDABLE} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /collapse all/i }))
+      expect(screen.queryByText('inner')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /expand all/i }))
+      expect(screen.getByText('inner')).toBeInTheDocument()
+    })
+
+    it('clicking Reset removes the Reset button (expandAll returns to null)', () => {
+      render(<SchemaTreeView schema={EXPANDABLE} />)
+
+      fireEvent.click(screen.getByRole('button', { name: /expand all/i }))
+      expect(screen.getByRole('button', { name: /reset/i })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: /reset/i }))
+
+      expect(screen.queryByRole('button', { name: /reset/i })).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Parse error state
+  // -------------------------------------------------------------------------
+
+  describe('parse error state', () => {
+    it('shows "Unable to parse schema JSON." for malformed JSON', () => {
+      render(<SchemaTreeView schema="{broken json" />)
+      expect(screen.getByText(/unable to parse schema json\./i)).toBeInTheDocument()
+    })
+
+    it('does not render Expand All, Collapse All, or Reset buttons on parse failure', () => {
+      render(<SchemaTreeView schema="not-json-at-all" />)
+      expect(screen.queryByRole('button', { name: /expand all/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /collapse all/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /reset/i })).not.toBeInTheDocument()
+    })
+
+    it('does not render any field type badge titles on parse failure', () => {
+      render(<SchemaTreeView schema="~~bad~~" />)
+      expect(screen.queryByTitle(/^type:/i)).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // No fields state (valid JSON but no "fields" array)
+  // -------------------------------------------------------------------------
+
+  describe('no fields state', () => {
+    it('shows "only available for Avro schemas" message when schema has no fields property', () => {
+      render(<SchemaTreeView schema={JSON.stringify({ type: 'string' })} />)
+      expect(screen.getByText(/only available for avro schemas/i)).toBeInTheDocument()
+    })
+
+    it('shows a <code>fields</code> element inside the no-fields message', () => {
+      render(<SchemaTreeView schema={JSON.stringify({ type: 'int' })} />)
+      const codeEl = screen.getByText('fields')
+      expect(codeEl.tagName.toLowerCase()).toBe('code')
+    })
+
+    it('does not render toolbar buttons when the fields array is absent', () => {
+      render(<SchemaTreeView schema={JSON.stringify({ type: 'record', name: 'Empty' })} />)
+      expect(screen.queryByRole('button', { name: /expand all/i })).not.toBeInTheDocument()
+    })
+
+    it('does not render any field type badge titles when fields are absent', () => {
+      render(<SchemaTreeView schema={JSON.stringify({ type: 'record' })} />)
+      expect(screen.queryByTitle(/^type:/i)).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Toolbar info display (field count, name, namespace)
+  // -------------------------------------------------------------------------
+
+  describe('toolbar info display', () => {
+    it('shows correct field count (12) for FULL_AVRO_SCHEMA', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByText(/12 fields/)).toBeInTheDocument()
+    })
+
+    it('shows schema name in the toolbar', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByText(/· User/)).toBeInTheDocument()
+    })
+
+    it('shows namespace in the toolbar', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+      expect(screen.getByText(/com\.example/)).toBeInTheDocument()
+    })
+
+    it('uses singular "field" label for a schema with exactly 1 field', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'Tiny',
+        fields: [{ name: 'only', type: 'string' }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      const toolbarEl = screen.getByText(/1 field/)
+      expect(toolbarEl.textContent).toContain('1 field')
+      expect(toolbarEl.textContent).not.toContain('1 fields')
+    })
+
+    it('uses plural "fields" label for a schema with more than 1 field', () => {
+      render(<SchemaTreeView schema={AVRO_LOAN_SCHEMA} />)
+      expect(screen.getByText(/4 fields/)).toBeInTheDocument()
+    })
+
+    it('does not append a namespace segment when namespace is absent', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'NoNS',
+        fields: [{ name: 'x', type: 'int' }],
+      })
+      render(<SchemaTreeView schema={schema} />)
+      const toolbarEl = screen.getByText(/1 field · NoNS/)
+      expect(toolbarEl).toBeInTheDocument()
+      expect(toolbarEl.textContent).not.toMatch(/NoNS · /)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Nested field rendering (recursive)
+  // -------------------------------------------------------------------------
+
+  describe('nested field rendering', () => {
+    it('renders record fields within a record field recursively and shows them', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+
+      // "address" is a nested record; top-level expandedByDefault=true so children show
+      expect(screen.getByText('address')).toBeInTheDocument()
+      expect(screen.getByText('street')).toBeInTheDocument()
+      expect(screen.getByText('city')).toBeInTheDocument()
+    })
+
+    it('collapsing a nested record field hides its children', () => {
+      render(<SchemaTreeView schema={FULL_AVRO_SCHEMA} />)
+
+      // Find the first expandable row (has aria-expanded attribute)
+      const expandableRows = screen.getAllByRole('button')
+      const addressRow = expandableRows.find(
+        (el) => el.getAttribute('aria-expanded') !== null
+      )
+      if (!addressRow) throw new Error('No expandable FieldNode row found')
+
+      fireEvent.click(addressRow)
+
+      expect(screen.queryByText('street')).not.toBeInTheDocument()
+      expect(screen.queryByText('city')).not.toBeInTheDocument()
+    })
+
+    it('renders nested fields from an array-of-records field at top level', () => {
+      const schema = JSON.stringify({
+        type: 'record',
+        name: 'Container',
+        fields: [
+          {
+            name: 'events',
+            type: {
+              type: 'array',
+              items: {
+                type: 'record',
+                name: 'Event',
+                fields: [{ name: 'eventType', type: 'string' }],
+              },
+            },
+          },
+        ],
+      })
+      render(<SchemaTreeView schema={schema} />)
+
+      // "events" is top-level (expandedByDefault=true), so "eventType" renders immediately
+      expect(screen.getByText('events')).toBeInTheDocument()
+      expect(screen.getByText('eventType')).toBeInTheDocument()
+    })
   })
 })

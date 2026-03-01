@@ -13,6 +13,10 @@ export interface EnvironmentConfig {
   schemaRegistryUrl?: string;
   schemaRegistryKey?: string;
   schemaRegistrySecret?: string;
+  kafkaClusterId: string;
+  kafkaRestEndpoint: string;
+  kafkaApiKey: string;
+  kafkaApiSecret: string;
 }
 
 export const getEnv = (): EnvironmentConfig => {
@@ -50,6 +54,10 @@ export const getEnv = (): EnvironmentConfig => {
     schemaRegistryUrl: import.meta.env.VITE_SCHEMA_REGISTRY_URL || '',
     schemaRegistryKey: import.meta.env.VITE_SCHEMA_REGISTRY_KEY || '',
     schemaRegistrySecret: import.meta.env.VITE_SCHEMA_REGISTRY_SECRET || '',
+    kafkaClusterId: import.meta.env.VITE_KAFKA_CLUSTER_ID || '',
+    kafkaRestEndpoint: import.meta.env.VITE_KAFKA_REST_ENDPOINT || '',
+    kafkaApiKey: import.meta.env.VITE_KAFKA_API_KEY || '',
+    kafkaApiSecret: import.meta.env.VITE_KAFKA_API_SECRET || '',
   };
 };
 

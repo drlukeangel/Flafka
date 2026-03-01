@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
@@ -791,5 +791,343 @@ describe('[@tree-navigator] TreeNavigator component', () => {
       // Views has 1 child: current_orders
       expect(badgeValues).toContain('1')
     })
+  })
+
+  // -------------------------------------------------------------------------
+  // B10. Schema column click-to-copy
+  // -------------------------------------------------------------------------
+  describe('[@tree-navigator] schema column click-to-copy', () => {
+    beforeEach(() => {
+      mockSelectedTableName = 'customers'
+      mockSelectedTableSchema = [
+        { name: 'id', type: 'BIGINT' },
+        { name: 'user name', type: 'VARCHAR' },
+      ]
+    })
+
+    it('clicking a schema column triggers clipboard copy and shows success toast', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText } })
+
+      const user = userEvent.setup()
+      render(<TreeNavigator />)
+
+      const colDiv = screen.getByText('id').closest('.schema-column')!
+      await user.click(colDiv)
+
+      await vi.waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'success', message: 'Copied: id' }),
+        )
+      })
+    })
+
+    it('clicking a schema column with special chars shows success toast with original name', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText } })
+
+      const user = userEvent.setup()
+      render(<TreeNavigator />)
+
+      const colDiv = screen.getByText('user name').closest('.schema-column')!
+      await user.click(colDiv)
+
+      await vi.waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'success', message: 'Copied: user name' }),
+        )
+      })
+    })
+
+    it('schema column has correct title tooltip', () => {
+      render(<TreeNavigator />)
+
+      const colDiv = screen.getByText('id').closest('.schema-column')!
+      expect(colDiv).toHaveAttribute('title', 'Single-click to copy, double-click to insert at cursor')
+    })
+
+    it('applies schema-column--copied class after successful copy', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText } })
+
+      const user = userEvent.setup()
+      render(<TreeNavigator />)
+
+      const colDiv = screen.getByText('id').closest('.schema-column')!
+      await user.click(colDiv)
+
+      await vi.waitFor(() => {
+        // After clicking, the copiedColName state is set and the class is applied
+        expect(colDiv).toHaveClass('schema-column--copied')
+      })
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // B11. Schema column double-click to insert at cursor
+  // -------------------------------------------------------------------------
+  describe('[@tree-navigator] schema column double-click insert', () => {
+    beforeEach(() => {
+      mockSelectedTableName = 'customers'
+      mockSelectedTableSchema = [{ name: 'id', type: 'BIGINT' }]
+      // Mock clipboard so single-click doesn't throw
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: vi.fn().mockResolvedValue(undefined) },
+        writable: true,
+        configurable: true,
+      })
+    })
+
+    it('double-clicking a schema column calls insertTextAtCursor', async () => {
+      const { insertTextAtCursor } = await import('../../components/EditorCell/editorRegistry')
+      const user = userEvent.setup()
+      render(<TreeNavigator />)
+
+      const colDiv = screen.getByText('id').closest('.schema-column')!
+      await user.dblClick(colDiv)
+
+      expect(insertTextAtCursor).toHaveBeenCalledWith('id')
+    })
+
+    it('shows warning toast when no editor is focused', async () => {
+      const user = userEvent.setup()
+      render(<TreeNavigator />)
+
+      const colDiv = screen.getByText('id').closest('.schema-column')!
+      await user.dblClick(colDiv)
+
+      // insertTextAtCursor is mocked to return false
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'warning' }),
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // B12. Copy icon on tree nodes (table/view)
+  // -------------------------------------------------------------------------
+  describe('[@tree-navigator] tree node copy icon', () => {
+    it('copy icon is rendered for table nodes', () => {
+      render(<TreeNavigator />)
+
+      const copyBtn = screen.getByLabelText('Copy table name customers')
+      expect(copyBtn).toBeInTheDocument()
+    })
+
+    it('copy icon has correct title with quoted name', () => {
+      render(<TreeNavigator />)
+
+      const copyBtn = screen.getByLabelText('Copy table name customers')
+      expect(copyBtn).toHaveAttribute('title', 'Copy: customers')
+    })
+
+    it('clicking copy icon shows success toast', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText } })
+
+      const user = userEvent.setup()
+      render(<TreeNavigator />)
+
+      const copyBtn = screen.getByLabelText('Copy table name customers')
+      await user.click(copyBtn)
+
+      await vi.waitFor(() => {
+        expect(mockAddToast).toHaveBeenCalledWith(
+          expect.objectContaining({ type: 'success', message: 'Copied: customers' }),
+        )
+      })
+    })
+
+    it('clicking copy icon for view node is also available', () => {
+      render(<TreeNavigator />)
+
+      const copyBtn = screen.getByLabelText('Copy table name current_orders')
+      expect(copyBtn).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // B13. Empty category rendering
+  // -------------------------------------------------------------------------
+  describe('[@tree-navigator] empty category rendering', () => {
+    it('shows "No tables yet" when Tables category is expanded but has no children', () => {
+      mockTreeNodes = [
+        {
+          id: 'catalog-prod',
+          name: 'prod',
+          type: 'catalog',
+          isExpanded: true,
+          children: [
+            {
+              id: 'db-warehouse',
+              name: 'warehouse',
+              type: 'database',
+              isExpanded: true,
+              children: [
+                {
+                  id: 'tables-cat',
+                  name: 'Tables',
+                  type: 'tables',
+                  isExpanded: true,
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      render(<TreeNavigator />)
+
+      expect(screen.getByText('No tables yet')).toBeInTheDocument()
+    })
+
+    it('shows "No views yet" when Views category is expanded but has no children', () => {
+      mockTreeNodes = [
+        {
+          id: 'catalog-prod',
+          name: 'prod',
+          type: 'catalog',
+          isExpanded: true,
+          children: [
+            {
+              id: 'db-warehouse',
+              name: 'warehouse',
+              type: 'database',
+              isExpanded: true,
+              children: [
+                {
+                  id: 'views-cat',
+                  name: 'Views',
+                  type: 'views',
+                  isExpanded: true,
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      render(<TreeNavigator />)
+
+      expect(screen.getByText('No views yet')).toBeInTheDocument()
+    })
+
+    it('does not show empty message when category is collapsed', () => {
+      mockTreeNodes = [
+        {
+          id: 'catalog-prod',
+          name: 'prod',
+          type: 'catalog',
+          isExpanded: true,
+          children: [
+            {
+              id: 'db-warehouse',
+              name: 'warehouse',
+              type: 'database',
+              isExpanded: true,
+              children: [
+                {
+                  id: 'tables-cat',
+                  name: 'Tables',
+                  type: 'tables',
+                  isExpanded: false,
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      render(<TreeNavigator />)
+
+      expect(screen.queryByText('No tables yet')).not.toBeInTheDocument()
+    })
+
+    it('shows badge with 0 count for empty category', () => {
+      mockTreeNodes = [
+        {
+          id: 'catalog-prod',
+          name: 'prod',
+          type: 'catalog',
+          isExpanded: true,
+          children: [
+            {
+              id: 'db-warehouse',
+              name: 'warehouse',
+              type: 'database',
+              isExpanded: true,
+              children: [
+                {
+                  id: 'tables-cat',
+                  name: 'Tables',
+                  type: 'tables',
+                  isExpanded: true,
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      ]
+
+      render(<TreeNavigator />)
+
+      const badges = document.querySelectorAll('.tree-node-badge')
+      const badgeValues = Array.from(badges).map((el) => el.textContent)
+      expect(badgeValues).toContain('0')
+    })
+  })
+})
+
+// ===========================================================================
+// Part C: Pure utility — escapeRegex
+// ===========================================================================
+
+describe('[@tree-navigator] escapeRegex', () => {
+  it('escapes dots', () => {
+    expect(escapeRegex('a.b')).toBe('a\\.b')
+  })
+
+  it('escapes asterisks', () => {
+    expect(escapeRegex('a*b')).toBe('a\\*b')
+  })
+
+  it('escapes plus signs', () => {
+    expect(escapeRegex('a+b')).toBe('a\\+b')
+  })
+
+  it('escapes question marks', () => {
+    expect(escapeRegex('a?b')).toBe('a\\?b')
+  })
+
+  it('escapes parentheses', () => {
+    expect(escapeRegex('(a)')).toBe('\\(a\\)')
+  })
+
+  it('escapes square brackets', () => {
+    expect(escapeRegex('[abc]')).toBe('\\[abc\\]')
+  })
+
+  it('escapes curly braces', () => {
+    expect(escapeRegex('{a}')).toBe('\\{a\\}')
+  })
+
+  it('escapes caret and dollar', () => {
+    expect(escapeRegex('^a$')).toBe('\\^a\\$')
+  })
+
+  it('escapes pipe', () => {
+    expect(escapeRegex('a|b')).toBe('a\\|b')
+  })
+
+  it('escapes backslash', () => {
+    expect(escapeRegex('a\\b')).toBe('a\\\\b')
+  })
+
+  it('returns plain text unchanged', () => {
+    expect(escapeRegex('hello')).toBe('hello')
   })
 })

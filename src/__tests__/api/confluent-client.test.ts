@@ -5,18 +5,34 @@ import axios from 'axios'
 // We test handleApiError as a pure function.
 // Mock the entire axios module so that axios.isAxiosError can be controlled and
 // the module-level client creation (which calls btoa / env) is side-effect-free.
+// Track each client instance created by axios.create so we can inspect interceptor registrations
+// vi.hoisted ensures this runs before vi.mock (which is hoisted above all other code)
+const { createdClients } = vi.hoisted(() => {
+  const createdClients: Array<{
+    interceptors: {
+      request: { use: ReturnType<typeof import('vitest').vi.fn> };
+      response: { use: ReturnType<typeof import('vitest').vi.fn> };
+    };
+  }> = []
+  return { createdClients }
+})
+
 vi.mock('axios', async (importOriginal) => {
   const actual = await importOriginal<typeof import('axios')>()
   return {
     ...actual,
     default: {
       ...actual.default,
-      create: vi.fn(() => ({
-        interceptors: {
-          request: { use: vi.fn() },
-          response: { use: vi.fn() },
-        },
-      })),
+      create: vi.fn(() => {
+        const client = {
+          interceptors: {
+            request: { use: vi.fn() },
+            response: { use: vi.fn() },
+          },
+        }
+        createdClients.push(client)
+        return client
+      }),
       isAxiosError: vi.fn(),
     },
   }
@@ -26,6 +42,29 @@ vi.mock('axios', async (importOriginal) => {
 import { handleApiError } from '../../api/confluent-client'
 
 const mockedIsAxiosError = vi.mocked(axios.isAxiosError)
+
+// Capture interceptor callbacks immediately after module load (before any beforeEach/clearAllMocks)
+// createdClients[0] = confluentClient, createdClients[1] = fcpmClient
+const confluentClientMock = createdClients[0]
+const fcpmClientMock = createdClients[1]
+
+// Snapshot the interceptor callbacks captured at module init time
+const confluentReqCallbacks = {
+  onFulfilled: confluentClientMock?.interceptors.request.use.mock.calls[0]?.[0],
+  onRejected: confluentClientMock?.interceptors.request.use.mock.calls[0]?.[1],
+}
+const confluentResCallbacks = {
+  onFulfilled: confluentClientMock?.interceptors.response.use.mock.calls[0]?.[0],
+  onRejected: confluentClientMock?.interceptors.response.use.mock.calls[0]?.[1],
+}
+const fcpmReqCallbacks = {
+  onFulfilled: fcpmClientMock?.interceptors.request.use.mock.calls[0]?.[0],
+  onRejected: fcpmClientMock?.interceptors.request.use.mock.calls[0]?.[1],
+}
+const fcpmResCallbacks = {
+  onFulfilled: fcpmClientMock?.interceptors.response.use.mock.calls[0]?.[0],
+  onRejected: fcpmClientMock?.interceptors.response.use.mock.calls[0]?.[1],
+}
 
 // Helper: build a minimal AxiosError-shaped object for a given response body & status
 function makeAxiosError(
@@ -252,5 +291,177 @@ describe('[@api] [@core] handleApiError', () => {
       expect(result.status).toBe(500)
       expect(result.message).toBe('Unknown error')
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Part B: Client creation and interceptors
+// Uses pre-captured callbacks (confluentReqCallbacks, etc.) snapshotted
+// immediately after module import, before any beforeEach/clearAllMocks runs.
+// ---------------------------------------------------------------------------
+
+describe('[@api] [@core] Client creation and interceptors', () => {
+  it('creates two axios client instances (confluentClient + fcpmClient)', () => {
+    expect(createdClients).toHaveLength(2)
+  })
+
+  it('registers interceptors on confluentClient', () => {
+    expect(confluentReqCallbacks.onFulfilled).toBeTypeOf('function')
+    expect(confluentReqCallbacks.onRejected).toBeTypeOf('function')
+    expect(confluentResCallbacks.onFulfilled).toBeTypeOf('function')
+    expect(confluentResCallbacks.onRejected).toBeTypeOf('function')
+  })
+
+  it('registers interceptors on fcpmClient', () => {
+    expect(fcpmReqCallbacks.onFulfilled).toBeTypeOf('function')
+    expect(fcpmReqCallbacks.onRejected).toBeTypeOf('function')
+    expect(fcpmResCallbacks.onFulfilled).toBeTypeOf('function')
+    expect(fcpmResCallbacks.onRejected).toBeTypeOf('function')
+  })
+})
+
+describe('[@api] [@core] confluentClient request interceptor', () => {
+  it('success handler logs and returns config', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const config = { method: 'get', url: '/test' }
+
+    const result = confluentReqCallbacks.onFulfilled(config)
+
+    expect(result).toBe(config)
+    expect(consoleSpy).toHaveBeenCalledWith('[API] GET /test')
+    consoleSpy.mockRestore()
+  })
+
+  it('success handler uppercases the method', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const config = { method: 'post', url: '/statements' }
+
+    confluentReqCallbacks.onFulfilled(config)
+
+    expect(consoleSpy).toHaveBeenCalledWith('[API] POST /statements')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler logs and rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('request interceptor error')
+
+    await expect(confluentReqCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Request Error]', error)
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('[@api] [@core] confluentClient response interceptor', () => {
+  it('success handler logs status and data, returns response', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const response = { status: 200, data: { result: 'ok' } }
+
+    const result = confluentResCallbacks.onFulfilled(response)
+
+    expect(result).toBe(response)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Response] 200', { result: 'ok' })
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler extracts message from response.data.message', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = {
+      response: { status: 400, data: { message: 'Bad request' } },
+      message: 'Request failed',
+    }
+
+    await expect(confluentResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 400: Bad request')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler falls back to error.message when data.message is absent', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = {
+      response: { status: 500, data: {} },
+      message: 'Internal Server Error',
+    }
+
+    await expect(confluentResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 500: Internal Server Error')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler handles missing response gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = { message: 'Network Error' }
+
+    await expect(confluentResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] undefined: Network Error')
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('[@api] [@core] fcpmClient request interceptor', () => {
+  it('success handler logs and returns config', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const config = { method: 'get', url: '/compute-pools' }
+
+    const result = fcpmReqCallbacks.onFulfilled(config)
+
+    expect(result).toBe(config)
+    expect(consoleSpy).toHaveBeenCalledWith('[API] GET /compute-pools')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler logs and rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('fcpm request error')
+
+    await expect(fcpmReqCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Request Error]', error)
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('[@api] [@core] fcpmClient response interceptor', () => {
+  it('success handler logs status and data, returns response', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const response = { status: 200, data: { pools: [] } }
+
+    const result = fcpmResCallbacks.onFulfilled(response)
+
+    expect(result).toBe(response)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Response] 200', { pools: [] })
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler extracts message from response.data.message', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = {
+      response: { status: 403, data: { message: 'Forbidden' } },
+      message: 'Request failed',
+    }
+
+    await expect(fcpmResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 403: Forbidden')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler falls back to error.message when data.message is absent', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = {
+      response: { status: 502, data: {} },
+      message: 'Bad Gateway',
+    }
+
+    await expect(fcpmResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 502: Bad Gateway')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler handles missing response gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = { message: 'Connection refused' }
+
+    await expect(fcpmResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] undefined: Connection refused')
+    consoleSpy.mockRestore()
   })
 })

@@ -6,7 +6,8 @@ import { env } from '../config/environment';
 import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem } from '../types';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 import * as schemaRegistryApi from '../api/schema-registry-api';
-import type { SchemaSubject } from '../types';
+import * as topicApi from '../api/topic-api';
+import type { SchemaSubject, KafkaTopic } from '../types';
 
 export interface WorkspaceState {
   // Catalog & Database
@@ -67,6 +68,12 @@ export interface WorkspaceState {
   schemaRegistryLoading: boolean;
   schemaRegistryError: string | null;
 
+  // Topics (runtime only, NOT persisted)
+  topicList: KafkaTopic[];
+  selectedTopic: KafkaTopic | null;
+  topicLoading: boolean;
+  topicError: string | null;
+
   // Actions
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
@@ -110,6 +117,20 @@ export interface WorkspaceState {
   loadSchemaDetail: (subject: string, version?: number | 'latest') => Promise<void>;
   clearSelectedSchema: () => void;
   setSchemaRegistryError: (error: string | null) => void;
+
+  // Topic actions
+  loadTopics: () => Promise<void>;
+  selectTopic: (topic: KafkaTopic) => void;
+  clearSelectedTopic: () => void;
+  deleteTopic: (topicName: string) => Promise<void>;
+  createTopic: (params: {
+    topicName: string;
+    partitionsCount: number;
+    replicationFactor: number;
+    cleanupPolicy?: 'delete' | 'compact';
+    retentionMs?: number;
+  }) => Promise<void>;
+  setTopicError: (error: string | null) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -169,6 +190,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       selectedSchemaSubject: null,
       schemaRegistryLoading: false,
       schemaRegistryError: null,
+
+      topicList: [],
+      selectedTopic: null,
+      topicLoading: false,
+      topicError: null,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -822,6 +848,83 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setSchemaRegistryError: (error) => {
         set({ schemaRegistryError: error });
+      },
+
+      // Topic Actions
+      loadTopics: async () => {
+        set({ topicLoading: true, topicError: null });
+        try {
+          const topics = await topicApi.listTopics();
+          set({ topicList: topics, topicLoading: false });
+        } catch (error) {
+          let errorMessage = 'Failed to load topics';
+
+          if (error && typeof error === 'object' && 'response' in error) {
+            const axiosError = error as { response?: { status: number } | undefined };
+            if (axiosError.response === undefined) {
+              // HIGH-2: network error — axios sets response to undefined, not absent
+              errorMessage = 'Cannot connect to Kafka REST endpoint.';
+            } else if (axiosError.response?.status === 401) {
+              errorMessage = 'Authentication failed. Check API key and secret.';
+            } else if (axiosError.response?.status === 403) {
+              errorMessage = 'Permission denied. Check API key permissions.';
+            }
+          } else if (error instanceof Error) {
+            errorMessage = error.message;
+          }
+
+          console.error('Failed to load topics:', error);
+          set({ topicError: errorMessage, topicLoading: false, topicList: [] });
+        }
+      },
+
+      selectTopic: (topic) => {
+        set({ selectedTopic: topic });
+      },
+
+      clearSelectedTopic: () => {
+        set({ selectedTopic: null });
+      },
+
+      createTopic: async (params) => {
+        const request: {
+          topic_name: string;
+          partitions_count: number;
+          replication_factor: number;
+          configs?: Array<{ name: string; value: string }>;
+        } = {
+          topic_name: params.topicName,
+          partitions_count: params.partitionsCount,
+          replication_factor: params.replicationFactor,
+        };
+
+        if (params.cleanupPolicy !== undefined || params.retentionMs !== undefined) {
+          const configs: Array<{ name: string; value: string }> = [];
+          if (params.cleanupPolicy !== undefined) {
+            configs.push({ name: 'cleanup.policy', value: params.cleanupPolicy });
+          }
+          if (params.retentionMs !== undefined) {
+            configs.push({ name: 'retention.ms', value: String(params.retentionMs) });
+          }
+          request.configs = configs;
+        }
+
+        await topicApi.createTopic(request);
+        await get().loadTopics();
+      },
+
+      deleteTopic: async (topicName) => {
+        // CRIT-3: Store only does the API call. Component orchestrates post-delete
+        // navigation (clearSelectedTopic + loadTopics) to avoid double-loadTopics race.
+        // HIGH-3: Optimistically remove from list so topic doesn't ghost-appear.
+        set((state) => ({
+          topicList: state.topicList.filter((t) => t.topic_name !== topicName),
+        }));
+        await topicApi.deleteTopic(topicName);
+      },
+
+      setTopicError: (error) => {
+        set({ topicError: error });
       },
     }),
     {

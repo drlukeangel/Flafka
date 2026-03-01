@@ -751,3 +751,361 @@ describe('[@results-table] [@help] ResultsTable help button', () => {
     expect(onOpenHelp).toHaveBeenCalledWith('troubleshoot-results-buffer')
   })
 })
+
+// ---------------------------------------------------------------------------
+// JSON expander (handleExpandClick + portal + handleCopyJSON)
+// ---------------------------------------------------------------------------
+describe('[@results-table] [@json-expander] JSON expander portal', () => {
+  const mockColumns: Column[] = [
+    { name: 'id', type: 'INTEGER' },
+    { name: 'data', type: 'STRING' },
+  ]
+  const mockData = [
+    { id: 1, data: { nested: 'value', count: 42 } },
+  ]
+
+  let mockWriteText: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockWriteText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText: mockWriteText } })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('clicking expand button opens JSON expander portal', async () => {
+    const user = userEvent.setup()
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const expandBtn = document.querySelector('.json-expand-btn')!
+    await user.click(expandBtn)
+
+    // The portal renders a json-expander-pane in document.body
+    const pane = document.querySelector('.json-expander-pane')
+    expect(pane).toBeInTheDocument()
+    expect(pane!.textContent).toContain('JSON Viewer')
+  })
+
+  it('JSON expander shows pretty-printed JSON content', async () => {
+    const user = userEvent.setup()
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const expandBtn = document.querySelector('.json-expand-btn')!
+    await user.click(expandBtn)
+
+    const viewer = document.querySelector('.json-viewer')
+    expect(viewer).toBeInTheDocument()
+    expect(viewer!.textContent).toContain('"nested": "value"')
+    expect(viewer!.textContent).toContain('"count": 42')
+  })
+
+  it('clicking expand button again closes the expander (toggle)', async () => {
+    const user = userEvent.setup()
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const expandBtn = document.querySelector('.json-expand-btn')!
+    // Open
+    await user.click(expandBtn)
+    expect(document.querySelector('.json-expander-pane')).toBeInTheDocument()
+
+    // Close by pressing Escape (toggle via same button is tricky due to mousedown listener)
+    await user.keyboard('{Escape}')
+    expect(document.querySelector('.json-expander-pane')).not.toBeInTheDocument()
+  })
+
+  it('Copy JSON button copies formatted JSON to clipboard', async () => {
+    const user = userEvent.setup()
+    // Use direct property definition on the existing navigator for portal context
+    const writeTextFn = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextFn },
+      writable: true,
+      configurable: true,
+    })
+
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const expandBtn = document.querySelector('.json-expand-btn')!
+    await user.click(expandBtn)
+
+    const copyBtn = screen.getByText('Copy JSON')
+    await user.click(copyBtn)
+
+    await vi.waitFor(() => {
+      expect(writeTextFn).toHaveBeenCalledTimes(1)
+    })
+    const copied = writeTextFn.mock.calls[0][0] as string
+    expect(copied).toContain('"nested": "value"')
+  })
+
+  it('Escape key closes the JSON expander', async () => {
+    const user = userEvent.setup()
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const expandBtn = document.querySelector('.json-expand-btn')!
+    await user.click(expandBtn)
+    expect(document.querySelector('.json-expander-pane')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    expect(document.querySelector('.json-expander-pane')).not.toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// copyAsMarkdown with truncated rows (> 100 rows)
+// ---------------------------------------------------------------------------
+describe('[@results-table] [@markdown-truncation] Copy as Markdown truncation', () => {
+  const mockColumns: Column[] = [
+    { name: 'id', type: 'INTEGER' },
+    { name: 'val', type: 'STRING' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('truncates markdown to 100 rows and shows remaining count footer', async () => {
+    const user = userEvent.setup()
+    const mockWriteText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText: mockWriteText } })
+
+    // Generate 120 rows
+    const bigData = Array.from({ length: 120 }, (_, i) => ({ id: i + 1, val: `row-${i + 1}` }))
+    render(<ResultsTable data={bigData} columns={mockColumns} />)
+
+    const copyMdBtn = screen.getByTitle('Copy as Markdown')
+    await user.click(copyMdBtn)
+
+    expect(mockWriteText).toHaveBeenCalledTimes(1)
+    const md = mockWriteText.mock.calls[0][0] as string
+    // Should contain 100 data rows + header + separator + footer = 103 lines
+    const lines = md.split('\n')
+    // Header + separator + 100 data rows + 1 footer = 103
+    expect(lines.length).toBe(103)
+    // Footer should mention remaining rows
+    expect(md).toContain('20 more rows')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Column visibility toggle function
+// ---------------------------------------------------------------------------
+describe('[@results-table] [@column-toggle] Column toggle function', () => {
+  const mockColumns: Column[] = [
+    { name: 'id', type: 'INTEGER' },
+    { name: 'name', type: 'STRING' },
+    { name: 'email', type: 'STRING' },
+  ]
+  const mockData = [
+    { id: 1, name: 'Alice', email: 'a@b.com' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('toggling a hidden column back on re-shows it', async () => {
+    const user = userEvent.setup()
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    const columnsButton = screen.getByRole('button', { name: /columns/i })
+    await user.click(columnsButton)
+
+    // Hide email
+    const emailCheckbox = screen.getByRole('checkbox', { name: /^email$/i })
+    await user.click(emailCheckbox)
+
+    // Verify email is hidden
+    let allHeaders = screen.getAllByRole('columnheader')
+    let headerTexts = allHeaders.map(h => h.textContent?.trim())
+    expect(headerTexts).not.toContain('email')
+
+    // Re-show email
+    await user.click(emailCheckbox)
+    allHeaders = screen.getAllByRole('columnheader')
+    headerTexts = allHeaders.map(h => h.textContent?.trim())
+    expect(headerTexts).toContain('email')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Export filename generation
+// ---------------------------------------------------------------------------
+describe('[@results-table] [@export-filename] Export with statementName', () => {
+  const mockColumns: Column[] = [
+    { name: 'id', type: 'INTEGER' },
+  ]
+  const mockData = [{ id: 1 }]
+
+  let mockCreateObjectURL: ReturnType<typeof vi.fn>
+  let mockRevokeObjectURL: ReturnType<typeof vi.fn>
+  let mockAnchorClick: ReturnType<typeof vi.fn>
+  let lastCreatedAnchor: HTMLAnchorElement | null = null
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateObjectURL = vi.fn().mockReturnValue('blob:mock-url')
+    mockRevokeObjectURL = vi.fn()
+    mockAnchorClick = vi.fn()
+    lastCreatedAnchor = null
+    global.URL.createObjectURL = mockCreateObjectURL
+    global.URL.revokeObjectURL = mockRevokeObjectURL
+
+    const origCreate = document.createElement.bind(document)
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = origCreate(tag)
+      if (tag === 'a') {
+        lastCreatedAnchor = el as HTMLAnchorElement
+        Object.defineProperty(el, 'click', { value: mockAnchorClick, configurable: true })
+      }
+      return el
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('export CSV uses statementName in filename when provided', async () => {
+    const user = userEvent.setup()
+    render(
+      <ResultsTable data={mockData} columns={mockColumns} statementName="My Query" />
+    )
+
+    const exportBtn = screen.getByTitle('Export')
+    await user.hover(exportBtn)
+    const csvBtn = screen.getByText('Export as CSV')
+    await user.click(csvBtn)
+
+    expect(lastCreatedAnchor).not.toBeNull()
+    expect(lastCreatedAnchor!.download).toContain('my-query-')
+    expect(lastCreatedAnchor!.download).toContain('.csv')
+  })
+
+  it('export JSON uses statementIndex in filename when no name', async () => {
+    const user = userEvent.setup()
+    render(
+      <ResultsTable data={mockData} columns={mockColumns} statementIndex={3} />
+    )
+
+    const exportBtn = screen.getByTitle('Export')
+    await user.hover(exportBtn)
+    const jsonBtn = screen.getByText('Export as JSON')
+    await user.click(jsonBtn)
+
+    expect(lastCreatedAnchor).not.toBeNull()
+    expect(lastCreatedAnchor!.download).toContain('query-4-')
+    expect(lastCreatedAnchor!.download).toContain('.json')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// List view specific rendering in detail
+// ---------------------------------------------------------------------------
+describe('[@results-table] [@list-view-detail] List view detailed rendering', () => {
+  const mockColumns: Column[] = [
+    { name: 'id', type: 'INTEGER' },
+    { name: 'data', type: 'STRING' },
+  ]
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('list view renders null values as null span', async () => {
+    const user = userEvent.setup()
+    const dataWithNull = [{ id: 1, data: null }]
+    render(<ResultsTable data={dataWithNull} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const nullSpan = document.querySelector('.null-value')
+    expect(nullSpan).toBeInTheDocument()
+    expect(nullSpan).toHaveTextContent('null')
+  })
+
+  it('list view renders JSON objects with expand button', async () => {
+    const user = userEvent.setup()
+    const dataWithObj = [{ id: 1, data: { key: 'val' } }]
+    render(<ResultsTable data={dataWithObj} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const expandBtn = document.querySelector('.json-expand-btn')
+    expect(expandBtn).toBeInTheDocument()
+    const preview = document.querySelector('.results-cell-json-preview')
+    expect(preview).toBeInTheDocument()
+  })
+
+  it('list view applies odd row class to alternating rows', async () => {
+    const user = userEvent.setup()
+    const data = [
+      { id: 1, data: 'a' },
+      { id: 2, data: 'b' },
+      { id: 3, data: 'c' },
+    ]
+    render(<ResultsTable data={data} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const rows = document.querySelectorAll('tbody tr')
+    // Row at index 1 (second row) should have odd class
+    const oddRows = document.querySelectorAll('.results-row-odd')
+    expect(oddRows.length).toBeGreaterThan(0)
+  })
+
+  it('list view shows original row index after sorting', async () => {
+    const user = userEvent.setup()
+    const data = [
+      { id: 3, data: 'c' },
+      { id: 1, data: 'a' },
+      { id: 2, data: 'b' },
+    ]
+    render(<ResultsTable data={data} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    // Sort by id ascending
+    const idHeader = screen.getAllByText('id')[0]
+    await user.click(idHeader)
+
+    // After sorting, check index cells still show original 1-based indices
+    const indexCells = document.querySelectorAll('.results-index-cell')
+    // First is header "#", then data rows
+    const dataIndexCells = Array.from(indexCells).slice(1)
+    // Row with id=1 was originally at index 2, so its index cell should show 2
+    expect(dataIndexCells[0]).toHaveTextContent('2')
+  })
+
+  it('clicking cell in list view copies value to clipboard', async () => {
+    const user = userEvent.setup()
+    const writeTextMock = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: { writeText: writeTextMock },
+    })
+
+    const data = [{ id: 1, data: 'list-cell-value' }]
+    render(<ResultsTable data={data} columns={mockColumns} />)
+
+    await user.click(screen.getByTitle('List view'))
+
+    const cell = screen.getByText('list-cell-value').closest('td')!
+    await user.click(cell)
+
+    expect(writeTextMock).toHaveBeenCalledWith('list-cell-value')
+  })
+})

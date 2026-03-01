@@ -1,5 +1,6 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SQLStatement, Column } from '../../types'
 
@@ -20,25 +21,51 @@ const mockAddToast = vi.fn()
 
 let mockTheme = 'light'
 
+// Shared ref for statements used in getState() — accessible from both mock and tests
+const mockStatementsRef: { current: SQLStatement[] } = { current: [] }
+
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector?: (state: unknown) => unknown) => {
-    const state = {
-      updateStatement: mockUpdateStatement,
-      deleteStatement: mockDeleteStatement,
-      duplicateStatement: mockDuplicateStatement,
-      toggleStatementCollapse: mockToggleStatementCollapse,
-      executeStatement: mockExecuteStatement,
-      cancelStatement: mockCancelStatement,
-      addStatement: mockAddStatement,
-      reorderStatements: mockReorderStatements,
-      dismissOnboardingHint: mockDismissOnboardingHint,
-      updateStatementLabel: mockUpdateStatementLabel,
-      addToast: mockAddToast,
-      theme: mockTheme,
+  useWorkspaceStore: Object.assign(
+    (selector?: (state: unknown) => unknown) => {
+      const state = {
+        updateStatement: mockUpdateStatement,
+        deleteStatement: mockDeleteStatement,
+        duplicateStatement: mockDuplicateStatement,
+        toggleStatementCollapse: mockToggleStatementCollapse,
+        executeStatement: mockExecuteStatement,
+        cancelStatement: mockCancelStatement,
+        addStatement: mockAddStatement,
+        reorderStatements: mockReorderStatements,
+        dismissOnboardingHint: mockDismissOnboardingHint,
+        updateStatementLabel: mockUpdateStatementLabel,
+        addToast: mockAddToast,
+        theme: mockTheme,
+      }
+      if (selector) return selector(state)
+      return state
+    },
+    {
+      getState: () => ({
+        statements: mockStatementsRef.current,
+        updateStatement: mockUpdateStatement,
+        deleteStatement: mockDeleteStatement,
+        duplicateStatement: mockDuplicateStatement,
+        toggleStatementCollapse: mockToggleStatementCollapse,
+        executeStatement: mockExecuteStatement,
+        cancelStatement: mockCancelStatement,
+        addStatement: mockAddStatement,
+        reorderStatements: mockReorderStatements,
+        dismissOnboardingHint: mockDismissOnboardingHint,
+        updateStatementLabel: mockUpdateStatementLabel,
+        addToast: mockAddToast,
+        theme: mockTheme,
+        treeNodes: [],
+        selectedTableSchema: [],
+        focusedStatementId: null,
+        setFocusedStatementId: vi.fn(),
+      }),
     }
-    if (selector) return selector(state)
-    return state
-  },
+  ),
 }))
 
 // ---------------------------------------------------------------------------
@@ -84,8 +111,77 @@ vi.mock('../../components/ResultsTable/ResultsTable', () => ({
 // ---------------------------------------------------------------------------
 // sqlFormatter mock — avoids regex-heavy side effects
 // ---------------------------------------------------------------------------
+const mockFormatSQL = vi.fn((sql: string) => sql)
 vi.mock('../../utils/sqlFormatter', () => ({
-  formatSQL: (sql: string) => sql,
+  formatSQL: (sql: string) => mockFormatSQL(sql),
+}))
+
+// ---------------------------------------------------------------------------
+// Monaco Editor mock — renders a textarea AND calls onMount with a fake editor
+// so that handleEditorMount code paths are exercised for coverage.
+// ---------------------------------------------------------------------------
+const mockEditorActions: Record<string, () => void> = {}
+const mockEditorDisposables: Array<{ dispose: ReturnType<typeof vi.fn> }> = []
+const mockEditorInstance = {
+  getValue: vi.fn(() => 'SELECT 1'),
+  getContentHeight: vi.fn(() => 100),
+  getModel: vi.fn(() => ({
+    getFullModelRange: vi.fn(() => ({ startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 10 })),
+    getWordUntilPosition: vi.fn(() => ({ word: '', startColumn: 1, endColumn: 1 })),
+  })),
+  executeEdits: vi.fn(),
+  pushUndoStop: vi.fn(),
+  addAction: vi.fn((action: { id: string; run: () => void }) => {
+    mockEditorActions[action.id] = action.run
+  }),
+  onDidContentSizeChange: vi.fn(() => {
+    const d = { dispose: vi.fn() }
+    mockEditorDisposables.push(d)
+    return d
+  }),
+  onDidDispose: vi.fn((cb: () => void) => {
+    // Store the callback but don't invoke it
+  }),
+  onDidFocusEditorText: vi.fn(),
+  onDidBlurEditorText: vi.fn(),
+  focus: vi.fn(),
+}
+
+const mockMonacoInstance = {
+  KeyMod: { CtrlCmd: 2048, Alt: 512, Shift: 1024 },
+  KeyCode: { Enter: 3, Escape: 9, DownArrow: 18, UpArrow: 16, KeyF: 36 },
+  languages: {
+    CompletionItemKind: { Keyword: 17, Class: 5, Interface: 7, Field: 3 },
+    registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })),
+  },
+  editor: { ITextModel: {} },
+}
+
+let capturedOnMount: ((editor: typeof mockEditorInstance, monaco: typeof mockMonacoInstance) => void) | null = null
+
+vi.mock('@monaco-editor/react', () => ({
+  default: (props: {
+    value?: string
+    onChange?: (value: string) => void
+    onMount?: (editor: typeof mockEditorInstance, monaco: typeof mockMonacoInstance) => void
+    height?: string
+    theme?: string
+    options?: Record<string, unknown>
+    defaultLanguage?: string
+  }) => {
+    // Capture onMount so tests can trigger it
+    if (props.onMount) {
+      capturedOnMount = props.onMount
+    }
+    return (
+      <textarea
+        data-testid="monaco-editor"
+        value={props.value ?? ''}
+        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => props.onChange?.(e.target.value)}
+        style={{ height: props.height || '200px' }}
+      />
+    )
+  },
 }))
 
 // Import component after mocks are registered
@@ -114,10 +210,16 @@ describe('[@editor-cell] EditorCell', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockTheme = 'light'
+    mockStatementsRef.current = []
+    capturedOnMount = null
     // Reset registry spies between tests so assertions stay isolated
     mockRegistrySet.mockClear()
     mockRegistryGet.mockClear()
     mockRegistryDelete.mockClear()
+    mockEditorInstance.getValue.mockReturnValue('SELECT 1')
+    mockFormatSQL.mockImplementation((sql: string) => sql)
+    // Clear stored action references
+    Object.keys(mockEditorActions).forEach(k => delete mockEditorActions[k])
   })
 
   // -------------------------------------------------------------------------
@@ -1083,6 +1185,1009 @@ describe('[@editor-cell] EditorCell', () => {
       renderCell(makeStatement({ status: 'IDLE', executionTime: undefined }))
       // No "s" suffix execution time should appear
       expect(screen.queryByText(/\d+\.\d+s/)).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // formatDuration edge cases
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] formatDuration edge cases', () => {
+    it('shows sub-second duration correctly (0.5s)', () => {
+      renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          startedAt: new Date('2026-02-28T10:00:00.000Z'),
+          lastExecutedAt: new Date('2026-02-28T10:00:00.500Z'),
+        })
+      )
+      expect(screen.getByText('0.5s')).toBeInTheDocument()
+    })
+
+    it('shows zero duration as 0.0s when start equals finish', () => {
+      renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+          lastExecutedAt: new Date('2026-02-28T10:00:00Z'),
+        })
+      )
+      expect(screen.getByText('0.0s')).toBeInTheDocument()
+    })
+
+    it('shows exactly 60 seconds as 1m 0s', () => {
+      renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+          lastExecutedAt: new Date('2026-02-28T10:01:00Z'),
+        })
+      )
+      expect(screen.getByText('1m 0s')).toBeInTheDocument()
+    })
+
+    it('shows multi-minute duration correctly (5m 15s)', () => {
+      renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+          lastExecutedAt: new Date('2026-02-28T10:05:15Z'),
+        })
+      )
+      expect(screen.getByText('5m 15s')).toBeInTheDocument()
+    })
+
+    it('does not show duration when only startedAt is set (no lastExecutedAt)', () => {
+      renderCell(
+        makeStatement({
+          status: 'RUNNING',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+          lastExecutedAt: undefined,
+        })
+      )
+      expect(screen.queryByText('DURATION:')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // getPreviewLine edge cases
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] getPreviewLine edge cases', () => {
+    it('shows first non-empty line when code has leading blank lines', () => {
+      const { container } = renderCell(
+        makeStatement({ code: '\n\n  SELECT 42', isCollapsed: true })
+      )
+      const sqlPreview = container.querySelector('.cell-collapsed-sql')
+      expect(sqlPreview).toHaveTextContent('SELECT 42')
+    })
+
+    it('shows (empty) when code is only whitespace', () => {
+      const { container } = renderCell(
+        makeStatement({ code: '   \n  \n  ', isCollapsed: true })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview).toHaveTextContent('(empty)')
+    })
+
+    it('falls back to first comment line content when all lines are comments', () => {
+      const { container } = renderCell(
+        makeStatement({ code: '-- only comments\n-- more comments', isCollapsed: true })
+      )
+      const sqlPreview = container.querySelector('.cell-collapsed-sql')
+      // getPreviewLine falls through the loop and returns code.trim().slice(0,60)
+      expect(sqlPreview).toHaveTextContent('-- only comments')
+    })
+
+    it('shows exactly 60 chars with ellipsis for long single line', () => {
+      const longLine = 'A'.repeat(80)
+      const { container } = renderCell(
+        makeStatement({ code: longLine, isCollapsed: true })
+      )
+      const sqlPreview = container.querySelector('.cell-collapsed-sql')
+      expect(sqlPreview?.textContent).toBe('A'.repeat(60) + '...')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Collapsed preview - status badge rendering
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] collapsed preview status badges', () => {
+    it('shows Completed badge in collapsed preview', () => {
+      const { container } = renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          isCollapsed: true,
+          startedAt: new Date(),
+          lastExecutedAt: new Date(),
+        })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview).toBeInTheDocument()
+      expect(preview?.querySelector('.status-badge.completed')).toBeInTheDocument()
+    })
+
+    it('shows Running badge in collapsed preview', () => {
+      const { container } = renderCell(
+        makeStatement({ status: 'RUNNING', isCollapsed: true, startedAt: new Date() })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview?.querySelector('.status-badge.running')).toBeInTheDocument()
+    })
+
+    it('shows Error badge in collapsed preview', () => {
+      const { container } = renderCell(
+        makeStatement({ status: 'ERROR', error: 'fail', isCollapsed: true })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview?.querySelector('.status-badge.error')).toBeInTheDocument()
+    })
+
+    it('shows Cancelled badge in collapsed preview', () => {
+      const { container } = renderCell(
+        makeStatement({ status: 'CANCELLED', isCollapsed: true })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview?.querySelector('.status-badge.cancelled')).toBeInTheDocument()
+    })
+
+    it('shows Pending badge in collapsed preview', () => {
+      const { container } = renderCell(
+        makeStatement({ status: 'PENDING', isCollapsed: true })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview?.querySelector('.status-badge.pending')).toBeInTheDocument()
+    })
+
+    it('does not show status badge in collapsed preview when IDLE', () => {
+      const { container } = renderCell(
+        makeStatement({ status: 'IDLE', isCollapsed: true })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      expect(preview?.querySelector('.status-badge')).not.toBeInTheDocument()
+    })
+
+    it('collapsed preview does not show error badge as clickable button', () => {
+      const { container } = renderCell(
+        makeStatement({ status: 'ERROR', error: 'fail', isCollapsed: true })
+      )
+      const preview = container.querySelector('.cell-collapsed-preview')
+      // getStatusBadge(false) is used in collapsed preview, so no .status-badge-button
+      expect(preview?.querySelector('.status-badge-button')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Collapsed preview - row count with totalRowsReceived
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] collapsed preview row counts', () => {
+    it('shows results length when totalRowsReceived is not set', () => {
+      const { container } = renderCell(
+        makeStatement({
+          isCollapsed: true,
+          results: [{ a: 1 }, { a: 2 }, { a: 3 }],
+          columns: [{ name: 'a', type: 'INT' }],
+        })
+      )
+      const rows = container.querySelector('.cell-collapsed-rows')
+      expect(rows).toHaveTextContent('3 rows')
+    })
+
+    it('shows totalRowsReceived when it exceeds results length', () => {
+      const { container } = renderCell(
+        makeStatement({
+          isCollapsed: true,
+          results: [{ a: 1 }],
+          columns: [{ name: 'a', type: 'INT' }],
+          totalRowsReceived: 1000,
+        })
+      )
+      const rows = container.querySelector('.cell-collapsed-rows')
+      expect(rows).toHaveTextContent('1,000')
+    })
+
+    it('shows results length when totalRowsReceived equals results length', () => {
+      const { container } = renderCell(
+        makeStatement({
+          isCollapsed: true,
+          results: [{ a: 1 }, { a: 2 }],
+          columns: [{ name: 'a', type: 'INT' }],
+          totalRowsReceived: 2,
+        })
+      )
+      const rows = container.querySelector('.cell-collapsed-rows')
+      expect(rows).toHaveTextContent('2 rows')
+    })
+
+    it('does not show row count in collapsed preview when no results', () => {
+      const { container } = renderCell(
+        makeStatement({ isCollapsed: true, results: undefined })
+      )
+      expect(container.querySelector('.cell-collapsed-rows')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Drag and drop interactions
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] drag and drop', () => {
+    it('adds "dragging" class when drag starts on handle', () => {
+      const { container } = renderCell(makeStatement(), 0)
+      const dragHandle = container.querySelector('.drag-handle')!
+
+      fireEvent.dragStart(dragHandle, {
+        dataTransfer: { setData: vi.fn(), effectAllowed: '' },
+      })
+
+      expect(container.querySelector('.editor-cell')).toHaveClass('dragging')
+    })
+
+    it('removes "dragging" class when drag ends', () => {
+      const { container } = renderCell(makeStatement(), 0)
+      const dragHandle = container.querySelector('.drag-handle')!
+
+      fireEvent.dragStart(dragHandle, {
+        dataTransfer: { setData: vi.fn(), effectAllowed: '' },
+      })
+      fireEvent.dragEnd(dragHandle)
+
+      expect(container.querySelector('.editor-cell')).not.toHaveClass('dragging')
+    })
+
+    it('applies a drag-over class when dragging over cell', () => {
+      const { container } = renderCell(makeStatement(), 1)
+      const cell = container.querySelector('.editor-cell')!
+
+      // In jsdom, getBoundingClientRect returns all zeros so midY=0.
+      // Dragging over will set either drag-over-top or drag-over-bottom.
+      fireEvent.dragOver(cell, {
+        dataTransfer: { dropEffect: '' },
+      })
+
+      // Verify that one of the drag-over classes is applied
+      const hasDragOverClass =
+        cell.classList.contains('drag-over-top') || cell.classList.contains('drag-over-bottom')
+      expect(hasDragOverClass).toBe(true)
+    })
+
+    it('adds drag-over-bottom class when dragging over bottom half of cell', () => {
+      const { container } = renderCell(makeStatement(), 1)
+      const cell = container.querySelector('.editor-cell')!
+
+      const rect = cell.getBoundingClientRect()
+
+      fireEvent.dragOver(cell, {
+        clientY: rect.top + rect.height + 100,
+        dataTransfer: { dropEffect: '' },
+      })
+
+      expect(cell).toHaveClass('drag-over-bottom')
+    })
+
+    it('calls reorderStatements on drop', () => {
+      const { container } = renderCell(makeStatement(), 2)
+      const cell = container.querySelector('.editor-cell')!
+
+      fireEvent.drop(cell, {
+        dataTransfer: { getData: () => '0' },
+      })
+
+      expect(mockReorderStatements).toHaveBeenCalled()
+    })
+
+    it('clears dragOver state on drag leave when leaving the cell', () => {
+      const { container } = renderCell(makeStatement(), 1)
+      const cell = container.querySelector('.editor-cell')!
+
+      // First set dragOver
+      fireEvent.dragOver(cell, {
+        clientY: 0,
+        dataTransfer: { dropEffect: '' },
+      })
+
+      // Now dragleave with relatedTarget outside the cell
+      fireEvent.dragLeave(cell, {
+        relatedTarget: document.body,
+      })
+
+      expect(cell).not.toHaveClass('drag-over-top')
+      expect(cell).not.toHaveClass('drag-over-bottom')
+    })
+
+    it('does not reorder when drop data is not a number', () => {
+      const { container } = renderCell(makeStatement(), 0)
+      const cell = container.querySelector('.editor-cell')!
+
+      fireEvent.drop(cell, {
+        dataTransfer: { getData: () => 'not-a-number' },
+      })
+
+      expect(mockReorderStatements).not.toHaveBeenCalled()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Label blur behavior
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] label blur saves', () => {
+    it('blurring label input saves the label (handleLabelBlur)', async () => {
+      const user = userEvent.setup()
+      const { container } = renderCell(makeStatement({ id: 'stmt-blur', label: 'Original' }))
+
+      const labelGroup = container.querySelector('.cell-label-group')!
+      await user.click(labelGroup)
+
+      const input = container.querySelector('.cell-label-input') as HTMLInputElement
+      await user.clear(input)
+      await user.type(input, 'Blurred Label')
+
+      // Blur by clicking elsewhere
+      await user.click(container.querySelector('.cell-number')!)
+
+      expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-blur', 'Blurred Label')
+    })
+
+    it('blur after Escape does NOT save label (labelCancelledRef prevents it)', async () => {
+      const user = userEvent.setup()
+      const { container } = renderCell(makeStatement({ id: 'stmt-esc-blur', label: 'Keep' }))
+
+      const labelGroup = container.querySelector('.cell-label-group')!
+      await user.click(labelGroup)
+
+      const input = container.querySelector('.cell-label-input') as HTMLInputElement
+      await user.clear(input)
+      await user.type(input, 'Should Not Save')
+      await user.keyboard('{Escape}')
+
+      // Escape sets labelCancelledRef=true and exits edit mode.
+      // The blur handler checks labelCancelledRef and skips save.
+      expect(mockUpdateStatementLabel).not.toHaveBeenCalled()
+    })
+
+    it('blurring with empty string saves empty label', async () => {
+      const user = userEvent.setup()
+      const { container } = renderCell(makeStatement({ id: 'stmt-empty', label: 'Has Label' }))
+
+      const labelGroup = container.querySelector('.cell-label-group')!
+      await user.click(labelGroup)
+
+      const input = container.querySelector('.cell-label-input') as HTMLInputElement
+      await user.clear(input)
+
+      // Blur by clicking elsewhere
+      await user.click(container.querySelector('.cell-number')!)
+
+      expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-empty', '')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Error panel expanded content
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] error panel expanded fields', () => {
+    it('shows STARTED AT field in expanded error panel when startedAt is set', async () => {
+      const user = userEvent.setup()
+      renderCell(
+        makeStatement({
+          status: 'ERROR',
+          error: 'Something failed',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+        })
+      )
+
+      const header = screen.getByText('Error Details').closest('.error-details-header')!
+      await user.click(header)
+
+      expect(screen.getByText('STARTED AT:')).toBeInTheDocument()
+    })
+
+    it('does not show STARTED AT field in error panel when startedAt is undefined', async () => {
+      const user = userEvent.setup()
+      renderCell(
+        makeStatement({
+          status: 'ERROR',
+          error: 'fail',
+          startedAt: undefined,
+        })
+      )
+
+      const header = screen.getByText('Error Details').closest('.error-details-header')!
+      await user.click(header)
+
+      expect(screen.queryByText('STARTED AT:')).not.toBeInTheDocument()
+    })
+
+    it('does not show STATEMENT in error panel when statementName is undefined', async () => {
+      const user = userEvent.setup()
+      renderCell(
+        makeStatement({
+          status: 'ERROR',
+          error: 'fail',
+          statementName: undefined,
+        })
+      )
+
+      const header = screen.getByText('Error Details').closest('.error-details-header')!
+      await user.click(header)
+
+      // Only the status bar might show STATEMENT, but the error panel should not
+      expect(screen.queryByText('STATEMENT:')).not.toBeInTheDocument()
+    })
+
+    it('shows error message text in pre element when expanded', async () => {
+      const user = userEvent.setup()
+      renderCell(
+        makeStatement({
+          status: 'ERROR',
+          error: 'Detailed error: table "users" not found in catalog "default"',
+        })
+      )
+
+      const header = screen.getByText('Error Details').closest('.error-details-header')!
+      await user.click(header)
+
+      const pre = screen.getByText('Detailed error: table "users" not found in catalog "default"')
+      expect(pre.tagName).toBe('PRE')
+    })
+
+    it('shows collapse arrow ▼ when error panel is collapsed', () => {
+      renderCell(makeStatement({ status: 'ERROR', error: 'fail' }))
+      expect(screen.getByText('▼')).toBeInTheDocument()
+    })
+
+    it('shows expand arrow ▲ when error panel is expanded', async () => {
+      const user = userEvent.setup()
+      renderCell(makeStatement({ status: 'ERROR', error: 'fail' }))
+
+      const header = screen.getByText('Error Details').closest('.error-details-header')!
+      await user.click(header)
+
+      expect(screen.getByText('▲')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Status bar - STATUS field always present
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] status bar STATUS field', () => {
+    it('shows STATUS label in status bar for RUNNING status', () => {
+      renderCell(
+        makeStatement({
+          status: 'RUNNING',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+        })
+      )
+      expect(screen.getByText('STATUS:')).toBeInTheDocument()
+      expect(screen.getByText('RUNNING')).toBeInTheDocument()
+    })
+
+    it('shows STATUS label in status bar for COMPLETED status', () => {
+      renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+          lastExecutedAt: new Date('2026-02-28T10:00:05Z'),
+        })
+      )
+      expect(screen.getByText('STATUS:')).toBeInTheDocument()
+      expect(screen.getByText('COMPLETED')).toBeInTheDocument()
+    })
+
+    it('shows STATUS label in status bar for ERROR status', () => {
+      renderCell(
+        makeStatement({
+          status: 'ERROR',
+          error: 'fail',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+        })
+      )
+      expect(screen.getByText('STATUS:')).toBeInTheDocument()
+      expect(screen.getByText('ERROR')).toBeInTheDocument()
+    })
+
+    it('shows STATUS label in status bar for CANCELLED status', () => {
+      renderCell(
+        makeStatement({
+          status: 'CANCELLED',
+          startedAt: new Date('2026-02-28T10:00:00Z'),
+          lastExecutedAt: new Date('2026-02-28T10:00:03Z'),
+        })
+      )
+      expect(screen.getByText('STATUS:')).toBeInTheDocument()
+      expect(screen.getByText('CANCELLED')).toBeInTheDocument()
+    })
+
+    it('does not show status bar when startedAt is undefined', () => {
+      renderCell(makeStatement({ status: 'RUNNING', startedAt: undefined }))
+      expect(screen.queryByText('STATUS:')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Cancelled panel rendering
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] cancelled panel details', () => {
+    it('cancelled panel shows "Statement was cancelled." message', () => {
+      renderCell(makeStatement({ status: 'CANCELLED' }))
+      expect(screen.getByText('Statement was cancelled.')).toBeInTheDocument()
+    })
+
+    it('cancelled panel retry button has refresh icon and text', () => {
+      renderCell(makeStatement({ status: 'CANCELLED' }))
+      const retryBtn = screen.getByRole('button', { name: /retry/i })
+      expect(retryBtn).toHaveAttribute('title', 'Retry this statement')
+    })
+
+    it('cancelled panel does not show when status is ERROR', () => {
+      renderCell(makeStatement({ status: 'ERROR', error: 'some error' }))
+      expect(screen.queryByText('Statement was cancelled.')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Results table with ResultsTable props
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] results table props', () => {
+    it('does not render results section when results is null-like', () => {
+      renderCell(makeStatement({ results: undefined, columns: undefined }))
+      expect(screen.queryByTestId('results-table')).not.toBeInTheDocument()
+    })
+
+    it('renders results table inside .cell-results wrapper', () => {
+      const { container } = renderCell(
+        makeStatement({
+          status: 'COMPLETED',
+          results: [{ id: 1 }],
+          columns: [{ name: 'id', type: 'INT' }],
+        })
+      )
+      const cellResults = container.querySelector('.cell-results')
+      expect(cellResults).toBeInTheDocument()
+      expect(cellResults?.querySelector('[data-testid="results-table"]')).toBeInTheDocument()
+    })
+
+    it('renders results for RUNNING status (streaming scenario)', () => {
+      renderCell(
+        makeStatement({
+          status: 'RUNNING',
+          results: [{ id: 1 }, { id: 2 }],
+          columns: [{ name: 'id', type: 'INT' }],
+        })
+      )
+      expect(screen.getByTestId('results-table')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Cell content wrapper collapsed class
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] cell content wrapper', () => {
+    it('cell-content-wrapper has collapsed class when isCollapsed', () => {
+      const { container } = renderCell(makeStatement({ isCollapsed: true }))
+      const wrapper = container.querySelector('.cell-content-wrapper')
+      expect(wrapper).toHaveClass('collapsed')
+    })
+
+    it('cell-content-wrapper does not have collapsed class when expanded', () => {
+      const { container } = renderCell(makeStatement({ isCollapsed: false }))
+      const wrapper = container.querySelector('.cell-content-wrapper')
+      expect(wrapper).not.toHaveClass('collapsed')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Header center - results count with totalRowsReceived
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] header results count edge cases', () => {
+    it('shows simple row count when totalRowsReceived is undefined', () => {
+      const { container } = renderCell(
+        makeStatement({
+          results: [{ a: 1 }],
+          columns: [{ name: 'a', type: 'INT' }],
+        })
+      )
+      const count = container.querySelector('.results-count')
+      expect(count).toHaveTextContent('1 rows')
+    })
+
+    it('does not show results-count when no results', () => {
+      const { container } = renderCell(makeStatement({ results: undefined }))
+      expect(container.querySelector('.results-count')).not.toBeInTheDocument()
+    })
+
+    it('shows "N of M rows" format when totalRowsReceived > results.length', () => {
+      renderCell(
+        makeStatement({
+          results: Array.from({ length: 5 }, (_, i) => ({ id: i })),
+          columns: [{ name: 'id', type: 'INT' }],
+          totalRowsReceived: 2500,
+        })
+      )
+      expect(screen.getByText('5 of 2,500 rows')).toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Error details auto-close on status change
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] error details auto-close', () => {
+    it('error panel is hidden by default (showErrorDetails starts false)', () => {
+      renderCell(makeStatement({ status: 'ERROR', error: 'fail' }))
+      // The error panel header is visible but content is not
+      expect(screen.getByText('Error Details')).toBeInTheDocument()
+      expect(screen.queryByText('fail')).not.toBeInTheDocument()
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Cell header confirming-delete class
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] header confirming-delete class', () => {
+    it('cell-header has confirming-delete class when delete confirm is active', async () => {
+      const user = userEvent.setup()
+      const { container } = renderCell(makeStatement())
+
+      const deleteBtn = screen.getByTitle('Delete statement')
+      await user.click(deleteBtn)
+
+      const header = container.querySelector('.cell-header')
+      expect(header).toHaveClass('confirming-delete')
+    })
+
+    it('cell-header does not have confirming-delete class normally', () => {
+      const { container } = renderCell(makeStatement())
+      const header = container.querySelector('.cell-header')
+      expect(header).not.toHaveClass('confirming-delete')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // handleEditorMount — triggers onMount to cover editor setup code
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] handleEditorMount', () => {
+    const triggerMount = () => {
+      if (capturedOnMount) {
+        capturedOnMount(mockEditorInstance as never, mockMonacoInstance as never)
+      }
+    }
+
+    it('registers editor actions on mount (run, cancel, format, navigate)', () => {
+      renderCell(makeStatement({ id: 'stmt-mount' }))
+      triggerMount()
+
+      expect(mockEditorInstance.addAction).toHaveBeenCalled()
+      const actionIds = mockEditorInstance.addAction.mock.calls.map((c: unknown[]) => (c[0] as { id: string }).id)
+      expect(actionIds).toContain('run-statement')
+      expect(actionIds).toContain('cancel-statement')
+      expect(actionIds).toContain('navigate-next-cell')
+      expect(actionIds).toContain('navigate-prev-cell')
+    })
+
+    it('registers completion provider on mount', () => {
+      renderCell(makeStatement({ id: 'stmt-mount-comp' }))
+      triggerMount()
+
+      expect(mockMonacoInstance.languages.registerCompletionItemProvider).toHaveBeenCalledWith(
+        'sql',
+        expect.any(Object)
+      )
+    })
+
+    it('registers editor in editorRegistry on mount', () => {
+      renderCell(makeStatement({ id: 'stmt-reg' }))
+      triggerMount()
+
+      expect(mockRegistrySet).toHaveBeenCalledWith('stmt-reg', mockEditorInstance)
+    })
+
+    it('sets up content size change listener on mount', () => {
+      renderCell(makeStatement())
+      triggerMount()
+
+      expect(mockEditorInstance.onDidContentSizeChange).toHaveBeenCalled()
+    })
+
+    it('sets up focus tracking on mount', () => {
+      renderCell(makeStatement())
+      triggerMount()
+
+      expect(mockEditorInstance.onDidFocusEditorText).toHaveBeenCalled()
+      expect(mockEditorInstance.onDidBlurEditorText).toHaveBeenCalled()
+    })
+
+    it('sets up dispose handler on mount', () => {
+      renderCell(makeStatement())
+      triggerMount()
+
+      expect(mockEditorInstance.onDidDispose).toHaveBeenCalled()
+    })
+
+    it('registers sql-formatter action with correct id', () => {
+      renderCell(makeStatement({ id: 'stmt-fmt-action' }))
+      triggerMount()
+
+      const actionIds = mockEditorInstance.addAction.mock.calls.map((c: unknown[]) => (c[0] as { id: string }).id)
+      expect(actionIds).toContain('sql-formatter-stmt-fmt-action')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Editor action callbacks — invoke the run() functions stored via addAction
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] editor action callbacks', () => {
+    const triggerMount = () => {
+      if (capturedOnMount) {
+        capturedOnMount(mockEditorInstance as never, mockMonacoInstance as never)
+      }
+    }
+
+    const getAction = (id: string) => {
+      const call = mockEditorInstance.addAction.mock.calls.find(
+        (c: unknown[]) => (c[0] as { id: string }).id === id
+      )
+      return call ? (call[0] as { run: (ed?: unknown) => void }) : null
+    }
+
+    it('run-statement action calls executeStatement when statement is IDLE', () => {
+      const stmt = makeStatement({ id: 'stmt-action-run', status: 'IDLE' })
+      mockStatementsRef.current = [stmt]
+      renderCell(stmt)
+      triggerMount()
+
+      const action = getAction('run-statement')
+      action?.run()
+
+      expect(mockDismissOnboardingHint).toHaveBeenCalled()
+      expect(mockExecuteStatement).toHaveBeenCalledWith('stmt-action-run')
+    })
+
+    it('run-statement action does NOT execute when statement is RUNNING', () => {
+      const stmt = makeStatement({ id: 'stmt-action-run2', status: 'RUNNING' })
+      mockStatementsRef.current = [stmt]
+      renderCell(stmt)
+      triggerMount()
+
+      const action = getAction('run-statement')
+      action?.run()
+
+      expect(mockExecuteStatement).not.toHaveBeenCalled()
+    })
+
+    it('cancel-statement action calls cancelStatement when RUNNING', () => {
+      const stmt = makeStatement({ id: 'stmt-action-cancel', status: 'RUNNING' })
+      mockStatementsRef.current = [stmt]
+      renderCell(stmt)
+      triggerMount()
+
+      const action = getAction('cancel-statement')
+      action?.run()
+
+      expect(mockCancelStatement).toHaveBeenCalledWith('stmt-action-cancel')
+    })
+
+    it('cancel-statement action does nothing when IDLE', () => {
+      const stmt = makeStatement({ id: 'stmt-action-cancel2', status: 'IDLE' })
+      mockStatementsRef.current = [stmt]
+      renderCell(stmt)
+      triggerMount()
+
+      const action = getAction('cancel-statement')
+      action?.run()
+
+      expect(mockCancelStatement).not.toHaveBeenCalled()
+    })
+
+    it('navigate-next-cell action focuses next editor', () => {
+      const mockNextEditor = { focus: vi.fn() }
+      mockRegistryGet.mockReturnValue(mockNextEditor)
+
+      const stmt1 = makeStatement({ id: 'stmt-nav-1', status: 'IDLE' })
+      const stmt2 = makeStatement({ id: 'stmt-nav-2', status: 'IDLE' })
+      mockStatementsRef.current = [stmt1, stmt2]
+      renderCell(stmt1, 0)
+      triggerMount()
+
+      const action = getAction('navigate-next-cell')
+      action?.run()
+
+      expect(mockRegistryGet).toHaveBeenCalledWith('stmt-nav-2')
+      expect(mockNextEditor.focus).toHaveBeenCalled()
+    })
+
+    it('navigate-next-cell action does nothing at last cell', () => {
+      const stmt1 = makeStatement({ id: 'stmt-nav-last', status: 'IDLE' })
+      mockStatementsRef.current = [stmt1]
+      renderCell(stmt1, 0)
+      triggerMount()
+
+      const action = getAction('navigate-next-cell')
+      action?.run()
+
+      expect(mockRegistryGet).not.toHaveBeenCalledWith(expect.any(String))
+    })
+
+    it('navigate-prev-cell action focuses previous editor', () => {
+      const mockPrevEditor = { focus: vi.fn() }
+      mockRegistryGet.mockReturnValue(mockPrevEditor)
+
+      const stmt1 = makeStatement({ id: 'stmt-prev-1', status: 'IDLE' })
+      const stmt2 = makeStatement({ id: 'stmt-prev-2', status: 'IDLE' })
+      mockStatementsRef.current = [stmt1, stmt2]
+      renderCell(stmt2, 1)
+      triggerMount()
+
+      const action = getAction('navigate-prev-cell')
+      action?.run()
+
+      expect(mockRegistryGet).toHaveBeenCalledWith('stmt-prev-1')
+      expect(mockPrevEditor.focus).toHaveBeenCalled()
+    })
+
+    it('navigate-prev-cell action does nothing at first cell', () => {
+      const stmt1 = makeStatement({ id: 'stmt-prev-first', status: 'IDLE' })
+      mockStatementsRef.current = [stmt1]
+      renderCell(stmt1, 0)
+      triggerMount()
+
+      const action = getAction('navigate-prev-cell')
+      action?.run()
+
+      // No editor get call since we're at index 0
+      expect(mockRegistryGet).not.toHaveBeenCalledWith(expect.any(String))
+    })
+
+    it('sql-formatter action formats SQL and shows toast', () => {
+      mockFormatSQL.mockImplementation(() => 'FORMATTED SQL')
+      mockEditorInstance.getValue.mockReturnValue('SELECT 1')
+
+      const stmt = makeStatement({ id: 'stmt-fmt-act' })
+      renderCell(stmt)
+      triggerMount()
+
+      const action = getAction('sql-formatter-stmt-fmt-act')
+      action?.run(mockEditorInstance)
+
+      expect(mockEditorInstance.executeEdits).toHaveBeenCalled()
+      expect(mockEditorInstance.pushUndoStop).toHaveBeenCalled()
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: 'SQL formatted' })
+      )
+    })
+
+    it('sql-formatter action does nothing when SQL unchanged', () => {
+      mockFormatSQL.mockImplementation((sql: string) => sql)
+      mockEditorInstance.getValue.mockReturnValue('SELECT 1')
+
+      const stmt = makeStatement({ id: 'stmt-fmt-noop' })
+      renderCell(stmt)
+      triggerMount()
+
+      const action = getAction('sql-formatter-stmt-fmt-noop')
+      action?.run(mockEditorInstance)
+
+      expect(mockEditorInstance.executeEdits).not.toHaveBeenCalled()
+    })
+
+    it('navigate-next-cell expands collapsed next cell before focusing', () => {
+      const mockNextEditor = { focus: vi.fn() }
+      mockRegistryGet.mockReturnValue(mockNextEditor)
+
+      const stmt1 = makeStatement({ id: 'stmt-exp-1', status: 'IDLE' })
+      const stmt2 = makeStatement({ id: 'stmt-exp-2', status: 'IDLE', isCollapsed: true })
+      mockStatementsRef.current = [stmt1, stmt2]
+      renderCell(stmt1, 0)
+      triggerMount()
+
+      const action = getAction('navigate-next-cell')
+      action?.run()
+
+      expect(mockToggleStatementCollapse).toHaveBeenCalledWith('stmt-exp-2')
+    })
+
+    it('navigate-prev-cell expands collapsed previous cell before focusing', () => {
+      const mockPrevEditor = { focus: vi.fn() }
+      mockRegistryGet.mockReturnValue(mockPrevEditor)
+
+      const stmt1 = makeStatement({ id: 'stmt-expp-1', status: 'IDLE', isCollapsed: true })
+      const stmt2 = makeStatement({ id: 'stmt-expp-2', status: 'IDLE' })
+      mockStatementsRef.current = [stmt1, stmt2]
+      renderCell(stmt2, 1)
+      triggerMount()
+
+      const action = getAction('navigate-prev-cell')
+      action?.run()
+
+      expect(mockToggleStatementCollapse).toHaveBeenCalledWith('stmt-expp-1')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Autocomplete provider — invoke provideCompletionItems
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] autocomplete provider', () => {
+    const triggerMount = () => {
+      if (capturedOnMount) {
+        capturedOnMount(mockEditorInstance as never, mockMonacoInstance as never)
+      }
+    }
+
+    it('provideCompletionItems returns suggestions including Flink keywords', () => {
+      renderCell(makeStatement())
+      triggerMount()
+
+      // Get the provider callback from registerCompletionItemProvider
+      const providerCall = mockMonacoInstance.languages.registerCompletionItemProvider.mock.calls[0]
+      const provider = providerCall[1] as { provideCompletionItems: (model: unknown, position: unknown) => { suggestions: unknown[] } }
+
+      const mockModel = {
+        getWordUntilPosition: vi.fn(() => ({ word: '', startColumn: 1, endColumn: 1 })),
+      }
+      const mockPosition = { lineNumber: 1 }
+
+      const result = provider.provideCompletionItems(mockModel, mockPosition)
+      expect(result.suggestions.length).toBeGreaterThan(0)
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Format SQL button click — requires editorRef to be set via onMount
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] format SQL button click handler', () => {
+    const triggerMount = () => {
+      if (capturedOnMount) {
+        capturedOnMount(mockEditorInstance as never, mockMonacoInstance as never)
+      }
+    }
+
+    it('clicking format button with no change does not call addToast', async () => {
+      const user = userEvent.setup()
+      // formatSQL returns same string → no edit
+      mockFormatSQL.mockImplementation((sql: string) => sql)
+      mockEditorInstance.getValue.mockReturnValue('SELECT 1')
+
+      const { container } = renderCell(makeStatement({ code: 'SELECT 1' }))
+      triggerMount()
+
+      const formatBtn = container.querySelector('[title="Format SQL (Shift+Alt+F)"]') as HTMLButtonElement
+      await user.click(formatBtn)
+
+      expect(mockEditorInstance.executeEdits).not.toHaveBeenCalled()
+      expect(mockAddToast).not.toHaveBeenCalled()
+    })
+
+    it('clicking format button when SQL changes calls executeEdits and addToast', async () => {
+      const user = userEvent.setup()
+      mockFormatSQL.mockImplementation(() => 'SELECT\n  1')
+      mockEditorInstance.getValue.mockReturnValue('SELECT 1')
+
+      const { container } = renderCell(makeStatement({ code: 'SELECT 1' }))
+      triggerMount()
+
+      const formatBtn = container.querySelector('[title="Format SQL (Shift+Alt+F)"]') as HTMLButtonElement
+      await user.click(formatBtn)
+
+      expect(mockEditorInstance.executeEdits).toHaveBeenCalledWith(
+        'sql-formatter',
+        expect.arrayContaining([expect.objectContaining({ text: 'SELECT\n  1' })])
+      )
+      expect(mockEditorInstance.pushUndoStop).toHaveBeenCalled()
+      expect(mockAddToast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'success', message: 'SQL formatted' })
+      )
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // handleEditorChange — textarea onChange calls updateStatement
+  // -------------------------------------------------------------------------
+  describe('[@editor-cell] editor change handler', () => {
+    it('typing in editor textarea calls updateStatement', async () => {
+      const user = userEvent.setup()
+      renderCell(makeStatement({ id: 'stmt-change', code: '' }))
+
+      const textarea = screen.getByTestId('monaco-editor') as HTMLTextAreaElement
+      await user.type(textarea, 'SELECT 2')
+
+      // updateStatement should be called for each keystroke
+      expect(mockUpdateStatement).toHaveBeenCalled()
     })
   })
 })

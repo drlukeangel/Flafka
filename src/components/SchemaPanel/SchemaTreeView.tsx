@@ -5,7 +5,7 @@
  */
 
 import { useState, useCallback, useMemo } from 'react';
-import { FiChevronRight, FiChevronDown } from 'react-icons/fi';
+import { FiChevronRight, FiChevronDown, FiCopy } from 'react-icons/fi';
 
 interface AvroField {
   name: string;
@@ -121,6 +121,8 @@ interface FieldNodeProps {
 
 function FieldNode({ field, depth, expandAll, expandedByDefault }: FieldNodeProps) {
   const [expanded, setExpanded] = useState(expandedByDefault);
+  // Item 2: copy-to-clipboard state for field name
+  const [copiedField, setCopiedField] = useState(false);
 
   const nestedFields = useMemo(() => getNestedFields(field.type), [field.type]);
   const typeName = useMemo(() => resolveTypeName(field.type), [field.type]);
@@ -135,10 +137,25 @@ function FieldNode({ field, depth, expandAll, expandedByDefault }: FieldNodeProp
     setExpanded((prev) => !prev);
   }, [expandAll]);
 
+  // Item 2: click-to-copy field name
+  const handleCopyFieldName = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation(); // don't toggle expand
+    try {
+      await navigator.clipboard.writeText(field.name);
+      setCopiedField(true);
+      setTimeout(() => setCopiedField(false), 1500);
+    } catch {
+      // silently fail
+    }
+  }, [field.name]);
+
   const indent = depth * 16;
   const hasDefault = field.default !== undefined;
+  // Item 5: fix null default display — show as styled "null" rather than empty or raw string
   const defaultDisplay = hasDefault
-    ? typeof field.default === 'object'
+    ? field.default === null
+      ? 'null'
+      : typeof field.default === 'object'
       ? JSON.stringify(field.default)
       : String(field.default)
     : null;
@@ -181,18 +198,46 @@ function FieldNode({ field, depth, expandAll, expandedByDefault }: FieldNodeProp
             : null}
         </span>
 
-        {/* Field name */}
+        {/* Field name — Item 2: click copy icon to copy field name */}
         <span
           style={{
-            fontFamily: "'SF Mono', Monaco, Consolas, monospace",
-            fontSize: 12,
-            color: 'var(--color-text-primary)',
-            fontWeight: 500,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
             flexShrink: 0,
           }}
-          title={field.doc ?? field.name}
         >
-          {field.name}
+          <span
+            style={{
+              fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+              fontSize: 12,
+              color: 'var(--color-text-primary)',
+              fontWeight: 500,
+            }}
+            title={field.doc ?? field.name}
+          >
+            {field.name}
+          </span>
+          <button
+            onClick={handleCopyFieldName}
+            title={`Copy field name: ${field.name}`}
+            aria-label={`Copy field name ${field.name}`}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              cursor: 'pointer',
+              padding: 2,
+              display: 'flex',
+              alignItems: 'center',
+              color: copiedField ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+              borderRadius: 3,
+              opacity: 0,
+              transition: 'opacity var(--transition-fast), color var(--transition-fast)',
+            }}
+            className="field-copy-btn"
+          >
+            <FiCopy size={10} aria-hidden="true" />
+          </button>
         </span>
 
         {/* Nullable indicator */}
@@ -225,12 +270,12 @@ function FieldNode({ field, depth, expandAll, expandedByDefault }: FieldNodeProp
           {typeName.length > 24 ? `${typeName.slice(0, 22)}…` : typeName}
         </span>
 
-        {/* Default value */}
+        {/* Default value — Item 5: null is shown as styled keyword */}
         {defaultDisplay !== null && (
           <span
             style={{
               fontSize: 11,
-              color: 'var(--color-text-tertiary)',
+              color: field.default === null ? 'var(--color-text-tertiary)' : 'var(--color-text-tertiary)',
               marginLeft: 4,
               fontFamily: "'SF Mono', Monaco, Consolas, monospace",
               overflow: 'hidden',
@@ -240,7 +285,12 @@ function FieldNode({ field, depth, expandAll, expandedByDefault }: FieldNodeProp
             }}
             title={`Default: ${defaultDisplay}`}
           >
-            = {defaultDisplay.length > 16 ? `${defaultDisplay.slice(0, 14)}…` : defaultDisplay}
+            ={' '}
+            {field.default === null ? (
+              <em style={{ fontStyle: 'normal', color: 'var(--color-text-tertiary)', opacity: 0.7 }}>
+                null
+              </em>
+            ) : defaultDisplay.length > 16 ? `${defaultDisplay.slice(0, 14)}…` : defaultDisplay}
           </span>
         )}
       </div>

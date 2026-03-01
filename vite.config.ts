@@ -59,6 +59,18 @@ export default defineConfig(({ mode }) => {
               }
             })
           }
+        },
+        '/api/kafka': {
+          target: env.VITE_KAFKA_REST_ENDPOINT || 'https://pkc-placeholder.us-east-1.aws.confluent.cloud',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/kafka/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              if (req.headers.authorization) {
+                proxyReq.setHeader('Authorization', req.headers.authorization)
+              }
+            })
+          }
         }
       }
     },

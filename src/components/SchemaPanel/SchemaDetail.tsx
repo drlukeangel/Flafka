@@ -37,6 +37,8 @@ import {
   FiAlertTriangle,
   FiEdit2,
   FiTrash2,
+  FiCode,
+  FiCopy,
 } from 'react-icons/fi';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +63,23 @@ function formatSchemaJson(schema: string): string {
     return JSON.stringify(JSON.parse(schema), null, 2);
   } catch {
     return schema;
+  }
+}
+
+/**
+ * Item 11: Generate a Flink SQL SELECT statement from AVRO schema fields.
+ * Returns null for non-AVRO or invalid schemas.
+ */
+function generateSelectFromSchema(schema: string, subject: string): string | null {
+  try {
+    const parsed = JSON.parse(schema) as { type?: string; fields?: Array<{ name: string }> };
+    if (parsed.type !== 'record' || !Array.isArray(parsed.fields)) return null;
+    const fields = parsed.fields.map((f) => `  \`${f.name}\``).join(',\n');
+    // Derive table name from subject (strip -value/-key suffix if present)
+    const tableName = subject.replace(/-(value|key)$/, '');
+    return `SELECT\n${fields}\nFROM \`${tableName}\`;`;
+  } catch {
+    return null;
   }
 }
 
@@ -98,9 +117,11 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 interface ViewToggleProps {
   view: 'code' | 'tree';
   onChange: (view: 'code' | 'tree') => void;
+  /** Item 3: Tree button disabled for non-Avro schemas */
+  treeDisabled?: boolean;
 }
 
-function ViewToggle({ view, onChange }: ViewToggleProps) {
+function ViewToggle({ view, onChange, treeDisabled }: ViewToggleProps) {
   const base: React.CSSProperties = {
     padding: '4px 10px',
     fontSize: 12,
@@ -130,10 +151,17 @@ function ViewToggle({ view, onChange }: ViewToggleProps) {
           ...base,
           borderRadius: '0 4px 4px 0',
           background: view === 'tree' ? 'var(--color-primary)' : 'var(--color-surface)',
-          color: view === 'tree' ? '#fff' : 'var(--color-text-secondary)',
+          color: view === 'tree'
+            ? '#fff'
+            : treeDisabled
+            ? 'var(--color-text-disabled)'
+            : 'var(--color-text-secondary)',
+          cursor: treeDisabled ? 'not-allowed' : 'pointer',
+          opacity: treeDisabled ? 0.6 : 1,
         }}
         onClick={() => onChange('tree')}
         aria-pressed={view === 'tree'}
+        aria-disabled={treeDisabled}
         title="View field tree"
       >
         Tree
@@ -324,6 +352,7 @@ export default function SchemaDetail() {
 
   // Compatibility
   const [compatibility, setCompatibility] = useState<CompatibilityLevel | null>(null);
+  const [compatIsGlobal, setCompatIsGlobal] = useState(false); // Item 4: track if inherited from global
   const [compatLoading, setCompatLoading] = useState(false);
   const [compatSaving, setCompatSaving] = useState(false);
 
@@ -339,6 +368,18 @@ export default function SchemaDetail() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Item 11: Generate SELECT statement
+  const [copiedSelect, setCopiedSelect] = useState(false);
+
+  // Item 12: Per-version delete
+  const [deletingVersion, setDeletingVersion] = useState(false);
+
+  // Item 6: Schema diff — compare two versions
+  const [diffMode, setDiffMode] = useState(false);
+  const [diffVersion, setDiffVersion] = useState<number | 'latest'>('latest');
+  const [diffSchema, setDiffSchema] = useState<string | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+
   const subject = selectedSchemaSubject?.subject ?? null;
 
   // Load versions list whenever subject changes
@@ -353,16 +394,31 @@ export default function SchemaDetail() {
       .finally(() => setVersionsLoading(false));
   }, [subject]);
 
-  // Load compatibility mode whenever subject changes
+  // Load compatibility mode whenever subject changes.
+  // Item 4: getCompatibilityModeWithSource indicates if the mode is inherited from global config.
   useEffect(() => {
     if (!subject) return;
     setCompatLoading(true);
     setCompatibility(null);
-    schemaRegistryApi
-      .getCompatibilityMode(subject)
-      .then((level) => setCompatibility(level))
-      .catch((err) => console.error('Failed to load compatibility mode:', err))
-      .finally(() => setCompatLoading(false));
+    setCompatIsGlobal(false);
+    (async () => {
+      try {
+        const { level, isGlobal } = await schemaRegistryApi.getCompatibilityModeWithSource(subject);
+        setCompatibility(level);
+        setCompatIsGlobal(isGlobal);
+      } catch (err) {
+        console.error('Failed to load compatibility mode:', err);
+        // Fallback to plain helper
+        try {
+          const level = await schemaRegistryApi.getCompatibilityMode(subject);
+          setCompatibility(level);
+        } catch {
+          // ignore
+        }
+      } finally {
+        setCompatLoading(false);
+      }
+    })();
   }, [subject]);
 
   // Reset UI state when subject changes
@@ -374,6 +430,9 @@ export default function SchemaDetail() {
     setSelectedVersion('latest');
     setShowDeleteConfirm(false);
     setDeleting(false);
+    setDiffMode(false);
+    setDiffSchema(null);
+    setDiffVersion('latest');
   }, [subject]);
 
   const handleVersionChange = useCallback(
@@ -501,6 +560,67 @@ export default function SchemaDetail() {
     if (!subject) return;
     loadSchemaDetail(subject, selectedVersion);
   }, [subject, selectedVersion, loadSchemaDetail]);
+
+  // Item 11: Generate and copy SELECT statement
+  const handleGenerateSelect = useCallback(async () => {
+    if (!selectedSchemaSubject) return;
+    const sql = generateSelectFromSchema(selectedSchemaSubject.schema, selectedSchemaSubject.subject);
+    if (!sql) return;
+    try {
+      await navigator.clipboard.writeText(sql);
+      setCopiedSelect(true);
+      setTimeout(() => setCopiedSelect(false), 2000);
+      addToast({ type: 'success', message: 'SELECT statement copied to clipboard', duration: 3000 });
+    } catch {
+      // silently fail
+    }
+  }, [selectedSchemaSubject, addToast]);
+
+  // Item 6: Load diff schema when diffVersion changes
+  const handleDiffVersionChange = useCallback(async (version: number | 'latest') => {
+    if (!subject) return;
+    setDiffVersion(version);
+    setDiffLoading(true);
+    try {
+      const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
+      setDiffSchema(formatSchemaJson(detail.schema));
+    } catch (err) {
+      console.error('Failed to load diff schema:', err);
+      setDiffSchema(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [subject]);
+
+  const handleToggleDiff = useCallback(() => {
+    if (!diffMode && versions.length > 0) {
+      // Default to the previous version for diff
+      const prevVersion = versions.length >= 2 ? versions[versions.length - 2] : versions[0];
+      handleDiffVersionChange(prevVersion);
+    }
+    setDiffMode((v) => !v);
+  }, [diffMode, versions, handleDiffVersionChange]);
+
+  // Item 12: Delete a specific schema version
+  const handleDeleteVersion = useCallback(async () => {
+    if (!subject || selectedVersion === 'latest') return;
+    if (!confirm(`Delete version ${selectedVersion} of "${subject}"? This cannot be undone.`)) return;
+    setDeletingVersion(true);
+    try {
+      await schemaRegistryApi.deleteSchemaVersion(subject, selectedVersion as number);
+      addToast({ type: 'success', message: `Version ${selectedVersion} deleted` });
+      // Reload versions and jump to latest
+      const v = await schemaRegistryApi.getSchemaVersions(subject);
+      setVersions(v);
+      setSelectedVersion('latest');
+      await loadSchemaDetail(subject, 'latest');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete version';
+      addToast({ type: 'error', message: msg });
+    } finally {
+      setDeletingVersion(false);
+    }
+  }, [subject, selectedVersion, addToast, loadSchemaDetail]);
 
   // -------------------------------------------------------------------------
   // Empty state — no subject selected
@@ -692,6 +812,31 @@ export default function SchemaDetail() {
               aria-label="Loading versions"
             />
           )}
+          {/* Item 12: Delete specific version (disabled for latest) */}
+          {selectedVersion !== 'latest' && versions.length > 1 && !isEditing && (
+            <button
+              onClick={handleDeleteVersion}
+              disabled={deletingVersion}
+              title={`Delete version ${selectedVersion}`}
+              aria-label={`Delete version ${selectedVersion}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '2px 5px',
+                border: '1px solid var(--color-error)',
+                borderRadius: 3,
+                background: 'transparent',
+                color: 'var(--color-error)',
+                fontSize: 11,
+                cursor: deletingVersion ? 'not-allowed' : 'pointer',
+                opacity: deletingVersion ? 0.6 : 1,
+              }}
+            >
+              {deletingVersion
+                ? <span className="spin" style={{ width: 10, height: 10, display: 'inline-block' }} />
+                : <FiTrash2 size={10} aria-hidden="true" />}
+            </button>
+          )}
         </div>
 
         {/* Compatibility */}
@@ -726,6 +871,25 @@ export default function SchemaDetail() {
                   </option>
                 ))}
               </select>
+              {/* Item 4: "Global" label when compat is inherited from the global default */}
+              {compatIsGlobal && !compatSaving && (
+                <span
+                  title="This subject inherits the global compatibility setting"
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: 'var(--color-text-tertiary)',
+                    background: 'var(--color-surface-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 3,
+                    padding: '1px 5px',
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Global
+                </span>
+              )}
               {compatSaving && (
                 <span
                   className="spin"
@@ -751,12 +915,61 @@ export default function SchemaDetail() {
           rowGap: 5,
         }}
       >
-        {!isEditing && <ViewToggle view={view} onChange={setView} />}
+        {!isEditing && <ViewToggle view={view} onChange={setView} treeDisabled={schemaType !== 'AVRO'} />}
         <div style={{ flex: 1 }} />
 
         {!isEditing ? (
           /* Read mode actions */
           <>
+            {/* Item 11: Generate SELECT (only for AVRO) */}
+            {schemaType === 'AVRO' && generateSelectFromSchema(schema, selectedSchemaSubject.subject) && (
+              <button
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '5px 10px',
+                  borderRadius: 4,
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-surface)',
+                  color: copiedSelect ? 'var(--color-success)' : 'var(--color-text-secondary)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  transition: 'color var(--transition-fast)',
+                }}
+                onClick={handleGenerateSelect}
+                title="Copy SELECT statement with all fields"
+                aria-label="Copy SELECT statement"
+              >
+                {copiedSelect ? <FiCheck size={12} aria-hidden="true" /> : <FiCode size={12} aria-hidden="true" />}
+                SELECT
+              </button>
+            )}
+            {/* Item 6: Diff button (only when multiple versions exist) */}
+            {versions.length >= 2 && (
+              <button
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '5px 10px',
+                  borderRadius: 4,
+                  border: `1px solid ${diffMode ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                  background: diffMode ? 'var(--color-primary-badge-bg)' : 'var(--color-surface)',
+                  color: diffMode ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  transition: 'background var(--transition-fast)',
+                }}
+                onClick={handleToggleDiff}
+                title="Compare two schema versions"
+                aria-label="Toggle diff view"
+                aria-pressed={diffMode}
+              >
+                <FiCopy size={12} aria-hidden="true" />
+                Diff
+              </button>
+            )}
             <button
               style={{
                 display: 'flex',
@@ -938,6 +1151,21 @@ export default function SchemaDetail() {
                 setValidationError(null);
               }
             }}
+            onKeyDown={(e) => {
+              // Item 1: Tab inserts 2 spaces instead of escaping focus
+              if (e.key === 'Tab') {
+                e.preventDefault();
+                const el = e.currentTarget;
+                const start = el.selectionStart;
+                const end = el.selectionEnd;
+                const newValue = editSchema.substring(0, start) + '  ' + editSchema.substring(end);
+                setEditSchema(newValue);
+                // Restore cursor after the inserted spaces (React batches state, so use requestAnimationFrame)
+                requestAnimationFrame(() => {
+                  el.selectionStart = el.selectionEnd = start + 2;
+                });
+              }
+            }}
             spellCheck={false}
             aria-label="Edit schema JSON"
             style={{
@@ -959,6 +1187,91 @@ export default function SchemaDetail() {
               boxShadow: 'inset 0 0 0 2px var(--color-primary)',
             }}
           />
+        ) : view === 'code' && diffMode ? (
+          /* Item 6: Diff view — before/after version comparison */
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {/* Diff version picker */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+                borderBottom: '1px solid var(--color-border)',
+                flexShrink: 0,
+                fontSize: 12,
+                color: 'var(--color-text-secondary)',
+              }}
+            >
+              <span>Compare v{selectedVersion === 'latest' ? versions[versions.length - 1] : selectedVersion} against:</span>
+              <select
+                value={diffVersion === 'latest' ? 'latest' : String(diffVersion)}
+                onChange={(e) => {
+                  const v = e.target.value === 'latest' ? 'latest' : parseInt(e.target.value, 10);
+                  handleDiffVersionChange(v);
+                }}
+                style={{
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 12,
+                }}
+              >
+                <option value="latest">Latest</option>
+                {versions.map((v) => (
+                  <option key={v} value={String(v)}>v{v}</option>
+                ))}
+              </select>
+              {diffLoading && (
+                <span className="spin" style={{ width: 12, height: 12, display: 'inline-block' }} aria-hidden="true" />
+              )}
+            </div>
+            {/* Diff content */}
+            <div style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', gap: 8 }}>
+              {/* Left pane: diff schema */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  v{diffVersion === 'latest' ? 'latest' : diffVersion}
+                </div>
+                <pre
+                  style={{
+                    margin: 0, padding: 12,
+                    fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+                    fontSize: 11, lineHeight: 1.6,
+                    background: 'var(--color-surface-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    color: 'var(--color-text-primary)',
+                    overflowX: 'auto', whiteSpace: 'pre', minHeight: 60,
+                  }}
+                >
+                  {diffSchema ?? (diffLoading ? 'Loading…' : 'No schema')}
+                </pre>
+              </div>
+              {/* Right pane: current schema */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  v{selectedVersion === 'latest' ? (versions[versions.length - 1] ?? 'latest') : selectedVersion} (current)
+                </div>
+                <pre
+                  style={{
+                    margin: 0, padding: 12,
+                    fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+                    fontSize: 11, lineHeight: 1.6,
+                    background: 'var(--color-surface-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    color: 'var(--color-text-primary)',
+                    overflowX: 'auto', whiteSpace: 'pre', minHeight: 60,
+                  }}
+                >
+                  {formattedSchema}
+                </pre>
+              </div>
+            </div>
+          </div>
         ) : view === 'code' ? (
           /* Read mode: formatted code */
           <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
@@ -1002,26 +1315,37 @@ export default function SchemaDetail() {
         )}
       </div>
 
-      {/* Loading overlay (version switching) */}
+      {/* Item 7: Loading shimmer for version switch */}
       {schemaRegistryLoading && !isEditing && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'rgba(0,0,0,0.12)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            background: 'var(--color-surface)',
             zIndex: 5,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            padding: 16,
+            overflow: 'hidden',
           }}
           aria-live="polite"
           aria-label="Loading schema"
         >
-          <span
-            className="spin"
-            style={{ width: 22, height: 22, display: 'inline-block' }}
-            aria-hidden="true"
-          />
+          {/* Shimmer rows to suggest code content is loading */}
+          {[80, 60, 90, 50, 75, 40, 65].map((w, i) => (
+            <div
+              key={i}
+              style={{
+                height: 14,
+                width: `${w}%`,
+                borderRadius: 4,
+                background: 'var(--color-border)',
+                animation: 'shimmer 1.2s ease-in-out infinite',
+                animationDelay: `${i * 0.08}s`,
+              }}
+            />
+          ))}
         </div>
       )}
     </div>

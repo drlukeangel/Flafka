@@ -34,6 +34,12 @@
   /* Primary tint for backgrounds */
   --color-surface-primary-tint: rgba(73, 51, 215, 0.05);
 
+  /* Badge backgrounds — LOW-6: use CSS vars instead of hardcoded rgba */
+  --color-primary-badge-bg: rgba(73, 51, 215, 0.1);
+  --color-success-badge-bg: rgba(34, 197, 94, 0.1);
+  --color-warning-badge-bg: rgba(245, 158, 11, 0.12);
+  --color-error-badge-bg: rgba(239, 68, 68, 0.08);
+
   /* Table row colors */
   --color-row-odd: #fafafa;
   --color-row-hover: #F0F0F0;
@@ -102,6 +108,12 @@
 
   /* Primary tint for backgrounds */
   --color-surface-primary-tint: rgba(123, 95, 250, 0.1);
+
+  /* Badge backgrounds — dark mode variants */
+  --color-primary-badge-bg: rgba(123, 95, 250, 0.15);
+  --color-success-badge-bg: rgba(52, 211, 153, 0.12);
+  --color-warning-badge-bg: rgba(251, 191, 36, 0.15);
+  --color-error-badge-bg: rgba(248, 113, 113, 0.1);
 
   /* Table row colors */
   --color-row-odd: #2A2A2E;
@@ -186,6 +198,11 @@ body {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
 }
 
 @keyframes slideInRight {
