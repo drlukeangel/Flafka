@@ -6,9 +6,12 @@ import {
   getTopicConfigs,
   createTopic,
   deleteTopic,
+  alterTopicConfig,
+  getTopicPartitions,
+  getPartitionOffsets,
 } from '../../api/topic-api'
 import { kafkaRestClient } from '../../api/kafka-rest-client'
-import type { KafkaTopic, TopicConfig } from '../../types'
+import type { KafkaTopic, TopicConfig, KafkaPartition, PartitionOffsets } from '../../types'
 
 vi.mock('../../api/kafka-rest-client', () => ({
   kafkaRestClient: {
@@ -782,6 +785,233 @@ describe('[@topic-api] topic-api', () => {
       const [, payload] = vi.mocked(kafkaRestClient.post).mock.calls[0] as [string, typeof request]
       // JSON body carries the raw name — encodeURIComponent is for URL path segments only
       expect(payload.topic_name).toBe(topicName)
+    })
+  })
+
+  // ==========================================================================
+  // alterTopicConfig
+  // ==========================================================================
+
+  describe('[@topic-api] alterTopicConfig', () => {
+    it('sends correct POST body with name and value', async () => {
+      vi.mocked(kafkaRestClient.post).mockResolvedValueOnce({ status: 200, data: undefined })
+
+      await alterTopicConfig('orders', 'retention.ms', '86400000')
+
+      expect(kafkaRestClient.post).toHaveBeenCalledWith(
+        expect.stringContaining('/configs:alter'),
+        { data: [{ name: 'retention.ms', value: '86400000' }] }
+      )
+    })
+
+    it('URL-encodes topic name in the request path', async () => {
+      const topicName = 'my.topic/v2+special'
+      vi.mocked(kafkaRestClient.post).mockResolvedValueOnce({ status: 200, data: undefined })
+
+      await alterTopicConfig(topicName, 'cleanup.policy', 'compact')
+
+      const calledUrl = vi.mocked(kafkaRestClient.post).mock.calls[0][0] as string
+      expect(calledUrl).toContain(encodeURIComponent(topicName))
+      expect(calledUrl).not.toContain('my.topic/v2+special')
+    })
+
+    it('resolves void on success (200 empty body)', async () => {
+      vi.mocked(kafkaRestClient.post).mockResolvedValueOnce({ status: 200, data: undefined })
+
+      const result = await alterTopicConfig('orders', 'retention.ms', '604800000')
+
+      expect(result).toBeUndefined()
+    })
+
+    it('throws on 422 Unprocessable Entity (invalid config)', async () => {
+      const error = makeAxiosError(422, 'Unprocessable Entity — invalid config value')
+      vi.mocked(kafkaRestClient.post).mockRejectedValueOnce(error)
+
+      await expect(
+        alterTopicConfig('orders', 'retention.ms', 'not-a-number')
+      ).rejects.toMatchObject({ response: { status: 422 } })
+    })
+
+    it('throws on 403 Forbidden', async () => {
+      const error = makeAxiosError(403, 'Forbidden — insufficient permissions')
+      vi.mocked(kafkaRestClient.post).mockRejectedValueOnce(error)
+
+      await expect(
+        alterTopicConfig('orders', 'cleanup.policy', 'delete')
+      ).rejects.toMatchObject({ response: { status: 403 } })
+    })
+
+    it('throws on network error', async () => {
+      const error = new Error('Network Error')
+      vi.mocked(kafkaRestClient.post).mockRejectedValueOnce(error)
+
+      await expect(
+        alterTopicConfig('orders', 'retention.ms', '604800000')
+      ).rejects.toThrow('Network Error')
+    })
+  })
+
+  // ==========================================================================
+  // getTopicPartitions
+  // ==========================================================================
+
+  describe('[@topic-api] getTopicPartitions', () => {
+    function makePartition(overrides: Partial<KafkaPartition> = {}): KafkaPartition {
+      return {
+        partition_id: overrides.partition_id ?? 0,
+        leader: overrides.leader !== undefined ? overrides.leader : { broker_id: 1 },
+        replicas: overrides.replicas ?? [{ broker_id: 1 }, { broker_id: 2 }, { broker_id: 3 }],
+        isr: overrides.isr ?? [{ broker_id: 1 }, { broker_id: 2 }, { broker_id: 3 }],
+      }
+    }
+
+    it('returns partition array from data field', async () => {
+      const partitions = [
+        makePartition({ partition_id: 0 }),
+        makePartition({ partition_id: 1 }),
+        makePartition({ partition_id: 2 }),
+      ]
+
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: partitions },
+      })
+
+      const result = await getTopicPartitions('orders')
+
+      expect(result).toHaveLength(3)
+      expect(result[0].partition_id).toBe(0)
+      expect(result[1].partition_id).toBe(1)
+      expect(result[2].partition_id).toBe(2)
+    })
+
+    it('URL-encodes topic name in the request path', async () => {
+      const topicName = 'my.topic/v2+special'
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      await getTopicPartitions(topicName)
+
+      const calledUrl = vi.mocked(kafkaRestClient.get).mock.calls[0][0] as string
+      expect(calledUrl).toContain(encodeURIComponent(topicName))
+      expect(calledUrl).not.toContain('my.topic/v2+special')
+      expect(calledUrl).toContain('/partitions')
+    })
+
+    it('returns empty array when topic has no partitions', async () => {
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      const result = await getTopicPartitions('orders')
+
+      expect(result).toEqual([])
+    })
+
+    it('preserves null leader field', async () => {
+      const partition = makePartition({ partition_id: 0, leader: null })
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: [partition] },
+      })
+
+      const result = await getTopicPartitions('orders')
+
+      expect(result[0].leader).toBeNull()
+    })
+
+    it('throws on 404 Not Found', async () => {
+      const error = makeAxiosError(404, 'Topic not found')
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(error)
+
+      await expect(getTopicPartitions('missing-topic')).rejects.toMatchObject({
+        response: { status: 404 },
+      })
+    })
+
+    it('throws on network error', async () => {
+      const error = new Error('Network Error')
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(error)
+
+      await expect(getTopicPartitions('orders')).rejects.toThrow('Network Error')
+    })
+  })
+
+  // ==========================================================================
+  // getPartitionOffsets
+  // ==========================================================================
+
+  describe('[@topic-api] getPartitionOffsets', () => {
+    function makeOffsets(overrides: Partial<PartitionOffsets> = {}): PartitionOffsets {
+      return {
+        beginning_offset: overrides.beginning_offset ?? 0,
+        end_offset: overrides.end_offset ?? 1000,
+      }
+    }
+
+    it('returns offset data with beginning and end offsets', async () => {
+      const offsets = makeOffsets({ beginning_offset: 0, end_offset: 5000 })
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({ data: offsets })
+
+      const result = await getPartitionOffsets('orders', 0)
+
+      expect(result.beginning_offset).toBe(0)
+      expect(result.end_offset).toBe(5000)
+    })
+
+    it('calls GET with correct path including partition ID', async () => {
+      const offsets = makeOffsets()
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({ data: offsets })
+
+      await getPartitionOffsets('orders', 2)
+
+      const calledUrl = vi.mocked(kafkaRestClient.get).mock.calls[0][0] as string
+      expect(calledUrl).toContain('/partitions/2/offsets')
+    })
+
+    it('URL-encodes topic name in the request path', async () => {
+      const topicName = 'my.topic/v2+special'
+      const offsets = makeOffsets()
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({ data: offsets })
+
+      await getPartitionOffsets(topicName, 0)
+
+      const calledUrl = vi.mocked(kafkaRestClient.get).mock.calls[0][0] as string
+      expect(calledUrl).toContain(encodeURIComponent(topicName))
+      expect(calledUrl).not.toContain('my.topic/v2+special')
+    })
+
+    it('handles beginning_offset of 0 (not truncated)', async () => {
+      const offsets = makeOffsets({ beginning_offset: 0, end_offset: 100 })
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({ data: offsets })
+
+      const result = await getPartitionOffsets('orders', 0)
+
+      expect(result.beginning_offset).toBe(0)
+    })
+
+    it('handles 404 Not Found (partition does not exist)', async () => {
+      const error = makeAxiosError(404, 'Partition not found')
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(error)
+
+      await expect(getPartitionOffsets('orders', 999)).rejects.toMatchObject({
+        response: { status: 404 },
+      })
+    })
+
+    it('throws on 403 Forbidden', async () => {
+      const error = makeAxiosError(403, 'Forbidden — insufficient permissions')
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(error)
+
+      await expect(getPartitionOffsets('orders', 0)).rejects.toMatchObject({
+        response: { status: 403 },
+      })
+    })
+
+    it('throws on network error', async () => {
+      const error = new Error('Network Error')
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(error)
+
+      await expect(getPartitionOffsets('orders', 0)).rejects.toThrow('Network Error')
     })
   })
 })

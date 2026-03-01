@@ -163,13 +163,21 @@ See [CLAUDE.md - Phase 4 Tracks](#phase-4-tracks) below for five async tracks ru
 
 **Documentation & Roadmap:**
 - **Document everything** - PRDs in `docs/features/`, FAQs in `docs/faqs/`, roadmap in `roadmap.md`
-- **Roadmap drives velocity** - `roadmap.md` is the single source of truth. TPPM updates during Phase 5.
+- **Roadmap drives velocity** - `roadmap.md` is the single source of truth. Simple format:
+  ```
+  ## Current Feature
+  - Phase: X (1-5)
+  - PRD: docs/features/phase-X.md
+  - Agent: [TPPM|Engineer|QA Manager]
 
-**Workflow Monitoring:**
-- **Workflow Manager monitors continuously** - All active subagents are polled every 60 seconds by Workflow Manager (see [docs/agents/WORKFLOW-MANAGER.md](docs/agents/WORKFLOW-MANAGER.md))
-- **Status file is source of truth** - Before any major action, Claude Code checks `docs/agents/feedback/run-{N}/workflow-status.md` (current run) to understand current pipeline state (active features, running agents, gate status, blockers, recommended next actions)
-- **Subagent heartbeat protocol** - Each active subagent MUST respond to heartbeat polls within 60 seconds with: task, phase, status, ETA, blockers
-- **Gate enforcement** - Workflow Manager validates all phase gate conditions before allowing progression; violations are logged immediately
+  ## Next Feature (If TPPM is ahead)
+  - Phase: 1 (PRD writing)
+  - PRD: docs/features/phase-Y.md
+
+  ## Shipped Features
+  - Phase Z (Release N)
+  ```
+- **How it works** - Claude Code reads `roadmap.md`, launches the appropriate agent(s) for the current phase, waits for completion, updates roadmap. No polling, no background processes. Zero overhead.
 
 ---
 

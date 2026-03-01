@@ -6,6 +6,47 @@ This is the overarching orchestration framework that wraps all feature developme
 
 ---
 
+## PARALLELISM: Ask For Every Phase
+
+**Every phase transition, ask: CAN THIS HAPPEN IN PARALLEL?**
+
+### Phase Parallelism Rules
+
+| Phase | Ask | Can Parallel? | Examples |
+|-------|-----|---------------|----------|
+| **Phase 1** | Can Feature N+1 PRD be written while Feature N Phase 2 runs? | ✅ YES | TPPM writes N+1 Phase 1 during N's Phase 2-4 |
+| **Phase 2 (A2)** | Can 5 design reviewers review simultaneously? | ✅ YES | All 5 parallel (Architect, Engineer, QA, UX/IA, Flink) |
+| **Phase 2 (B1)** | Can implementation be split by file ownership? | ✅ YES | Max 3-4 agents, each owns different files, parallel implementation |
+| **Phase 2 (B2)** | Can browser tests run while B1 still wrapping up? | ✅ YES | B2 starts immediately as B1 completes |
+| **Phase 2 (B3)** | Can QA validation (Part A/B/C) be done in parallel? | ✅ YES | Marker validation + code review + API validation in parallel |
+| **Phase 2.5** | Can QA Manager test execution + screenshot review run simultaneously? | ✅ YES | Tests running in background while reviewing screenshots |
+| **Phase 2.6** | Can UX/IA validate dark mode + light mode simultaneously? | ✅ YES | Both mode validations in parallel, not sequential |
+| **Phase 3** | Can TPPM validate acceptance while Phase 4 planning starts? | ✅ YES | Validation can happen while prepping Phase 4 parallel tracks |
+| **Phase 4A (Closer)** | Can code merge + doc updates happen simultaneously? | ✅ YES | Don't wait for perfect docs before merging |
+| **Phase 4B/C/D/E** | Can all four tracks run in parallel? | ✅ YES | Closer, Flink Developer, Test Completion, Interview, Optimizer all parallel |
+| **Phase 5** | Can Feature N+2 Phase 1 PRD start while N's Phase 5 synthesis happens? | ✅ YES | TPPM starts N+2 Phase 1 while finishing N's Phase 5 |
+
+### Duplicate Agent Rule
+
+**If 2+ features in same phase simultaneously:**
+- ❌ DON'T sequence them
+- ✅ DO spin up another agent instance for each feature
+- Example: Phase 2.5 for Feature A + Feature B? Spin up 2 QA Manager instances
+
+### Never Sequence Independent Work
+
+**Independent tasks (no shared dependencies):**
+- Split by file ownership? → Parallel agents
+- Split by reviewer responsibility? → Parallel reviewers
+- Split by test category? → Parallel test execution
+- Split by feature? → Duplicate agents
+
+**Only sequence if true blocker:**
+- Example: Shared file edit bottleneck → One agent edits first, others wait minimal time, then continue
+- NOT: "Let's do Feature A first, then Feature B" (wasted time)
+
+---
+
 ## Pipeline Visualization
 
 ```

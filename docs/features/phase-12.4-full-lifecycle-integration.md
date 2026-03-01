@@ -243,8 +243,9 @@ On Save:
 3. On success: row exits edit mode, `fetchConfigs()` is re-called to refresh the full config list (ensures server-authoritative state)
 4. On error: `role="alert"` inline error below the input row; Cancel remains active; row stays in edit mode
 
-On Cancel:
+On Cancel (click or Escape key):
 - Row returns to read mode with the previous value, no API call
+- **Critical**: If Cancel is clicked while a save is in progress, use the `requestIdRef` pattern (already established for `fetchConfigs` in TopicDetail) to track the save request ID and mark it as cancelled. This way, if the API response arrives after cancel, it is silently discarded, preventing stale state updates.
 
 **Read-only configs** (where `is_read_only === true`): No edit button. These configs display a lock icon (`FiLock`, 11px, `var(--color-text-tertiary)`) in the fourth column instead. Tooltip: "This configuration is read-only and cannot be changed."
 
@@ -313,10 +314,12 @@ Only rendered when `topic.partitions_count < 2`. This catches single-partition t
 
 ### Changes to `workspaceStore.ts`
 
-Add one new action:
+Add one new action and one new optional state field:
 
 ```typescript
 navigateToSchemaSubject: (subject: SchemaSubject) => void;
+topicPartitionsExpanded?: boolean;
+setTopicPartitionsExpanded: (expanded: boolean) => void;
 ```
 
 Implementation:
@@ -327,11 +330,16 @@ navigateToSchemaSubject: (subject) => {
     selectedSchemaSubject: subject,
   });
 },
+setTopicPartitionsExpanded: (expanded) => {
+  set({ topicPartitionsExpanded: expanded });
+},
 ```
 
-This is the same state shape already used by Schema panel. Reusing existing fields avoids any new store state. The action simply bridges the two panels at the routing level.
+The `navigateToSchemaSubject` action reuses existing state fields (`activeNavItem`, `selectedSchemaSubject`) already used by the Schema panel. Reusing existing fields avoids any new store state beyond the partition expand flag.
 
-**No new state fields** — no `partitionList`, no `schemaLink`. All Feature 3, 4, and 6 state is local component state (`useState`) to keep the store lean.
+The `topicPartitionsExpanded` field is **runtime-only** and must be **excluded from the `partialize` persist config** (not saved to localStorage). This flag controls temporary UI state (panel width expand/collapse) and should reset on page reload.
+
+**No new component-level state fields beyond these** — no `partitionList`, no `schemaLink`. All Feature 3, 4, and 6 state is local component state (`useState`) to keep the store lean.
 
 ---
 
@@ -612,6 +620,8 @@ No `LIMIT` clause is added — Flink streaming SELECT does not use LIMIT in the 
 
 The App.tsx side panel width logic currently widens for `activeNavItem === 'schemas'` based on `selectedSchemaSubject`. When `navigateToSchemaSubject()` sets both simultaneously, the Schema panel opens directly to the correct width.
 
+**Edge case**: When navigating to a specific schema subject via `navigateToSchemaSubject()` on a first-time visit (Schema panel never opened before), the Schema panel's subject list may not be populated since `loadSchemaRegistrySubjects()` has not run yet. The browser test must verify that the `selectedSchemaSubject` detail loads correctly even when the list is empty. If the Schema panel was already visited earlier in the session, the subjects list will be populated by the existing `useEffect`.
+
 ### Schema Lookup Convention
 
 Confluent Cloud by convention names Schema Registry subjects as `{topic_name}-value` (for value schema) and `{topic_name}-key` (for key schema). This is a convention, not enforced by the platform. The lookup tries:
@@ -620,7 +630,7 @@ Confluent Cloud by convention names Schema Registry subjects as `{topic_name}-va
 2. `{topic_name}-key` — key schema (less common but valid)
 3. `{topic_name}` — some teams omit the suffix
 
-Each lookup is a separate `getSchemaDetail()` call. Use `Promise.allSettled` (not `Promise.all`) so a 404 on `orders-value` does not prevent the `orders-key` check from running.
+Each lookup is a separate `getSchemaDetail()` call. **Critical**: Use **`Promise.allSettled` (NOT `Promise.all`)** so a 404 on `orders-value` does not prevent the `orders-key` check from running. This ensures all three subject patterns are checked in parallel without one failure aborting the others.
 
 If Schema Registry is not configured (`env.schemaRegistryUrl` empty), skip all lookups and render nothing.
 
@@ -641,7 +651,18 @@ Each partition requires a separate GET request for offsets. For a topic with N p
 
 The 100-partition cap prevents the UI from firing 1000+ concurrent requests on large enterprise clusters. 100 parallel requests to the Kafka REST API is reasonable for a UI tool; 1000+ is not.
 
-Each offset request is wrapped in try/catch — individual failures show "—" for that partition without failing the entire table.
+**Critical**: Each offset request MUST be individually wrapped in try/catch — do NOT use a single outer catch that would fail all partitions if one request fails. Individual failures show "—" for that partition without failing the entire table. This ensures the partition table renders as complete as possible even with some offset fetch failures.
+
+Example:
+```typescript
+const offsets = await Promise.all(
+  partitions.map(p =>
+    getPartitionOffsets(topicName, p.id)
+      .then(o => ({ partitionId: p.id, ...o }))
+      .catch(err => ({ partitionId: p.id, beginning_offset: null, end_offset: null }))
+  )
+);
+```
 
 ### Panel Width for Topic Detail
 
@@ -741,6 +762,7 @@ Bulk config editing (e.g., "edit all non-default configs") is a future enhanceme
 | Collapsing partition section hides table | `[@topic-detail][@phase-12-4]` | T1 |
 | Partition error state shows Retry button | `[@topic-detail][@phase-12-4]` | T1 |
 | Offset fetch skipped for topics with > 100 partitions | `[@topic-detail][@phase-12-4]` | T2 |
+| Partition toggle header button is keyboard-accessible (Tab + Enter/Space) | `[@topic-detail][@phase-12-4]` | T2 |
 
 ### Unit Tests — `src/__tests__/components/TopicList.test.tsx` (additions)
 

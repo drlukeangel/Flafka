@@ -39,6 +39,9 @@ vi.mock('../../api/topic-api', () => ({
   getTopicConfigs: vi.fn(),
   createTopic: vi.fn(),
   deleteTopic: vi.fn(),
+  alterTopicConfig: vi.fn(),
+  getTopicPartitions: vi.fn(),
+  getPartitionOffsets: vi.fn(),
 }));
 
 // Mock workspace-export utility (imported by the store)
@@ -49,7 +52,8 @@ vi.mock('../../utils/workspace-export', () => ({
 // ─── Imports after mocks ──────────────────────────────────────────────────────
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as topicApi from '../../api/topic-api';
-import type { KafkaTopic } from '../../types';
+import * as schemaRegistryApi from '../../api/schema-registry-api';
+import type { KafkaTopic, SchemaSubject } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -622,5 +626,51 @@ describe('[@topic-store] persistence', () => {
     expect(persistedState).not.toHaveProperty('selectedTopic');
     expect(persistedState).not.toHaveProperty('topicLoading');
     expect(persistedState).not.toHaveProperty('topicError');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('[@topic-store] navigateToSchemaSubject', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkspaceStore.setState({
+      ...topicDefaults,
+      activeNavItem: 'topics',
+      selectedSchemaSubject: null,
+      schemaRegistryLoading: false,
+      schemaRegistryError: null,
+    });
+  });
+
+  it('sets activeNavItem to "schemas"', async () => {
+    const mockSubject: SchemaSubject = {
+      subject: 'orders-value',
+      version: 1,
+      id: 42,
+      schemaType: 'AVRO',
+      schema: '{"type":"record","name":"Order","fields":[]}',
+    };
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockResolvedValueOnce(mockSubject);
+
+    await useWorkspaceStore.getState().navigateToSchemaSubject('orders-value');
+
+    expect(useWorkspaceStore.getState().activeNavItem).toBe('schemas');
+  });
+
+  it('loads schema detail for the given subject name', async () => {
+    const mockSubject: SchemaSubject = {
+      subject: 'payments-key',
+      version: 2,
+      id: 99,
+      schemaType: 'AVRO',
+      schema: '{"type":"record","name":"PaymentKey","fields":[]}',
+    };
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockResolvedValueOnce(mockSubject);
+
+    await useWorkspaceStore.getState().navigateToSchemaSubject('payments-key');
+
+    expect(schemaRegistryApi.getSchemaDetail).toHaveBeenCalledWith('payments-key', 'latest');
+    expect(useWorkspaceStore.getState().selectedSchemaSubject).toEqual(mockSubject);
   });
 });

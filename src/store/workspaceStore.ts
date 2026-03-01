@@ -131,6 +131,7 @@ export interface WorkspaceState {
     retentionMs?: number;
   }) => Promise<void>;
   setTopicError: (error: string | null) => void;
+  navigateToSchemaSubject: (subjectName: string) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -925,6 +926,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setTopicError: (error) => {
         set({ topicError: error });
+      },
+
+      navigateToSchemaSubject: (subjectName) => {
+        set({ activeNavItem: 'schemas' });
+        get().loadSchemaDetail(subjectName, 'latest');
       },
     }),
     {

@@ -20,6 +20,7 @@ import {
   FiServer,
   FiChevronRight,
   FiAlertCircle,
+  FiAlertTriangle,
   FiPlus,
 } from 'react-icons/fi';
 import CreateTopic from './CreateTopic';
@@ -383,9 +384,20 @@ const TopicList: React.FC = () => {
                     color: 'var(--color-text-tertiary)',
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
                   }}
                 >
                   {topic.partitions_count}p · RF:{topic.replication_factor}
+                  {topic.partitions_count < 2 && (
+                    <FiAlertTriangle
+                      size={11}
+                      style={{ color: 'var(--color-warning)', flexShrink: 0 }}
+                      aria-label="Low partition count warning"
+                      title="Single-partition topic — no parallelism"
+                    />
+                  )}
                 </span>
                 <FiChevronRight
                   size={13}

@@ -29,6 +29,7 @@ let mockTopicList: KafkaTopic[] = []
 let mockSelectedTopic: KafkaTopic | null = null
 let mockTopicLoading = false
 let mockTopicError: string | null = null
+let mockFocusedStatementId: string | null = null
 
 // HIGH-1 fix: loadTopics returns a Promise (the useEffect now calls .catch() on it)
 const mockLoadTopics = vi.fn().mockResolvedValue(undefined)
@@ -38,6 +39,9 @@ const mockClearSelectedTopic = vi.fn()
 const mockDeleteTopic = vi.fn().mockResolvedValue(undefined)
 const mockCreateTopic = vi.fn()
 const mockAddToast = vi.fn()
+const mockAddStatement = vi.fn()
+const mockSetActiveNavItem = vi.fn()
+const mockNavigateToSchemaSubject = vi.fn()
 
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) => {
@@ -52,13 +56,17 @@ vi.mock('../../store/workspaceStore', () => ({
       deleteTopic: mockDeleteTopic,
       createTopic: mockCreateTopic,
       addToast: mockAddToast,
+      addStatement: mockAddStatement,
+      setActiveNavItem: mockSetActiveNavItem,
+      navigateToSchemaSubject: mockNavigateToSchemaSubject,
+      focusedStatementId: mockFocusedStatementId,
     }
     return typeof selector === 'function' ? selector(state) : state
   },
 }))
 
 // ---------------------------------------------------------------------------
-// topic-api mock — TopicDetail calls getTopicConfigs directly
+// topic-api mock — TopicDetail calls getTopicConfigs, alterTopicConfig, etc.
 // ---------------------------------------------------------------------------
 
 vi.mock('../../api/topic-api', () => ({
@@ -67,6 +75,28 @@ vi.mock('../../api/topic-api', () => ({
   getTopicConfigs: vi.fn().mockResolvedValue([]),
   createTopic: vi.fn(),
   deleteTopic: vi.fn(),
+  alterTopicConfig: vi.fn().mockResolvedValue(undefined),
+  getTopicPartitions: vi.fn().mockResolvedValue([]),
+  getPartitionOffsets: vi.fn().mockResolvedValue({ beginning_offset: 0, end_offset: 100 }),
+}))
+
+// ---------------------------------------------------------------------------
+// schema-registry-api mock — TopicDetail uses this for schema association
+// ---------------------------------------------------------------------------
+
+vi.mock('../../api/schema-registry-api', () => ({
+  getSchemaDetail: vi.fn().mockRejectedValue({ response: { status: 404 } }),
+}))
+
+// ---------------------------------------------------------------------------
+// editorRegistry mock — TopicDetail calls insertTextAtCursor
+// ---------------------------------------------------------------------------
+
+const mockInsertTextAtCursor = vi.fn().mockReturnValue(true)
+
+vi.mock('../../components/EditorCell/editorRegistry', () => ({
+  insertTextAtCursor: (...args: unknown[]) => mockInsertTextAtCursor(...args),
+  getFocusedEditor: vi.fn().mockReturnValue(null),
 }))
 
 // ---------------------------------------------------------------------------
@@ -79,6 +109,7 @@ let mockEnv = {
   kafkaRestEndpoint: 'https://test.confluent.cloud',
   kafkaApiKey: 'test-key',
   kafkaApiSecret: 'test-secret',
+  schemaRegistryUrl: '',
 }
 
 vi.mock('../../config/environment', () => ({
@@ -92,7 +123,9 @@ import TopicPanel from '../../components/TopicPanel/TopicPanel'
 import TopicList from '../../components/TopicPanel/TopicList'
 import TopicDetail from '../../components/TopicPanel/TopicDetail'
 import CreateTopic from '../../components/TopicPanel/CreateTopic'
+import PartitionTable from '../../components/TopicPanel/PartitionTable'
 import * as topicApi from '../../api/topic-api'
+import * as schemaRegistryApi from '../../api/schema-registry-api'
 
 // ---------------------------------------------------------------------------
 // Fixture factories
@@ -1227,6 +1260,560 @@ describe('[@create-topic] API error handling', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
       expect(onClose).not.toHaveBeenCalled()
     })
+  })
+})
+
+// ===========================================================================
+// TopicDetail — Phase 12.4 New Features
+// ===========================================================================
+
+describe('[@topic-detail] query with flink button', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTopicList = []
+    mockTopicLoading = false
+    mockTopicError = null
+    mockFocusedStatementId = null
+    mockSelectedTopic = makeTopic({ topic_name: 'orders-v1' })
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
+    mockAddStatement.mockReset()
+    mockSetActiveNavItem.mockReset()
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+    }
+  })
+
+  it('renders the Query button in the header', () => {
+    render(<TopicDetail />)
+    expect(screen.getByRole('button', { name: /query with flink/i })).toBeInTheDocument()
+  })
+
+  it('clicking Query button calls addStatement with SELECT query', async () => {
+    const user = userEvent.setup()
+    render(<TopicDetail />)
+
+    await user.click(screen.getByRole('button', { name: /query with flink/i }))
+
+    expect(mockAddStatement).toHaveBeenCalledWith(
+      expect.stringContaining('SELECT * FROM')
+    )
+    expect(mockAddStatement).toHaveBeenCalledWith(
+      expect.stringContaining('orders-v1')
+    )
+  })
+
+  it('clicking Query button calls setActiveNavItem with "workspace"', async () => {
+    const user = userEvent.setup()
+    render(<TopicDetail />)
+
+    await user.click(screen.getByRole('button', { name: /query with flink/i }))
+
+    expect(mockSetActiveNavItem).toHaveBeenCalledWith('workspace')
+  })
+})
+
+describe('[@topic-detail] insert topic name at cursor', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTopicList = []
+    mockTopicLoading = false
+    mockTopicError = null
+    mockSelectedTopic = makeTopic({ topic_name: 'orders-v1' })
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
+    mockInsertTextAtCursor.mockReturnValue(true)
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+    }
+  })
+
+  it('renders the insert at cursor button', () => {
+    render(<TopicDetail />)
+    expect(screen.getByRole('button', { name: /insert topic name at cursor/i })).toBeInTheDocument()
+  })
+
+  it('insert button is disabled when focusedStatementId is null', () => {
+    mockFocusedStatementId = null
+    render(<TopicDetail />)
+    const insertBtn = screen.getByRole('button', { name: /insert topic name at cursor/i })
+    expect(insertBtn).toBeDisabled()
+  })
+
+  it('insert button is enabled when focusedStatementId is set', () => {
+    mockFocusedStatementId = 'stmt-123'
+    render(<TopicDetail />)
+    const insertBtn = screen.getByRole('button', { name: /insert topic name at cursor/i })
+    expect(insertBtn).not.toBeDisabled()
+  })
+
+  it('clicking insert button calls insertTextAtCursor with backtick-quoted topic name', async () => {
+    const user = userEvent.setup()
+    mockFocusedStatementId = 'stmt-123'
+    render(<TopicDetail />)
+
+    await user.click(screen.getByRole('button', { name: /insert topic name at cursor/i }))
+
+    expect(mockInsertTextAtCursor).toHaveBeenCalledWith('`orders-v1`')
+  })
+
+  it('shows a warning toast when insertTextAtCursor returns false', async () => {
+    const user = userEvent.setup()
+    mockFocusedStatementId = 'stmt-123'
+    mockInsertTextAtCursor.mockReturnValue(false)
+    render(<TopicDetail />)
+
+    await user.click(screen.getByRole('button', { name: /insert topic name at cursor/i }))
+
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'warning' })
+    )
+  })
+})
+
+describe('[@topic-detail] health indicator badge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTopicList = []
+    mockTopicLoading = false
+    mockTopicError = null
+    mockFocusedStatementId = null
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+    }
+  })
+
+  it('shows "Low partition count" badge when partitions_count < 2', () => {
+    mockSelectedTopic = makeTopic({ partitions_count: 1 })
+    render(<TopicDetail />)
+    expect(screen.getByText('Low partition count')).toBeInTheDocument()
+  })
+
+  it('does NOT show "Low partition count" badge when partitions_count >= 2', () => {
+    mockSelectedTopic = makeTopic({ partitions_count: 6 })
+    render(<TopicDetail />)
+    expect(screen.queryByText('Low partition count')).not.toBeInTheDocument()
+  })
+
+  it('does NOT show health badge when partitions_count === 2', () => {
+    mockSelectedTopic = makeTopic({ partitions_count: 2 })
+    render(<TopicDetail />)
+    expect(screen.queryByText('Low partition count')).not.toBeInTheDocument()
+  })
+})
+
+describe('[@topic-list] health indicator badge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockSelectedTopic = null
+    mockTopicLoading = false
+    mockTopicError = null
+    mockFocusedStatementId = null
+  })
+
+  it('shows warning icon on topic row with partitions_count < 2', () => {
+    mockTopicList = [makeTopic({ topic_name: 'single-part', partitions_count: 1 })]
+    render(<TopicList />)
+    // Warning icon has aria-label="Low partition count warning"
+    expect(screen.getByLabelText('Low partition count warning')).toBeInTheDocument()
+  })
+
+  it('does NOT show warning icon on topic row with partitions_count >= 2', () => {
+    mockTopicList = [makeTopic({ topic_name: 'multi-part', partitions_count: 6 })]
+    render(<TopicList />)
+    expect(screen.queryByLabelText('Low partition count warning')).not.toBeInTheDocument()
+  })
+})
+
+describe('[@topic-detail] inline config editing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTopicList = []
+    mockTopicLoading = false
+    mockTopicError = null
+    mockFocusedStatementId = null
+    mockSelectedTopic = makeTopic({ topic_name: 'orders-v1' })
+    vi.mocked(topicApi.alterTopicConfig).mockResolvedValue(undefined)
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+    }
+  })
+
+  it('read-only config shows lock icon', async () => {
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([
+      makeConfig({ name: 'replication.factor', value: '3', is_read_only: true }),
+    ])
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('replication.factor')).toBeInTheDocument()
+    })
+
+    // Lock icon aria-label
+    expect(screen.getByLabelText('Read-only')).toBeInTheDocument()
+  })
+
+  it('editable config shows edit button on hover (initially opacity 0, present in DOM)', async () => {
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([
+      makeConfig({ name: 'retention.ms', value: '86400000', is_read_only: false, is_sensitive: false }),
+    ])
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('retention.ms')).toBeInTheDocument()
+    })
+
+    // Edit button is in DOM (just initially opacity:0)
+    expect(screen.getByLabelText('Edit retention.ms')).toBeInTheDocument()
+  })
+
+  it('clicking edit pencil puts row into edit mode with an input', async () => {
+    const user = userEvent.setup()
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([
+      makeConfig({ name: 'compression.type', value: 'producer', is_read_only: false, is_sensitive: false }),
+    ])
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('compression.type')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByLabelText('Edit compression.type'))
+
+    expect(screen.getByLabelText('Edit value for compression.type')).toBeInTheDocument()
+  })
+
+  it('save calls alterTopicConfig with correct arguments', async () => {
+    const user = userEvent.setup()
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([
+      makeConfig({ name: 'compression.type', value: 'producer', is_read_only: false, is_sensitive: false }),
+    ])
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('compression.type')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByLabelText('Edit compression.type'))
+
+    const input = screen.getByLabelText('Edit value for compression.type')
+    await user.clear(input)
+    await user.type(input, 'gzip')
+
+    await user.click(screen.getByLabelText('Save compression.type'))
+
+    await waitFor(() => {
+      expect(vi.mocked(topicApi.alterTopicConfig)).toHaveBeenCalledWith(
+        'orders-v1',
+        'compression.type',
+        'gzip'
+      )
+    })
+  })
+
+  it('cancel edit restores row to display mode', async () => {
+    const user = userEvent.setup()
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([
+      makeConfig({ name: 'compression.type', value: 'producer', is_read_only: false, is_sensitive: false }),
+    ])
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('compression.type')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByLabelText('Edit compression.type'))
+    expect(screen.getByLabelText('Edit value for compression.type')).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Cancel editing compression.type'))
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Edit value for compression.type')).not.toBeInTheDocument()
+    })
+  })
+})
+
+describe('[@topic-detail] schema association', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockTopicList = []
+    mockTopicLoading = false
+    mockTopicError = null
+    mockFocusedStatementId = null
+    mockSelectedTopic = makeTopic({ topic_name: 'orders-v1' })
+    vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
+  })
+
+  it('does not render schema section when schemaRegistryUrl is empty', async () => {
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+    }
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockRejectedValue({ response: { status: 404 } })
+
+    render(<TopicDetail />)
+
+    // Schema Association section should not be present
+    expect(screen.queryByText('Schema Association')).not.toBeInTheDocument()
+  })
+
+  it('shows "No schema registered" when all subject lookups return 404', async () => {
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: 'https://schema-registry.confluent.cloud',
+    }
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockRejectedValue({ response: { status: 404 } })
+
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('No schema registered')).toBeInTheDocument()
+    })
+  })
+
+  it('shows found subject name when schema exists for topic-value', async () => {
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: 'https://schema-registry.confluent.cloud',
+    }
+    const mockSubject = {
+      subject: 'orders-v1-value',
+      version: 1,
+      id: 1,
+      schemaType: 'AVRO' as const,
+      schema: '{}',
+    }
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockImplementation((subject) => {
+      if (subject === 'orders-v1-value') return Promise.resolve(mockSubject)
+      return Promise.reject({ response: { status: 404 } })
+    })
+
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('orders-v1-value')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking View schema button calls navigateToSchemaSubject', async () => {
+    const user = userEvent.setup()
+    mockEnv = {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: 'https://schema-registry.confluent.cloud',
+    }
+    const mockSubject = {
+      subject: 'orders-v1-value',
+      version: 1,
+      id: 1,
+      schemaType: 'AVRO' as const,
+      schema: '{}',
+    }
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockImplementation((subject) => {
+      if (subject === 'orders-v1-value') return Promise.resolve(mockSubject)
+      return Promise.reject({ response: { status: 404 } })
+    })
+
+    render(<TopicDetail />)
+
+    await waitFor(() => {
+      expect(screen.getByText('orders-v1-value')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByLabelText('Navigate to schema orders-v1-value'))
+
+    expect(mockNavigateToSchemaSubject).toHaveBeenCalledWith('orders-v1-value')
+  })
+})
+
+// ===========================================================================
+// PartitionTable
+// ===========================================================================
+
+describe('[@partition-table] collapsed by default', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(topicApi.getTopicPartitions).mockResolvedValue([])
+    vi.mocked(topicApi.getPartitionOffsets).mockResolvedValue({ beginning_offset: 0, end_offset: 100 })
+  })
+
+  it('renders the collapsed toggle button without fetching partitions', () => {
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />
+    )
+    expect(screen.getByLabelText('Expand partition table')).toBeInTheDocument()
+    // Content is not rendered when collapsed
+    expect(screen.queryByText('Loading partitions...')).not.toBeInTheDocument()
+  })
+
+  it('does not call getTopicPartitions when collapsed', () => {
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />
+    )
+    expect(vi.mocked(topicApi.getTopicPartitions)).not.toHaveBeenCalled()
+  })
+
+  it('calls onToggle when toggle button is clicked', async () => {
+    const user = userEvent.setup()
+    const onToggle = vi.fn()
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={false}
+        onToggle={onToggle}
+      />
+    )
+
+    await user.click(screen.getByLabelText('Expand partition table'))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('[@partition-table] expanded state', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(topicApi.getTopicPartitions).mockResolvedValue([])
+    vi.mocked(topicApi.getPartitionOffsets).mockResolvedValue({ beginning_offset: 0, end_offset: 100 })
+  })
+
+  it('fetches partitions when isExpanded=true', async () => {
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(vi.mocked(topicApi.getTopicPartitions)).toHaveBeenCalledWith('orders-v1')
+    })
+  })
+
+  it('shows loading state while partitions are being fetched', () => {
+    vi.mocked(topicApi.getTopicPartitions).mockReturnValue(new Promise(() => {}))
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('Loading partitions...')).toBeInTheDocument()
+  })
+
+  it('shows "No partitions found" when API returns empty array', async () => {
+    vi.mocked(topicApi.getTopicPartitions).mockResolvedValue([])
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('No partitions found')).toBeInTheDocument()
+    })
+  })
+
+  it('renders partition rows with ID and leader columns', async () => {
+    vi.mocked(topicApi.getTopicPartitions).mockResolvedValue([
+      {
+        partition_id: 0,
+        leader: { broker_id: 1 },
+        replicas: [{ broker_id: 1 }, { broker_id: 2 }],
+        isr: [{ broker_id: 1 }, { broker_id: 2 }],
+      },
+    ])
+    vi.mocked(topicApi.getPartitionOffsets).mockResolvedValue({ beginning_offset: 10, end_offset: 110 })
+
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      // Partition ID 0 should be rendered
+      expect(screen.getByText('0')).toBeInTheDocument()
+      // Leader broker_id 1 should appear
+      expect(screen.getByText('1')).toBeInTheDocument()
+    })
+  })
+
+  it('shows error state with retry button when getTopicPartitions rejects', async () => {
+    const user = userEvent.setup()
+    vi.mocked(topicApi.getTopicPartitions).mockRejectedValue(new Error('Failed to load partitions'))
+
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /retry loading partitions/i })).toBeInTheDocument()
+    })
+
+    // Retry clears error and refetches
+    vi.mocked(topicApi.getTopicPartitions).mockResolvedValue([])
+    await user.click(screen.getByRole('button', { name: /retry loading partitions/i }))
+
+    await waitFor(() => {
+      expect(vi.mocked(topicApi.getTopicPartitions)).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  it('shows "Collapse partition table" aria-label when expanded', () => {
+    render(
+      <PartitionTable
+        topicName="orders-v1"
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />
+    )
+    expect(screen.getByLabelText('Collapse partition table')).toBeInTheDocument()
   })
 })
 

@@ -153,3 +153,19 @@ export interface TopicConfig {
   is_read_only: boolean;
   is_sensitive: boolean;
 }
+
+export interface KafkaPartition {
+  partition_id: number;
+  leader: { broker_id: number } | null;
+  replicas: Array<{ broker_id: number }>;
+  isr: Array<{ broker_id: number }>;
+}
+
+export interface PartitionOffsets {
+  beginning_offset: number;
+  end_offset: number;
+}
+
+export interface TopicConfigAlterRequest {
+  data: Array<{ name: string; value: string }>;
+}

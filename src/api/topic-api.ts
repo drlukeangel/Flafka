@@ -1,6 +1,6 @@
 import { kafkaRestClient } from './kafka-rest-client';
 import { env } from '../config/environment';
-import type { KafkaTopic, TopicConfig } from '../types';
+import type { KafkaTopic, TopicConfig, KafkaPartition, PartitionOffsets } from '../types';
 
 // Convenience helper — avoids repeating cluster path in every call
 const clusterPath = () => `/kafka/v3/clusters/${env.kafkaClusterId}`;
@@ -53,4 +53,25 @@ export async function deleteTopic(topicName: string): Promise<void> {
   await kafkaRestClient.delete(
     `${clusterPath()}/topics/${encodeURIComponent(topicName)}`
   );
+}
+
+export async function alterTopicConfig(topicName: string, configName: string, value: string): Promise<void> {
+  await kafkaRestClient.post(
+    `${clusterPath()}/topics/${encodeURIComponent(topicName)}/configs:alter`,
+    { data: [{ name: configName, value }] }
+  );
+}
+
+export async function getTopicPartitions(topicName: string): Promise<KafkaPartition[]> {
+  const response = await kafkaRestClient.get<{ data: KafkaPartition[] }>(
+    `${clusterPath()}/topics/${encodeURIComponent(topicName)}/partitions`
+  );
+  return response.data.data;
+}
+
+export async function getPartitionOffsets(topicName: string, partitionId: number): Promise<PartitionOffsets> {
+  const response = await kafkaRestClient.get<PartitionOffsets>(
+    `${clusterPath()}/topics/${encodeURIComponent(topicName)}/partitions/${partitionId}/offsets`
+  );
+  return response.data;
 }
