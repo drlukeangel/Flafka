@@ -406,15 +406,19 @@ describe('[@editor-cell] EditorCell', () => {
       expect(screen.getByText('Error')).toBeInTheDocument()
     })
 
-    it('Retry button is present inside the expanded error panel', async () => {
+    it('error panel expands and shows error message when error status is set', async () => {
       const user = userEvent.setup()
       renderCell(makeStatement({ status: 'ERROR', error: 'Table not found' }))
 
-      // Must expand the panel to expose the retry button
+      // Panel starts collapsed
+      expect(screen.queryByText('Table not found')).not.toBeInTheDocument()
+
+      // Click to expand
       const header = screen.getByText('Error Details').closest('.error-details-header')!
       await user.click(header)
 
-      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+      // Now error message is visible
+      expect(screen.getByText('Table not found')).toBeInTheDocument()
     })
   })
 
@@ -424,10 +428,10 @@ describe('[@editor-cell] EditorCell', () => {
       expect(screen.getByText('Cancelled')).toBeInTheDocument()
     })
 
-    it('shows Retry button when status is CANCELLED and no error', () => {
+    it('shows cancelled message when status is CANCELLED and no error', () => {
       renderCell(makeStatement({ status: 'CANCELLED', error: undefined }))
-      // Retry button is rendered in the cancelled panel
-      expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+      // Cancelled message is shown in the panel
+      expect(screen.getByText('Statement was cancelled.')).toBeInTheDocument()
     })
 
     it('shows the cancelled panel even when an error string is set (hasError is based on status=ERROR)', () => {
@@ -644,15 +648,15 @@ describe('[@editor-cell] EditorCell', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Interaction: Retry button (in CANCELLED panel)
+  // Interaction: Run button handles retry
   // -------------------------------------------------------------------------
-  describe('[@editor-cell] retry button (cancelled panel)', () => {
-    it('clicking Retry in cancelled panel calls executeStatement', async () => {
+  describe('[@editor-cell] run button retry (CANCELLED state)', () => {
+    it('clicking Run button on CANCELLED statement calls executeStatement to retry', async () => {
       const user = userEvent.setup()
       renderCell(makeStatement({ id: 'stmt-cancelled', status: 'CANCELLED', error: undefined }))
 
-      const retryBtn = screen.getByRole('button', { name: /retry/i })
-      await user.click(retryBtn)
+      const runBtn = screen.getByRole('button', { name: /run/i })
+      await user.click(runBtn)
 
       expect(mockExecuteStatement).toHaveBeenCalledWith('stmt-cancelled')
     })
@@ -1027,15 +1031,12 @@ describe('[@editor-cell] EditorCell', () => {
       expect(screen.queryByText('Error Details')).not.toBeInTheDocument()
     })
 
-    it('Retry button in error panel calls executeStatement', async () => {
+    it('clicking Run button on ERROR statement calls executeStatement to retry', async () => {
       const user = userEvent.setup()
       renderCell(makeStatement({ id: 'stmt-retry-err', status: 'ERROR', error: 'fail' }))
 
-      const header = screen.getByText('Error Details').closest('.error-details-header')!
-      await user.click(header)
-
-      const retryBtn = screen.getByRole('button', { name: /retry/i })
-      await user.click(retryBtn)
+      const runBtn = screen.getByRole('button', { name: /run/i })
+      await user.click(runBtn)
 
       expect(mockExecuteStatement).toHaveBeenCalledWith('stmt-retry-err')
     })
@@ -1113,42 +1114,6 @@ describe('[@editor-cell] EditorCell', () => {
     })
   })
 
-  // -------------------------------------------------------------------------
-  // onOpenHelp callback
-  // -------------------------------------------------------------------------
-  describe('[@editor-cell] onOpenHelp callback', () => {
-    it('renders help button when onOpenHelp prop is provided', () => {
-      render(
-        <EditorCell
-          statement={makeStatement()}
-          index={0}
-          onOpenHelp={vi.fn()}
-        />
-      )
-      const helpBtn = screen.getByTitle('Help: How do I autocomplete SQL?')
-      expect(helpBtn).toBeInTheDocument()
-    })
-
-    it('does not render help button when onOpenHelp prop is absent', () => {
-      renderCell(makeStatement())
-      expect(screen.queryByTitle('Help: How do I autocomplete SQL?')).not.toBeInTheDocument()
-    })
-
-    it('clicking help button calls onOpenHelp with correct topic', async () => {
-      const user = userEvent.setup()
-      const onOpenHelp = vi.fn()
-      render(
-        <EditorCell
-          statement={makeStatement()}
-          index={0}
-          onOpenHelp={onOpenHelp}
-        />
-      )
-      const helpBtn = screen.getByTitle('Help: How do I autocomplete SQL?')
-      await user.click(helpBtn)
-      expect(onOpenHelp).toHaveBeenCalledWith('troubleshoot-autocomplete-limitation')
-    })
-  })
 
   // -------------------------------------------------------------------------
   // Drag-and-drop state classes
@@ -1710,10 +1675,9 @@ describe('[@editor-cell] EditorCell', () => {
       expect(screen.getByText('Statement was cancelled.')).toBeInTheDocument()
     })
 
-    it('cancelled panel retry button has refresh icon and text', () => {
+    it('cancelled panel shows correct message text', () => {
       renderCell(makeStatement({ status: 'CANCELLED' }))
-      const retryBtn = screen.getByRole('button', { name: /retry/i })
-      expect(retryBtn).toHaveAttribute('title', 'Retry this statement')
+      expect(screen.getByText('Statement was cancelled.')).toBeInTheDocument()
     })
 
     it('cancelled panel does not show when status is ERROR', () => {

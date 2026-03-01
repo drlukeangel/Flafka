@@ -325,11 +325,6 @@ function App() {
                 <HistoryPanel
                   onClose={() => setActiveNavItem('workspace')}
                   onRefresh={loadStatementHistory}
-                  onOpenHelp={(topicId) => {
-                    setActiveNavItem('help');
-                    setHelpPanelOpen(true);
-                    setHelpTopicId(topicId);
-                  }}
                 />
               )}
               {activeNavItem === 'help' && (
@@ -502,11 +497,6 @@ function App() {
                 key={statement.id}
                 statement={statement}
                 index={index}
-                onOpenHelp={(topicId) => {
-                  setActiveNavItem('help');
-                  setHelpPanelOpen(true);
-                  setHelpTopicId(topicId);
-                }}
               />
             ))}
             {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}

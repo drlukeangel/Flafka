@@ -712,45 +712,6 @@ describe('[@results-table] [@helpers] ResultsTable helper function exports', () 
   })
 })
 
-describe('[@results-table] [@help] ResultsTable help button', () => {
-  const mockColumns: Column[] = [{ name: 'id', type: 'INTEGER' }]
-  const mockData = [{ id: 1 }]
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('renders help button when onOpenHelp is provided', () => {
-    render(
-      <ResultsTable
-        data={mockData}
-        columns={mockColumns}
-        onOpenHelp={vi.fn()}
-      />
-    )
-    expect(screen.getByTitle('Help: Why do results stop updating?')).toBeInTheDocument()
-  })
-
-  it('does not render help button when onOpenHelp is not provided', () => {
-    render(<ResultsTable data={mockData} columns={mockColumns} />)
-    expect(screen.queryByTitle('Help: Why do results stop updating?')).not.toBeInTheDocument()
-  })
-
-  it('clicking help button calls onOpenHelp with correct topic', async () => {
-    const user = userEvent.setup()
-    const onOpenHelp = vi.fn()
-    render(
-      <ResultsTable
-        data={mockData}
-        columns={mockColumns}
-        onOpenHelp={onOpenHelp}
-      />
-    )
-    const helpBtn = screen.getByTitle('Help: Why do results stop updating?')
-    await user.click(helpBtn)
-    expect(onOpenHelp).toHaveBeenCalledWith('troubleshoot-results-buffer')
-  })
-})
 
 // ---------------------------------------------------------------------------
 // JSON expander (handleExpandClick + portal + handleCopyJSON)

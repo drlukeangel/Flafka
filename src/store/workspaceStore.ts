@@ -124,6 +124,7 @@ export interface WorkspaceState {
   loadSchemaDetail: (subject: string, version?: number | 'latest') => Promise<void>;
   clearSelectedSchema: () => void;
   setSchemaRegistryError: (error: string | null) => void;
+  clearSchemaRegistryError: () => void;
 
   // Topic actions
   loadTopics: () => Promise<void>;
@@ -876,6 +877,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       setSchemaRegistryError: (error) => {
         set({ schemaRegistryError: error });
+      },
+
+      clearSchemaRegistryError: () => {
+        set({ schemaRegistryError: null });
       },
 
       // Topic Actions

@@ -17,6 +17,7 @@ let mockSchemaTypeCache: Record<string, string> = {}
 const mockLoadSchemaRegistrySubjects = vi.fn()
 const mockLoadSchemaDetail = vi.fn()
 const mockClearSelectedSchema = vi.fn()
+const mockClearSchemaRegistryError = vi.fn()
 const mockAddToast = vi.fn()
 
 vi.mock('../../store/workspaceStore', () => ({
@@ -30,9 +31,34 @@ vi.mock('../../store/workspaceStore', () => ({
       loadSchemaRegistrySubjects: mockLoadSchemaRegistrySubjects,
       loadSchemaDetail: mockLoadSchemaDetail,
       clearSelectedSchema: mockClearSelectedSchema,
+      clearSchemaRegistryError: mockClearSchemaRegistryError,
       addToast: mockAddToast,
     }
     return typeof selector === 'function' ? selector(state) : state
+  },
+}))
+
+// Mock the env module so isConfigured is always true in tests
+vi.mock('../../config/environment', () => ({
+  env: {
+    schemaRegistryUrl: 'https://test-schema-registry.example.com',
+    schemaRegistryKey: 'test-key',
+    schemaRegistrySecret: 'test-secret',
+    orgId: '',
+    environmentId: '',
+    computePoolId: '',
+    flinkApiKey: '',
+    flinkApiSecret: '',
+    cloudApiKey: '',
+    cloudApiSecret: '',
+    flinkCatalog: 'default',
+    flinkDatabase: 'public',
+    cloudProvider: 'aws',
+    cloudRegion: 'us-east-1',
+    kafkaClusterId: '',
+    kafkaRestEndpoint: '',
+    kafkaApiKey: '',
+    kafkaApiSecret: '',
   },
 }))
 
@@ -275,11 +301,13 @@ describe('[@schema-list] error state', () => {
     expect(mockLoadSchemaRegistrySubjects).toHaveBeenCalledTimes(1)
   })
 
-  it('does not show the subject list in error state', () => {
+  it('still shows the subject list in error state (inline banner does not replace list)', () => {
     mockSchemaRegistryError = 'Bad gateway'
     mockSubjects = ['topic-value']
     render(<SchemaList />)
-    expect(screen.queryByRole('list', { name: /schema registry subjects/i })).not.toBeInTheDocument()
+    // Error banner is shown inline below search bar — list remains visible
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: /schema registry subjects/i })).toBeInTheDocument()
   })
 })
 

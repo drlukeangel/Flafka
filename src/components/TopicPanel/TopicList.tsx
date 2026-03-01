@@ -53,23 +53,44 @@ interface HealthScore {
 /**
  * F6: Compute a composite health score from available list-level topic data.
  * - green: all checks pass
- * - yellow: exactly one warning
- * - red: two or more warnings
+ * - yellow: warning conditions (partition count < 2, replication factor < 2)
+ * - red: critical conditions (partition count < 1, replication factor < 1)
  *
  * Checks (no extra API calls — uses existing list data):
- * 1. partition count < 2 → "Low partition count (no parallelism)"
- * 2. replication factor < 2 → "Low replication factor (no fault tolerance)"
+ * Yellow (warning) conditions:
+ * 1. partition count < 2 → "Low partition count — no parallelism"
+ * 2. replication factor < 2 → "Low replication factor — no fault tolerance"
+ * Red (critical) conditions:
+ * 1. partition count < 1 → "Topic has no partitions"
+ * 2. replication factor < 1 → "Topic has no replication"
  */
 function computeHealthScore(topic: KafkaTopic): HealthScore {
   const warnings: string[] = [];
+  const criticalWarnings: string[] = [];
+
+  // Check critical conditions first
+  if (topic.partitions_count < 1) {
+    criticalWarnings.push('Topic has no partitions');
+  }
+  if (topic.replication_factor < 1) {
+    criticalWarnings.push('Topic has no replication');
+  }
+
+  // If critical conditions exist, return red immediately
+  if (criticalWarnings.length > 0) {
+    return { level: 'red', warnings: criticalWarnings };
+  }
+
+  // Check warning conditions
   if (topic.partitions_count < 2) {
     warnings.push('Low partition count — no parallelism');
   }
   if (topic.replication_factor < 2) {
     warnings.push('Low replication factor — no fault tolerance');
   }
-  const level: HealthLevel =
-    warnings.length === 0 ? 'green' : warnings.length === 1 ? 'yellow' : 'red';
+
+  // Determine level based on warning count
+  const level: HealthLevel = warnings.length === 0 ? 'green' : 'yellow';
   return { level, warnings };
 }
 
@@ -259,35 +280,6 @@ const TopicList: React.FC = () => {
       >
         <FiLoader size={20} className="history-spin" aria-hidden="true" />
         <span>Loading topics...</span>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          gap: 10,
-          padding: 16,
-          color: 'var(--color-error)',
-          fontSize: 13,
-        }}
-        role="alert"
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FiAlertCircle size={14} aria-hidden="true" />
-          <span>{error}</span>
-        </div>
-        <button
-          className="history-retry-btn"
-          onClick={loadTopics}
-          aria-label="Retry loading topics"
-        >
-          Retry
-        </button>
       </div>
     );
   }
@@ -689,6 +681,36 @@ const TopicList: React.FC = () => {
               aria-label="Cancel bulk selection"
             >
               Cancel
+            </button>
+          </div>
+        )}
+
+        {/* Inline error banner — shown below search row, never replaces it */}
+        {error && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              borderBottom: '1px solid var(--color-border)',
+              flexShrink: 0,
+              backgroundColor: 'var(--color-error-badge-bg)',
+              borderLeft: '3px solid var(--color-error)',
+              fontSize: 12,
+              color: 'var(--color-error)',
+            }}
+          >
+            <FiAlertCircle size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, lineHeight: 1.4 }}>{error}</span>
+            <button
+              className="history-retry-btn"
+              onClick={loadTopics}
+              aria-label="Retry loading topics"
+              style={{ flexShrink: 0 }}
+            >
+              Retry
             </button>
           </div>
         )}

@@ -20,7 +20,6 @@ interface ResultsTableProps {
   totalRowsReceived?: number;
   statementIndex?: number;
   statementName?: string;
-  onOpenHelp?: (topicId: string) => void;
 }
 
 // Helper function to check if a value is expandable (object or array)
@@ -68,7 +67,7 @@ export const formatCellValue = (value: unknown): string => {
   return str;
 };
 
-const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsReceived, statementIndex = 0, statementName, onOpenHelp }) => {
+const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsReceived, statementIndex = 0, statementName }) => {
   const addToast = useWorkspaceStore((s) => s.addToast);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
@@ -411,16 +410,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
           </span>
         </div>
         <div className="toolbar-right">
-          {onOpenHelp && (
-            <button
-              onClick={() => onOpenHelp('troubleshoot-results-buffer')}
-              className="help-button-small"
-              title="Help: Why do results stop updating?"
-              aria-label="Help: Results buffer capacity"
-            >
-              ?
-            </button>
-          )}
           <button
             className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
             onClick={() => setViewMode('grid')}

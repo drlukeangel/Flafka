@@ -566,33 +566,13 @@ describe('[@history-panel] HistoryPanel component', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Help button (onOpenHelp callback)
+  // Help button (onOpenHelp removed — contextual help cleanup)
   // -------------------------------------------------------------------------
   describe('[@history-panel] help button', () => {
-    it('renders help button when onOpenHelp is provided', () => {
-      const onOpenHelp = vi.fn()
-
-      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} onOpenHelp={onOpenHelp} />)
-
-      expect(screen.getByRole('button', { name: /help.*rerunning statements/i })).toBeInTheDocument()
-    })
-
-    it('does not render help button when onOpenHelp is not provided', () => {
+    it('does not render a contextual help button (onOpenHelp removed)', () => {
       render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
 
       expect(screen.queryByRole('button', { name: /help.*rerunning statements/i })).not.toBeInTheDocument()
-    })
-
-    it('clicking help button calls onOpenHelp with correct topic ID', async () => {
-      const user = userEvent.setup()
-      const onOpenHelp = vi.fn()
-
-      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} onOpenHelp={onOpenHelp} />)
-
-      await user.click(screen.getByRole('button', { name: /help.*rerunning statements/i }))
-
-      expect(onOpenHelp).toHaveBeenCalledTimes(1)
-      expect(onOpenHelp).toHaveBeenCalledWith('faq-rerun-statements')
     })
   })
 

@@ -105,35 +105,6 @@ const SchemaList: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-start',
-          gap: 10,
-          padding: 16,
-          color: 'var(--color-error)',
-          fontSize: 13,
-        }}
-        role="alert"
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FiAlertCircle size={14} aria-hidden="true" />
-          <span>{error}</span>
-        </div>
-        <button
-          className="history-retry-btn"
-          onClick={loadSchemaRegistrySubjects}
-          aria-label="Retry loading schemas"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
   return (
     <>
       <CreateSchema
@@ -249,6 +220,36 @@ const SchemaList: React.FC = () => {
             <FiPlus size={15} aria-hidden="true" />
           </button>
         </div>
+
+        {/* Inline error banner — shown below search row, never replaces it */}
+        {error && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              borderBottom: '1px solid var(--color-border)',
+              flexShrink: 0,
+              backgroundColor: 'var(--color-error-badge-bg)',
+              borderLeft: '3px solid var(--color-error)',
+              fontSize: 12,
+              color: 'var(--color-error)',
+            }}
+          >
+            <FiAlertCircle size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
+            <span style={{ flex: 1, lineHeight: 1.4 }}>{error}</span>
+            <button
+              className="history-retry-btn"
+              onClick={loadSchemaRegistrySubjects}
+              aria-label="Retry loading schemas"
+              style={{ flexShrink: 0 }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* Subject count */}
         {subjects.length > 0 && (

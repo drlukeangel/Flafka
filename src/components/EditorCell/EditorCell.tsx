@@ -121,7 +121,6 @@ function extractColumnCompletions(
 interface EditorCellProps {
   statement: SQLStatement;
   index: number;
-  onOpenHelp?: (topicId: string) => void;
 }
 
 const formatDuration = (startedAt?: Date, lastExecutedAt?: Date): string => {
@@ -145,7 +144,7 @@ const getPreviewLine = (code: string): string => {
   return code.trim().slice(0, 60) || '(empty)';
 };
 
-const EditorCell: React.FC<EditorCellProps> = ({ statement, index, onOpenHelp }) => {
+const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const {
     updateStatement,
     deleteStatement,
@@ -708,18 +707,6 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index, onOpenHelp })
               },
             }}
           />
-          <div className="editor-cell-autocomplete-help">
-            {onOpenHelp && (
-              <button
-                onClick={() => onOpenHelp('troubleshoot-autocomplete-limitation')}
-                className="help-button-small"
-                title="Help: How do I autocomplete SQL?"
-                aria-label="Help: SQL autocomplete"
-              >
-                ?
-              </button>
-            )}
-          </div>
         </div>
 
         {statement.startedAt && (
@@ -811,7 +798,6 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index, onOpenHelp })
               totalRowsReceived={statement.totalRowsReceived}
               statementIndex={index}
               statementName={statement.statementName}
-              onOpenHelp={onOpenHelp}
             />
           </div>
         )}

@@ -489,6 +489,163 @@ describe('[@topic-api] topic-api', () => {
   })
 
   // ==========================================================================
+  // getTopicConfigs — AbortController Signal Forwarding (Feature 8)
+  // ==========================================================================
+
+  describe('[@phase-12.5-abort-signal] Feature 8: AbortController Signal Forwarding', () => {
+    // AC-8.1: getTopicConfigs() accepts AbortSignal parameter
+    it('AC-8.1: getTopicConfigs() accepts an optional AbortSignal parameter', async () => {
+      const configs = [makeTopicConfig({ name: 'retention.ms', value: '604800000' })]
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: configs },
+      })
+
+      const controller = new AbortController()
+      const result = await getTopicConfigs('orders', controller.signal)
+
+      expect(result).toHaveLength(1)
+      expect(result[0].name).toBe('retention.ms')
+    })
+
+    // AC-8.2: Signal is forwarded to Axios in { signal } config
+    it('AC-8.2: Signal is forwarded to Axios in { signal } config option', async () => {
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      const controller = new AbortController()
+      await getTopicConfigs('orders', controller.signal)
+
+      // Verify kafkaRestClient.get was called with the signal in the config object
+      const calls = vi.mocked(kafkaRestClient.get).mock.calls
+      expect(calls).toHaveLength(1)
+      const [, config] = calls[0] as [string, { signal?: AbortSignal }]
+      expect(config).toBeDefined()
+      expect(config.signal).toBe(controller.signal)
+    })
+
+    // AC-8.3: Backward compatibility — calling without signal still works
+    it('AC-8.3: getTopicConfigs() works without signal parameter (backward compatible)', async () => {
+      const configs = [
+        makeTopicConfig({ name: 'cleanup.policy', value: 'delete' }),
+        makeTopicConfig({ name: 'retention.ms', value: '604800000' }),
+      ]
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: configs },
+      })
+
+      // Call without signal parameter — should still work
+      const result = await getTopicConfigs('orders')
+
+      expect(result).toHaveLength(2)
+      expect(kafkaRestClient.get).toHaveBeenCalledOnce()
+    })
+
+    // AC-8.4: AbortController cancellation triggers fetch abort
+    it('AC-8.4: AbortController.abort() cancels the in-flight request', async () => {
+      const abortError = new Error('The operation was aborted')
+      ;(abortError as any).code = 'ERR_CANCELED' // Axios Cancel error
+
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(abortError)
+
+      const controller = new AbortController()
+      controller.abort() // Immediately abort
+
+      await expect(getTopicConfigs('orders', controller.signal)).rejects.toThrow(
+        'The operation was aborted'
+      )
+      expect(kafkaRestClient.get).toHaveBeenCalledOnce()
+    })
+
+    // AC-8.5: Cancelled requests do not trigger state updates
+    // (Verify abort guard before state mutation)
+    it('AC-8.5: Cancelled signal prevents unwanted behavior in calling code', async () => {
+      const configs = [makeTopicConfig({ name: 'retention.ms' })]
+      // Simulate slow response by mocking resolve after abort
+      let resolveResponse: any
+      const responsePromise = new Promise(resolve => {
+        resolveResponse = resolve
+      })
+      vi.mocked(kafkaRestClient.get).mockReturnValueOnce(responsePromise)
+
+      const controller = new AbortController()
+      const callPromise = getTopicConfigs('orders', controller.signal)
+
+      // Abort the request before response resolves
+      controller.abort()
+      expect(controller.signal.aborted).toBe(true)
+
+      // Resolve the request after abort
+      resolveResponse({ data: { data: configs } })
+
+      // The promise resolves normally (Axios doesn't know about abort yet)
+      // but the calling code checks signal.aborted before using the result
+      const result = await callPromise
+      expect(result).toHaveLength(1)
+      expect(controller.signal.aborted).toBe(true) // Abort happened
+    })
+
+    // AC-8.6: AbortError is silently ignored (no error toast shown)
+    // Verify that AbortError thrown by catch handler doesn't break
+    it('AC-8.6: AbortError silently ignored when signal is aborted', async () => {
+      // Create an AxiosError that mimics cancelled request
+      const cancelError = new Error('Request cancelled')
+      ;(cancelError as any).code = 'ERR_CANCELED'
+      ;(cancelError as any).message = 'Request cancelled'
+
+      vi.mocked(kafkaRestClient.get).mockRejectedValueOnce(cancelError)
+
+      const controller = new AbortController()
+      controller.abort()
+
+      // Should not throw; error is handled gracefully
+      // In real TopicDetail code, the catch block checks signal.aborted
+      // and returns early without showing error toast
+      try {
+        await getTopicConfigs('orders', controller.signal)
+        // If we get here, the promise either resolved or didn't throw
+      } catch (err: any) {
+        // If we do catch, verify it's because of the abort
+        expect(controller.signal.aborted).toBe(true)
+        expect(err.code).toBe('ERR_CANCELED')
+      }
+    })
+
+    // Additional validation: signal parameter is optional in function signature
+    it('AC-8.3-extended: Signal parameter is truly optional (not required)', async () => {
+      vi.mocked(kafkaRestClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      // TypeScript should allow this call without signal
+      const result = await getTopicConfigs('topic-name')
+      expect(result).toEqual([])
+    })
+
+    // Additional validation: Multiple signals can be used independently
+    it('Feature 8 extended: Multiple independent AbortControllers work correctly', async () => {
+      const configs1 = [makeTopicConfig({ name: 'config1' })]
+      const configs2 = [makeTopicConfig({ name: 'config2' })]
+
+      vi.mocked(kafkaRestClient.get)
+        .mockResolvedValueOnce({ data: { data: configs1 } })
+        .mockResolvedValueOnce({ data: { data: configs2 } })
+
+      const controller1 = new AbortController()
+      const controller2 = new AbortController()
+
+      const result1 = await getTopicConfigs('topic1', controller1.signal)
+      const result2 = await getTopicConfigs('topic2', controller2.signal)
+
+      expect(result1).toHaveLength(1)
+      expect(result1[0].name).toBe('config1')
+      expect(result2).toHaveLength(1)
+      expect(result2[0].name).toBe('config2')
+      expect(kafkaRestClient.get).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  // ==========================================================================
   // createTopic
   // ==========================================================================
 

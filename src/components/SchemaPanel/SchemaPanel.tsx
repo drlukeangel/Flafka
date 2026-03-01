@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { FiArrowLeft, FiRefreshCw, FiLoader } from 'react-icons/fi';
+import { env } from '../../config/environment';
+import { FiArrowLeft, FiRefreshCw, FiLoader, FiAlertCircle } from 'react-icons/fi';
 import SchemaList from './SchemaList';
 import SchemaDetail from './SchemaDetail';
 
@@ -12,12 +13,24 @@ const SchemaPanel: React.FC = () => {
   const schemaRegistryLoading = useWorkspaceStore((s) => s.schemaRegistryLoading);
   const loadSchemaRegistrySubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
   const clearSelectedSchema = useWorkspaceStore((s) => s.clearSelectedSchema);
+  const clearSchemaRegistryError = useWorkspaceStore((s) => s.clearSchemaRegistryError);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Load subjects on mount
+  const isConfigured = Boolean(env.schemaRegistryUrl && env.schemaRegistryKey);
+
+  // Load subjects on mount only if env is configured
   useEffect(() => {
-    loadSchemaRegistrySubjects();
-  }, [loadSchemaRegistrySubjects]);
+    if (isConfigured) {
+      loadSchemaRegistrySubjects();
+    }
+  }, [isConfigured, loadSchemaRegistrySubjects]);
+
+  // Clear stale errors when panel is unmounted
+  useEffect(() => {
+    return () => {
+      clearSchemaRegistryError();
+    };
+  }, [clearSchemaRegistryError]);
 
   // Item 13: Panel resize handle drag logic
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
@@ -192,7 +205,62 @@ const SchemaPanel: React.FC = () => {
           overflow: 'hidden',
         }}
       >
-        {selectedSchemaSubject ? <SchemaDetail /> : <SchemaList />}
+        {!isConfigured ? (
+          /* Environment not configured warning state */
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flex: 1,
+              gap: 12,
+              padding: 24,
+              color: 'var(--color-text-secondary)',
+              textAlign: 'center',
+            }}
+            role="alert"
+          >
+            <FiAlertCircle size={28} style={{ color: 'var(--color-warning)' }} aria-hidden="true" />
+            <div>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--color-text-primary)',
+                  marginBottom: 6,
+                }}
+              >
+                Schema Registry not configured
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                Add the following to your <code style={{ fontFamily: 'monospace', fontSize: 11 }}>.env</code> file:
+              </div>
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: '8px 12px',
+                  background: 'var(--color-surface-secondary)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 4,
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  color: 'var(--color-text-primary)',
+                  textAlign: 'left',
+                  lineHeight: 1.8,
+                }}
+              >
+                VITE_SCHEMA_REGISTRY_URL<br />
+                VITE_SCHEMA_REGISTRY_KEY<br />
+                VITE_SCHEMA_REGISTRY_SECRET
+              </div>
+            </div>
+          </div>
+        ) : selectedSchemaSubject ? (
+          <SchemaDetail />
+        ) : (
+          <SchemaList />
+        )}
       </div>
     </div>
   );
