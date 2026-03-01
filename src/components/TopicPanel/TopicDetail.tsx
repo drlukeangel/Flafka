@@ -4,6 +4,7 @@
  *
  * Sections:
  * - Header bar: partition badge + RF badge + health warning + Query + Refresh + Delete buttons
+ *   - F4: standalone copy button (backtick-quoted, always enabled, shows toast on success)
  * - Metadata rows: Topic Name (copy + insert at cursor), Partitions, Replication Factor, Internal
  * - Config table: lazily loaded via getTopicConfigs()
  *   - retention.ms pinned to top with human-readable label
@@ -14,6 +15,7 @@
  *   - null values shown as em-dash
  *   - non-read-only rows: hover-revealed edit pencil with inline edit mode
  *   - read-only rows: lock icon
+ *   - F5: pre-save client-side validation for known numeric config keys
  * - Schema Association section: cross-link to Schema Registry subjects
  * - PartitionTable: collapsible partition breakdown
  * - Delete overlay: name-confirmation gate (exact match required, no trim)
@@ -25,7 +27,7 @@ import * as topicApi from '../../api/topic-api';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
 import { insertTextAtCursor } from '../EditorCell/editorRegistry';
 import { env } from '../../config/environment';
-import type { TopicConfig, SchemaSubject } from '../../types';
+import type { TopicConfig } from '../../types';
 import {
   FiRefreshCw,
   FiTrash2,
@@ -74,6 +76,29 @@ function formatRetentionMs(value: string | null): string {
 }
 
 /**
+ * ENH-4: Format an ISO 8601 timestamp as a relative human-readable string.
+ * Shows absolute time in tooltip; relative here (e.g. "3 days ago").
+ */
+function formatRelativeTime(iso: string): string {
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) return iso;
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return iso; // future date — just show as-is
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? 's' : ''} ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths} month${diffMonths !== 1 ? 's' : ''} ago`;
+  const diffYears = Math.floor(diffMonths / 12);
+  return `${diffYears} year${diffYears !== 1 ? 's' : ''} ago`;
+}
+
+/**
  * Sort configs: retention.ms first, cleanup.policy second, then alphabetically.
  */
 function sortConfigs(configs: TopicConfig[]): TopicConfig[] {
@@ -85,6 +110,112 @@ function sortConfigs(configs: TopicConfig[]): TopicConfig[] {
     .filter((c) => !pinned.includes(c.name))
     .sort((a, b) => a.name.localeCompare(b.name));
   return [...pinnedConfigs, ...rest];
+}
+
+// ---------------------------------------------------------------------------
+// F6: Composite health score indicator — green/yellow/red based on partitions + RF
+// ---------------------------------------------------------------------------
+
+interface HealthScore {
+  level: 'green' | 'yellow' | 'red';
+  warnings: string[];
+}
+
+/**
+ * F6: Compute health score as green/yellow/red based on partition count + replication factor.
+ * Rules:
+ * - RED: partitions < 1 OR replication_factor < 1
+ * - YELLOW: partitions < 2 OR replication_factor < 2
+ * - GREEN: otherwise
+ */
+function computeHealthScore(topic: { partitions_count: number; replication_factor: number }): HealthScore {
+  const warnings: string[] = [];
+
+  if (topic.partitions_count < 1) {
+    warnings.push('Topic has no partitions');
+  }
+  if (topic.replication_factor < 1) {
+    warnings.push('Replication factor is too low');
+  }
+  if (topic.partitions_count < 2) {
+    warnings.push('Single-partition topics have no parallelism — performance may be limited');
+  }
+  if (topic.replication_factor < 2) {
+    warnings.push('Low replication factor — data loss risk if a broker fails');
+  }
+
+  // Determine level
+  if (topic.partitions_count < 1 || topic.replication_factor < 1) {
+    return { level: 'red', warnings };
+  }
+  if (topic.partitions_count < 2 || topic.replication_factor < 2) {
+    return { level: 'yellow', warnings };
+  }
+  return { level: 'green', warnings };
+}
+
+// ---------------------------------------------------------------------------
+// F5: Client-side validation for known numeric config keys
+// ---------------------------------------------------------------------------
+
+/**
+ * Known numeric config rules: [min, max] (inclusive, null = no bound).
+ * Values must be integers > 0 (or -1 where noted).
+ */
+const NUMERIC_CONFIG_RULES: Record<string, { min: number; max: number | null; allowNegativeOne?: boolean; label: string }> = {
+  'retention.ms': { min: -1, max: null, allowNegativeOne: true, label: 'Retention (ms)' },
+  'replication.factor': { min: 1, max: 32767, label: 'Replication factor' },
+  'min.insync.replicas': { min: 1, max: 32767, label: 'Min in-sync replicas' },
+  'log.segment.bytes': { min: 1, max: null, label: 'Log segment bytes' },
+  'log.retention.bytes': { min: -1, max: null, allowNegativeOne: true, label: 'Log retention bytes' },
+  'log.retention.ms': { min: -1, max: null, allowNegativeOne: true, label: 'Log retention (ms)' },
+  'message.max.bytes': { min: 0, max: 1073741824, label: 'Max message bytes' },
+  'max.message.bytes': { min: 0, max: 1073741824, label: 'Max message bytes' },
+  'log.segment.ms': { min: 1, max: null, label: 'Log segment (ms)' },
+  'flush.messages': { min: 1, max: null, label: 'Flush messages' },
+  'flush.ms': { min: 1, max: null, label: 'Flush (ms)' },
+  'min.cleanable.dirty.ratio': { min: 0, max: 1, label: 'Min cleanable dirty ratio' },
+};
+
+/**
+ * F5: Validate an edit value for a given config name.
+ * Returns an error string if invalid, or null if valid.
+ */
+function validateConfigValue(name: string, value: string): string | null {
+  const rule = NUMERIC_CONFIG_RULES[name];
+  if (!rule) return null; // Unknown config — no client-side validation
+
+  const trimmed = value.trim();
+  if (trimmed === '') return `${rule.label} cannot be empty`;
+
+  const num = Number(trimmed);
+  if (!Number.isInteger(num) && !trimmed.includes('.')) {
+    // allow floats only for ratio config
+    if (name !== 'min.cleanable.dirty.ratio') {
+      if (!Number.isInteger(num)) return `${rule.label} must be an integer`;
+    }
+  }
+  if (isNaN(num)) return `${rule.label} must be a number`;
+
+  if (rule.allowNegativeOne && num === -1) return null; // -1 means unlimited
+
+  if (name === 'min.cleanable.dirty.ratio') {
+    // float 0–1 range
+    if (num < 0 || num > 1) return `${rule.label} must be between 0 and 1`;
+    return null;
+  }
+
+  if (!Number.isInteger(num)) return `${rule.label} must be an integer`;
+
+  if (num < rule.min) {
+    return rule.allowNegativeOne
+      ? `${rule.label} must be ≥ ${rule.min} or -1 (unlimited)`
+      : `${rule.label} must be ≥ ${rule.min}`;
+  }
+  if (rule.max !== null && num > rule.max) {
+    return `${rule.label} must be ≤ ${rule.max}`;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -538,8 +669,10 @@ const TopicDetail: React.FC = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Copy-to-clipboard state (topic name)
+  // Copy-to-clipboard state (topic name — metadata row)
   const [copied, setCopied] = useState(false);
+  // F4: header copy button (backtick-quoted, always enabled)
+  const [headerCopied, setHeaderCopied] = useState(false);
 
   // ENH-3: Config search
   const [configSearch, setConfigSearch] = useState('');
@@ -552,6 +685,8 @@ const TopicDetail: React.FC = () => {
   const [editingValue, setEditingValue] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  // F5: client-side validation error (blocks Save until cleared)
+  const [configValidationError, setConfigValidationError] = useState<string | null>(null);
 
   // Partition table collapse state
   const [partitionExpanded, setPartitionExpanded] = useState(false);
@@ -571,7 +706,8 @@ const TopicDetail: React.FC = () => {
     setConfigsLoading(true);
     setConfigsError(null);
     try {
-      const data = await topicApi.getTopicConfigs(selectedTopic.topic_name);
+      // R2-ABT: pass signal to Axios so the HTTP request is cancelled (not just React state)
+      const data = await topicApi.getTopicConfigs(selectedTopic.topic_name, controller.signal);
       if (controller.signal.aborted || myRequestId !== requestIdRef.current) return; // stale
       setConfigs(sortConfigs(data));
     } catch (err) {
@@ -613,6 +749,20 @@ const TopicDetail: React.FC = () => {
     }
   }, [selectedTopic]);
 
+  // F4: header copy — backtick-quoted, always enabled, shows toast
+  const handleHeaderCopyTopicName = useCallback(async () => {
+    if (!selectedTopic) return;
+    const backtickName = `\`${selectedTopic.topic_name}\``;
+    try {
+      await navigator.clipboard.writeText(backtickName);
+      setHeaderCopied(true);
+      addToast({ type: 'success', message: `Copied: ${backtickName}` });
+      setTimeout(() => setHeaderCopied(false), 1500);
+    } catch {
+      addToast({ type: 'error', message: 'Copy failed — clipboard not available' });
+    }
+  }, [selectedTopic, addToast]);
+
   const handleInsertTopicName = useCallback(() => {
     if (!selectedTopic) return;
     const backtickName = `\`${selectedTopic.topic_name}\``;
@@ -639,6 +789,8 @@ const TopicDetail: React.FC = () => {
     setEditingConfigName(config.name);
     setEditingValue(config.value ?? '');
     setEditError(null);
+    // F5: validate initial value on start (may be invalid already)
+    setConfigValidationError(validateConfigValue(config.name, config.value ?? ''));
   }, []);
 
   // Inline config edit: cancel
@@ -646,11 +798,18 @@ const TopicDetail: React.FC = () => {
     setEditingConfigName(null);
     setEditingValue('');
     setEditError(null);
+    setConfigValidationError(null);
   }, []);
 
   // Inline config edit: save
   const handleSaveEdit = useCallback(async () => {
     if (!selectedTopic || !editingConfigName) return;
+    // F5: block save if client-side validation fails
+    const validationErr = validateConfigValue(editingConfigName, editingValue);
+    if (validationErr) {
+      setConfigValidationError(validationErr);
+      return;
+    }
     const mySaveId = ++saveRequestIdRef.current;
     setEditSaving(true);
     setEditError(null);
@@ -659,6 +818,7 @@ const TopicDetail: React.FC = () => {
       if (mySaveId !== saveRequestIdRef.current) return; // stale
       setEditingConfigName(null);
       setEditingValue('');
+      setConfigValidationError(null);
       // Re-fetch configs to get updated values
       await fetchConfigs();
     } catch (err) {
@@ -779,29 +939,45 @@ const TopicDetail: React.FC = () => {
         >
           {selectedTopic.partitions_count}P
         </span>
-        {/* Health warning when partition count < 2 */}
-        {selectedTopic.partitions_count < 2 && (
-          <span
-            title="Single-partition topics have no parallelism — performance may be limited"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 3,
-              padding: '2px 7px',
-              borderRadius: 10,
-              background: 'var(--color-warning-badge-bg)',
-              color: 'var(--color-warning)',
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: 'nowrap',
-              cursor: 'help',
-            }}
-            aria-label="Warning: low partition count"
-          >
-            <FiAlertTriangle size={10} aria-hidden="true" />
-            Low partition count
-          </span>
-        )}
+
+        {/* F6: Composite health score indicator — colored dot with tooltip */}
+        {(() => {
+          const health = computeHealthScore(selectedTopic);
+          const colorMap = {
+            green: 'var(--color-success)',
+            yellow: 'var(--color-warning)',
+            red: 'var(--color-error)',
+          };
+          const tooltipText = health.warnings.length > 0
+            ? health.warnings.join('\n')
+            : 'Healthy topic';
+
+          return (
+            <span
+              title={tooltipText}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                cursor: health.warnings.length > 0 ? 'help' : 'default',
+              }}
+              aria-label={`Health: ${health.level} — ${tooltipText}`}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background: colorMap[health.level],
+                  flexShrink: 0,
+                }}
+                aria-hidden="true"
+              />
+            </span>
+          );
+        })()}
+
         {/* Replication factor badge */}
         <span
           style={{
@@ -820,6 +996,41 @@ const TopicDetail: React.FC = () => {
         </span>
 
         <div style={{ flex: 1 }} />
+
+        {/* F4: copy topic name button — backtick-quoted, always enabled */}
+        <button
+          onClick={handleHeaderCopyTopicName}
+          title="Copy topic name (backtick-quoted)"
+          aria-label="Copy topic name (backtick-quoted)"
+          style={{
+            border: '1px solid var(--color-border)',
+            background: 'transparent',
+            cursor: 'pointer',
+            padding: '3px 6px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            color: headerCopied ? 'var(--color-success)' : 'var(--color-text-secondary)',
+            borderRadius: 4,
+            fontSize: 11,
+            transition: 'color var(--transition-fast), background var(--transition-fast)',
+          }}
+          onMouseEnter={(e) => {
+            if (!headerCopied) {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-primary)';
+              (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.color = headerCopied
+              ? 'var(--color-success)'
+              : 'var(--color-text-secondary)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          }}
+        >
+          {headerCopied ? <FiCheck size={12} aria-hidden="true" /> : <FiCopy size={12} aria-hidden="true" />}
+          Copy
+        </button>
 
         {/* Query with Flink button */}
         <button
@@ -1095,6 +1306,70 @@ const TopicDetail: React.FC = () => {
               {selectedTopic.is_internal ? 'Yes' : 'No'}
             </span>
           </div>
+
+          {/* ENH-4: created_at — shown only when API provides the field */}
+          {selectedTopic.created_at && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 0',
+                borderTop: '1px solid var(--color-border)',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--color-text-tertiary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  minWidth: 90,
+                  flexShrink: 0,
+                }}
+              >
+                Created
+              </span>
+              <span
+                style={{ fontSize: 12, color: 'var(--color-text-primary)' }}
+                title={selectedTopic.created_at}
+              >
+                {formatRelativeTime(selectedTopic.created_at)}
+              </span>
+            </div>
+          )}
+
+          {/* ENH-4: last_modified_at — shown only when API provides the field */}
+          {selectedTopic.last_modified_at && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 0',
+                borderTop: '1px solid var(--color-border)',
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--color-text-tertiary)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  minWidth: 90,
+                  flexShrink: 0,
+                }}
+              >
+                Modified
+              </span>
+              <span
+                style={{ fontSize: 12, color: 'var(--color-text-primary)' }}
+                title={selectedTopic.last_modified_at}
+              >
+                {formatRelativeTime(selectedTopic.last_modified_at)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Divider + Configuration section header + ENH-3 search */}
@@ -1384,8 +1659,15 @@ const TopicDetail: React.FC = () => {
                           <input
                             type="text"
                             value={editingValue}
-                            onChange={(e) => setEditingValue(e.target.value)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditingValue(val);
+                              // F5: live validation on change
+                              setConfigValidationError(validateConfigValue(config.name, val));
+                            }}
                             aria-label={`Edit value for ${config.name}`}
+                            aria-describedby={configValidationError ? `config-validation-${config.name}` : undefined}
+                            aria-invalid={configValidationError ? 'true' : undefined}
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSaveEdit();
@@ -1394,7 +1676,7 @@ const TopicDetail: React.FC = () => {
                             style={{
                               width: '100%',
                               padding: '3px 5px',
-                              border: '1px solid var(--color-primary)',
+                              border: `1px solid ${configValidationError ? 'var(--color-error)' : 'var(--color-primary)'}`,
                               borderRadius: 3,
                               background: 'var(--color-surface-secondary)',
                               color: 'var(--color-text-primary)',
@@ -1404,6 +1686,19 @@ const TopicDetail: React.FC = () => {
                               boxSizing: 'border-box',
                             }}
                           />
+                          {/* F5: inline validation error */}
+                          {configValidationError && (
+                            <span
+                              id={`config-validation-${config.name}`}
+                              style={{
+                                fontSize: 11,
+                                color: 'var(--color-error)',
+                              }}
+                              role="alert"
+                            >
+                              {configValidationError}
+                            </span>
+                          )}
                           {editError && (
                             <span
                               style={{
@@ -1418,7 +1713,7 @@ const TopicDetail: React.FC = () => {
                           <div style={{ display: 'flex', gap: 4 }}>
                             <button
                               onClick={handleSaveEdit}
-                              disabled={editSaving}
+                              disabled={editSaving || !!configValidationError}
                               aria-label={`Save ${config.name}`}
                               style={{
                                 display: 'flex',
@@ -1427,11 +1722,12 @@ const TopicDetail: React.FC = () => {
                                 padding: '2px 7px',
                                 border: 'none',
                                 borderRadius: 3,
-                                background: 'var(--color-primary)',
-                                color: '#ffffff',
+                                // F5: gray out Save button when validation error present
+                                background: configValidationError ? 'var(--color-border)' : 'var(--color-primary)',
+                                color: configValidationError ? 'var(--color-text-tertiary)' : '#ffffff',
                                 fontSize: 11,
                                 fontWeight: 600,
-                                cursor: editSaving ? 'not-allowed' : 'pointer',
+                                cursor: (editSaving || !!configValidationError) ? 'not-allowed' : 'pointer',
                                 opacity: editSaving ? 0.7 : 1,
                               }}
                             >

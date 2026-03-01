@@ -27,9 +27,19 @@ const localStorageMock = (() => {
 
 Object.defineProperty(window, 'localStorage', { value: localStorageMock })
 
-// Reset localStorage before each test
+// Mock clipboard API
+export const mockClipboardWriteText = vi.fn().mockResolvedValue(undefined)
+
+Object.defineProperty(navigator, 'clipboard', {
+  configurable: true,
+  writable: true,
+  value: { writeText: mockClipboardWriteText },
+})
+
+// Reset localStorage and clipboard before each test
 beforeEach(() => {
   localStorage.clear()
+  vi.clearAllMocks()
 })
 
 // Stub import.meta.env with test-safe values

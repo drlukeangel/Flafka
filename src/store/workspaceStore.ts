@@ -67,12 +67,19 @@ export interface WorkspaceState {
   selectedSchemaSubject: SchemaSubject | null;
   schemaRegistryLoading: boolean;
   schemaRegistryError: string | null;
+  // ORIG-8: Lazy cache of subject name → schemaType (populated on first click)
+  schemaTypeCache: Record<string, string>;
 
   // Topics (runtime only, NOT persisted)
   topicList: KafkaTopic[];
   selectedTopic: KafkaTopic | null;
   topicLoading: boolean;
   topicError: string | null;
+  // LOW-2: last-focused topic name for back-nav focus restore
+  lastFocusedTopicName: string | null;
+  // ENH-5: bulk delete state
+  isBulkMode: boolean;
+  bulkSelectedTopics: string[];
 
   // Actions
   setCatalog: (catalog: string) => void;
@@ -132,6 +139,15 @@ export interface WorkspaceState {
   }) => Promise<void>;
   setTopicError: (error: string | null) => void;
   navigateToSchemaSubject: (subjectName: string) => void;
+  // ENH-5: bulk delete actions
+  enterBulkMode: () => void;
+  exitBulkMode: () => void;
+  toggleBulkTopicSelection: (topicName: string) => void;
+  selectAllBulkTopics: () => void;
+  clearBulkSelection: () => void;
+  deleteTopicsBulk: (topicNames: string[]) => Promise<{ deleted: string[]; failed: string[] }>;
+  // LOW-2: set last focused topic name for focus restore
+  setLastFocusedTopicName: (name: string | null) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -184,18 +200,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       sessionProperties: {
         'sql.local-time-zone': 'UTC',
-        'parallelism.default': '1',
       },
 
       schemaRegistrySubjects: [],
       selectedSchemaSubject: null,
       schemaRegistryLoading: false,
       schemaRegistryError: null,
+      schemaTypeCache: {},
 
       topicList: [],
       selectedTopic: null,
       topicLoading: false,
       topicError: null,
+      lastFocusedTopicName: null,
+      isBulkMode: false,
+      bulkSelectedTopics: [],
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -346,7 +365,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       loadTreeNodeChildren: async (nodeId) => {
-        console.log('Load children for:', nodeId);
+        if (import.meta.env.DEV) {
+          console.log('Load children for:', nodeId);
+        }
       },
 
       loadTableSchema: async (catalog, database, tableName) => {
@@ -577,7 +598,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                     ),
                   }));
 
-                  console.log(`[Poll] Total: ${allResults.length} (+${newResults.length})`);
+                  if (import.meta.env.DEV) {
+                    console.log(`[Poll] Total: ${allResults.length} (+${newResults.length})`);
+                  }
                 }
 
                 // Update cursor for next fetch
@@ -594,7 +617,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   return;
                 }
               } catch (resultError) {
-                console.log('Results not ready yet:', resultError);
+                if (import.meta.env.DEV) {
+                  console.log('Results not ready yet:', resultError);
+                }
               }
             }
 
@@ -808,7 +833,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({
           sessionProperties: {
             'sql.local-time-zone': 'UTC',
-            'parallelism.default': '1',
           },
           lastSavedAt: new Date().toISOString(),
         });
@@ -834,7 +858,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
           // Discard stale responses from superseded requests
           if ((get() as unknown as Record<string, string>)._schemaDetailRequestId !== requestId) return;
-          set({ selectedSchemaSubject: detail, schemaRegistryLoading: false });
+          // ORIG-8: Populate lazy schema type cache so SchemaList can show type badges
+          const existingCache = get().schemaTypeCache;
+          const updatedCache = { ...existingCache, [detail.subject]: detail.schemaType };
+          set({ selectedSchemaSubject: detail, schemaRegistryLoading: false, schemaTypeCache: updatedCache });
         } catch (error) {
           if ((get() as unknown as Record<string, string>)._schemaDetailRequestId !== requestId) return;
           const errorMessage = error instanceof Error ? error.message : 'Failed to load schema detail';
@@ -880,7 +907,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       selectTopic: (topic) => {
-        set({ selectedTopic: topic });
+        // LOW-2: remember for back-nav focus restore
+        set({ selectedTopic: topic, lastFocusedTopicName: topic.topic_name });
       },
 
       clearSelectedTopic: () => {
@@ -928,6 +956,64 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ topicError: error });
       },
 
+      // LOW-2: set last focused topic name for back-nav focus restore
+      setLastFocusedTopicName: (name) => {
+        set({ lastFocusedTopicName: name });
+      },
+
+      // ENH-5: bulk delete actions
+      enterBulkMode: () => {
+        set({ isBulkMode: true, bulkSelectedTopics: [] });
+      },
+
+      exitBulkMode: () => {
+        set({ isBulkMode: false, bulkSelectedTopics: [] });
+      },
+
+      toggleBulkTopicSelection: (topicName) => {
+        set((state) => {
+          const idx = state.bulkSelectedTopics.indexOf(topicName);
+          if (idx === -1) {
+            return { bulkSelectedTopics: [...state.bulkSelectedTopics, topicName] };
+          } else {
+            return {
+              bulkSelectedTopics: state.bulkSelectedTopics.filter((n) => n !== topicName),
+            };
+          }
+        });
+      },
+
+      selectAllBulkTopics: () => {
+        set((state) => ({ bulkSelectedTopics: state.topicList.map((t) => t.topic_name) }));
+      },
+
+      clearBulkSelection: () => {
+        set({ bulkSelectedTopics: [] });
+      },
+
+      deleteTopicsBulk: async (topicNames) => {
+        // ENH-5: sequential deletes to avoid Kafka REST rate limits
+        // Optimistically remove all selected from list
+        set((state) => ({
+          topicList: state.topicList.filter((t) => !topicNames.includes(t.topic_name)),
+          isBulkMode: false,
+          bulkSelectedTopics: [],
+        }));
+        const deleted: string[] = [];
+        const failed: string[] = [];
+        for (const name of topicNames) {
+          try {
+            await topicApi.deleteTopic(name);
+            deleted.push(name);
+          } catch {
+            failed.push(name);
+          }
+        }
+        // Refresh list after all attempts
+        await get().loadTopics();
+        return { deleted, failed };
+      },
+
       navigateToSchemaSubject: (subjectName) => {
         set({ activeNavItem: 'schemas' });
         get().loadSchemaDetail(subjectName, 'latest');
@@ -954,7 +1040,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         hasSeenOnboardingHint: state.hasSeenOnboardingHint,
         navExpanded: state.navExpanded,
         sessionProperties: state.sessionProperties,
-      }),
+      }) as unknown as WorkspaceState,
+      migrate: (persistedState: unknown, _version: number) => {
+        // Migration: remove invalid 'parallelism.default' session property
+        // (not a valid Flink SQL configuration option as of latest version)
+        const state = persistedState as any;
+        if (state?.sessionProperties?.['parallelism.default']) {
+          delete state.sessionProperties['parallelism.default'];
+        }
+        return state as WorkspaceState;
+      },
     }
   )
 );

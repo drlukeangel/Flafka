@@ -184,6 +184,9 @@ interface DeleteConfirmProps {
 function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfirmProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  // Feature 1: Typed name confirmation — user must type exact subject name to enable delete
+  const [confirmInput, setConfirmInput] = useState('');
+  const canDelete = confirmInput === subject;
 
   // Focus cancel button on mount
   useEffect(() => {
@@ -265,7 +268,7 @@ function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfir
         </p>
         <p
           style={{
-            margin: '0 0 20px',
+            margin: '0 0 16px',
             fontSize: 13,
             color: 'var(--color-warning)',
             lineHeight: 1.55,
@@ -277,6 +280,42 @@ function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfir
           <FiAlertTriangle size={13} style={{ marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
           Any Flink SQL tables referencing this schema subject may be affected.
         </p>
+
+        {/* Feature 1: Name confirmation input */}
+        <div style={{ marginBottom: 20 }}>
+          <label
+            htmlFor="delete-schema-confirm"
+            style={{
+              display: 'block',
+              fontSize: 12,
+              color: 'var(--color-text-secondary)',
+              marginBottom: 6,
+            }}
+          >
+            Type <strong style={{ fontFamily: 'monospace' }}>{subject}</strong> to confirm:
+          </label>
+          <input
+            id="delete-schema-confirm"
+            type="text"
+            value={confirmInput}
+            onChange={(e) => setConfirmInput(e.target.value)}
+            disabled={isLoading}
+            placeholder={subject}
+            aria-label="Type subject name to confirm deletion"
+            style={{
+              width: '100%',
+              padding: '6px 8px',
+              border: '1px solid var(--color-border)',
+              borderRadius: 4,
+              background: 'var(--color-surface-secondary)',
+              color: 'var(--color-text-primary)',
+              fontSize: 13,
+              fontFamily: 'monospace',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
 
         {/* Actions */}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -302,18 +341,19 @@ function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfir
               padding: '6px 14px',
               borderRadius: 4,
               border: 'none',
-              background: 'var(--color-error)',
-              color: '#ffffff',
+              background: canDelete ? 'var(--color-error)' : 'var(--color-border)',
+              color: canDelete ? '#ffffff' : 'var(--color-text-tertiary)',
               fontSize: 12,
               fontWeight: 600,
-              cursor: isLoading ? 'not-allowed' : 'pointer',
+              cursor: canDelete && !isLoading ? 'pointer' : 'not-allowed',
               opacity: isLoading ? 0.75 : 1,
               display: 'flex',
               alignItems: 'center',
               gap: 6,
+              transition: 'background var(--transition-fast)',
             }}
-            onClick={onConfirm}
-            disabled={isLoading}
+            onClick={canDelete ? onConfirm : undefined}
+            disabled={!canDelete || isLoading}
             aria-label={isLoading ? 'Deleting subject…' : `Delete ${subject}`}
           >
             {isLoading && (
@@ -332,6 +372,113 @@ function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfir
 }
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// R2-4: Version delete confirmation overlay
+// ---------------------------------------------------------------------------
+
+interface VersionDeleteConfirmProps {
+  subject: string;
+  version: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function VersionDeleteConfirm({ subject, version, onConfirm, onCancel }: VersionDeleteConfirmProps) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const cancelBtnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelBtnRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      ref={overlayRef}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        zIndex: 20,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+      onClick={(e) => { if (e.target === overlayRef.current) onCancel(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-version-dialog-title"
+    >
+      <div
+        style={{
+          background: 'var(--color-surface)',
+          borderRadius: 8,
+          padding: 24,
+          maxWidth: 340,
+          width: '100%',
+          boxShadow: 'var(--shadow-lg)',
+          border: '1px solid var(--color-border)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <FiAlertTriangle size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} aria-hidden="true" />
+          <h3
+            id="delete-version-dialog-title"
+            style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}
+          >
+            Delete v{version} of "{subject}"?
+          </h3>
+        </div>
+        <p style={{ margin: '0 0 20px', fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.55 }}>
+          This will permanently delete version {version}. This action cannot be undone.
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            ref={cancelBtnRef}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 4,
+              border: '1px solid var(--color-border)',
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            style={{
+              padding: '6px 14px',
+              borderRadius: 4,
+              border: 'none',
+              background: 'var(--color-error)',
+              color: '#ffffff',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+            onClick={onConfirm}
+            aria-label={`Delete version ${version} of ${subject}`}
+          >
+            Delete v{version}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // SchemaDetail — main exported component
 // ---------------------------------------------------------------------------
 
@@ -373,6 +520,8 @@ export default function SchemaDetail() {
 
   // Item 12: Per-version delete
   const [deletingVersion, setDeletingVersion] = useState(false);
+  // R2-4: Replace window.confirm with proper overlay for version delete
+  const [showDeleteVersionConfirm, setShowDeleteVersionConfirm] = useState(false);
 
   // Item 6: Schema diff — compare two versions
   const [diffMode, setDiffMode] = useState(false);
@@ -435,6 +584,30 @@ export default function SchemaDetail() {
     setDiffVersion('latest');
   }, [subject]);
 
+  // Item 6: Load diff schema when diffVersion changes
+  // R2-3: Guard against self-compare — skip if same as selectedVersion
+  // Declared before handleVersionChange so R2-1 can reference it
+  const handleDiffVersionChange = useCallback(async (version: number | 'latest') => {
+    if (!subject) return;
+    // Resolve both versions to numbers for comparison (latest = last in versions array)
+    const resolvedDiff = version === 'latest' ? null : version;
+    const resolvedSelected = selectedVersion === 'latest' ? null : selectedVersion;
+    if (resolvedDiff !== null && resolvedSelected !== null && resolvedDiff === resolvedSelected) {
+      return; // same version — no-op (R2-3 self-compare guard)
+    }
+    setDiffVersion(version);
+    setDiffLoading(true);
+    try {
+      const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
+      setDiffSchema(formatSchemaJson(detail.schema));
+    } catch (err) {
+      console.error('Failed to load diff schema:', err);
+      setDiffSchema(null);
+    } finally {
+      setDiffLoading(false);
+    }
+  }, [subject, selectedVersion]);
+
   const handleVersionChange = useCallback(
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const raw = e.target.value;
@@ -442,9 +615,13 @@ export default function SchemaDetail() {
       setSelectedVersion(version);
       if (subject) {
         loadSchemaDetail(subject, version);
+        // R2-1: Reload diffSchema when primary version changes while diff mode is active
+        if (diffMode) {
+          handleDiffVersionChange(diffVersion);
+        }
       }
     },
-    [subject, loadSchemaDetail]
+    [subject, loadSchemaDetail, diffMode, diffVersion, handleDiffVersionChange]
   );
 
   const handleEvolveClick = useCallback(() => {
@@ -576,22 +753,6 @@ export default function SchemaDetail() {
     }
   }, [selectedSchemaSubject, addToast]);
 
-  // Item 6: Load diff schema when diffVersion changes
-  const handleDiffVersionChange = useCallback(async (version: number | 'latest') => {
-    if (!subject) return;
-    setDiffVersion(version);
-    setDiffLoading(true);
-    try {
-      const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
-      setDiffSchema(formatSchemaJson(detail.schema));
-    } catch (err) {
-      console.error('Failed to load diff schema:', err);
-      setDiffSchema(null);
-    } finally {
-      setDiffLoading(false);
-    }
-  }, [subject]);
-
   const handleToggleDiff = useCallback(() => {
     if (!diffMode && versions.length > 0) {
       // Default to the previous version for diff
@@ -601,10 +762,10 @@ export default function SchemaDetail() {
     setDiffMode((v) => !v);
   }, [diffMode, versions, handleDiffVersionChange]);
 
-  // Item 12: Delete a specific schema version
+  // Item 12 + R2-4: Delete a specific schema version — uses overlay instead of window.confirm
   const handleDeleteVersion = useCallback(async () => {
     if (!subject || selectedVersion === 'latest') return;
-    if (!confirm(`Delete version ${selectedVersion} of "${subject}"? This cannot be undone.`)) return;
+    setShowDeleteVersionConfirm(false);
     setDeletingVersion(true);
     try {
       await schemaRegistryApi.deleteSchemaVersion(subject, selectedVersion as number);
@@ -672,6 +833,16 @@ export default function SchemaDetail() {
             if (!deleting) setShowDeleteConfirm(false);
           }}
           isLoading={deleting}
+        />
+      )}
+
+      {/* R2-4: Version delete confirmation overlay */}
+      {showDeleteVersionConfirm && selectedVersion !== 'latest' && (
+        <VersionDeleteConfirm
+          subject={selectedSchemaSubject.subject}
+          version={selectedVersion as number}
+          onConfirm={handleDeleteVersion}
+          onCancel={() => setShowDeleteVersionConfirm(false)}
         />
       )}
 
@@ -812,10 +983,10 @@ export default function SchemaDetail() {
               aria-label="Loading versions"
             />
           )}
-          {/* Item 12: Delete specific version (disabled for latest) */}
+          {/* Item 12 + R2-4: Delete specific version (opens confirm overlay, disabled for latest) */}
           {selectedVersion !== 'latest' && versions.length > 1 && !isEditing && (
             <button
-              onClick={handleDeleteVersion}
+              onClick={() => setShowDeleteVersionConfirm(true)}
               disabled={deletingVersion}
               title={`Delete version ${selectedVersion}`}
               aria-label={`Delete version ${selectedVersion}`}
@@ -1219,10 +1390,19 @@ export default function SchemaDetail() {
                   fontSize: 12,
                 }}
               >
-                <option value="latest">Latest</option>
-                {versions.map((v) => (
-                  <option key={v} value={String(v)}>v{v}</option>
-                ))}
+                {/* R2-3: Hide "Latest" if selectedVersion is already latest (would self-compare) */}
+                {selectedVersion !== 'latest' && (
+                  <option value="latest">Latest</option>
+                )}
+                {/* R2-3: Omit the currently selected primary version to prevent self-compare */}
+                {versions
+                  .filter((v) => {
+                    const resolvedSelected = selectedVersion === 'latest' ? versions[versions.length - 1] : selectedVersion;
+                    return v !== resolvedSelected;
+                  })
+                  .map((v) => (
+                    <option key={v} value={String(v)}>v{v}</option>
+                  ))}
               </select>
               {diffLoading && (
                 <span className="spin" style={{ width: 12, height: 12, display: 'inline-block' }} aria-hidden="true" />

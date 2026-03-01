@@ -30,6 +30,10 @@ let mockSelectedTopic: KafkaTopic | null = null
 let mockTopicLoading = false
 let mockTopicError: string | null = null
 let mockFocusedStatementId: string | null = null
+// ENH-5 / LOW-2 fields needed by TopicList (Phase 12.3+)
+let mockBulkSelectedTopics: string[] = []
+let mockIsBulkMode = false
+let mockLastFocusedTopicName: string | null = null
 
 // HIGH-1 fix: loadTopics returns a Promise (the useEffect now calls .catch() on it)
 const mockLoadTopics = vi.fn().mockResolvedValue(undefined)
@@ -42,6 +46,15 @@ const mockAddToast = vi.fn()
 const mockAddStatement = vi.fn()
 const mockSetActiveNavItem = vi.fn()
 const mockNavigateToSchemaSubject = vi.fn()
+// ENH-5 bulk delete mocks
+const mockEnterBulkMode = vi.fn()
+const mockExitBulkMode = vi.fn()
+const mockToggleBulkTopicSelection = vi.fn()
+const mockSelectAllBulkTopics = vi.fn()
+const mockClearBulkSelection = vi.fn()
+const mockDeleteTopicsBulk = vi.fn().mockResolvedValue({ deleted: [], failed: [] })
+// LOW-2 focus restore mock
+const mockSetLastFocusedTopicName = vi.fn()
 
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) => {
@@ -60,6 +73,18 @@ vi.mock('../../store/workspaceStore', () => ({
       setActiveNavItem: mockSetActiveNavItem,
       navigateToSchemaSubject: mockNavigateToSchemaSubject,
       focusedStatementId: mockFocusedStatementId,
+      // ENH-5: bulk delete fields
+      isBulkMode: mockIsBulkMode,
+      bulkSelectedTopics: mockBulkSelectedTopics,
+      enterBulkMode: mockEnterBulkMode,
+      exitBulkMode: mockExitBulkMode,
+      toggleBulkTopicSelection: mockToggleBulkTopicSelection,
+      selectAllBulkTopics: mockSelectAllBulkTopics,
+      clearBulkSelection: mockClearBulkSelection,
+      deleteTopicsBulk: mockDeleteTopicsBulk,
+      // LOW-2: focus restore
+      lastFocusedTopicName: mockLastFocusedTopicName,
+      setLastFocusedTopicName: mockSetLastFocusedTopicName,
     }
     return typeof selector === 'function' ? selector(state) : state
   },
@@ -1394,22 +1419,29 @@ describe('[@topic-detail] health indicator badge', () => {
     }
   })
 
-  it('shows "Low partition count" badge when partitions_count < 2', () => {
+  it('shows yellow health dot when partitions_count < 2', () => {
     mockSelectedTopic = makeTopic({ partitions_count: 1 })
     render(<TopicDetail />)
-    expect(screen.getByText('Low partition count')).toBeInTheDocument()
+    // F6: health dot with aria-label containing "Health: yellow"
+    const dot = screen.getByRole('generic', { hidden: true, name: /health: yellow/i })
+    // Fallback: check by aria-label directly since generic role may not match
+    const healthSpan = document.querySelector('[aria-label*="Health: yellow"]')
+    expect(healthSpan).toBeInTheDocument()
   })
 
-  it('does NOT show "Low partition count" badge when partitions_count >= 2', () => {
+  it('shows green health dot when partitions_count >= 2', () => {
     mockSelectedTopic = makeTopic({ partitions_count: 6 })
     render(<TopicDetail />)
-    expect(screen.queryByText('Low partition count')).not.toBeInTheDocument()
+    // F6: green = all checks pass
+    const healthSpan = document.querySelector('[aria-label*="Health: green"]')
+    expect(healthSpan).toBeInTheDocument()
   })
 
-  it('does NOT show health badge when partitions_count === 2', () => {
+  it('shows green health dot when partitions_count === 2', () => {
     mockSelectedTopic = makeTopic({ partitions_count: 2 })
     render(<TopicDetail />)
-    expect(screen.queryByText('Low partition count')).not.toBeInTheDocument()
+    const healthSpan = document.querySelector('[aria-label*="Health: green"]')
+    expect(healthSpan).toBeInTheDocument()
   })
 })
 
@@ -1422,17 +1454,23 @@ describe('[@topic-list] health indicator badge', () => {
     mockFocusedStatementId = null
   })
 
-  it('shows warning icon on topic row with partitions_count < 2', () => {
+  it('shows yellow health dot on topic row with partitions_count < 2', () => {
     mockTopicList = [makeTopic({ topic_name: 'single-part', partitions_count: 1 })]
     render(<TopicList />)
-    // Warning icon has aria-label="Low partition count warning"
-    expect(screen.getByLabelText('Low partition count warning')).toBeInTheDocument()
+    // Phase 12.5: FiAlertTriangle replaced with composite health dot (role="img")
+    // Yellow health dot has aria-label containing "Health: yellow"
+    const healthDot = screen.getByRole('img', { name: /health: yellow/i })
+    expect(healthDot).toBeInTheDocument()
   })
 
-  it('does NOT show warning icon on topic row with partitions_count >= 2', () => {
-    mockTopicList = [makeTopic({ topic_name: 'multi-part', partitions_count: 6 })]
+  it('shows green health dot (no warning) on topic row with partitions_count >= 2', () => {
+    mockTopicList = [makeTopic({ topic_name: 'multi-part', partitions_count: 6, replication_factor: 3 })]
     render(<TopicList />)
-    expect(screen.queryByLabelText('Low partition count warning')).not.toBeInTheDocument()
+    // Healthy topic: green health dot is NOT rendered (zero visual noise for healthy topics)
+    // Only yellow/red dots are shown as warnings
+    expect(screen.queryByRole('img', { name: /health: green/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /health: yellow/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /health: red/i })).not.toBeInTheDocument()
   })
 })
 

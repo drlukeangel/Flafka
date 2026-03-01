@@ -52,6 +52,36 @@ const generateStatementName = (): string => {
   return `stmt-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 8)}`;
 };
 
+// Valid Flink SQL session properties (filter out invalid ones before sending to API)
+const VALID_SESSION_PROPERTIES = new Set([
+  'sql.current-catalog',
+  'sql.current-database',
+  'sql.dry-run',
+  'sql.inline-result',
+  'sql.local-time-zone',
+  'sql.state-ttl',
+  'sql.tables.scan.bounded.mode',
+  'sql.tables.scan.bounded.timestamp-millis',
+  'sql.tables.scan.idle-timeout',
+  'sql.tables.scan.source-operator-parallelism',
+  'sql.tables.scan.startup.mode',
+  'sql.tables.scan.startup.specific-offsets',
+  'sql.tables.scan.startup.timestamp-millis',
+  'sql.tables.scan.watermark-alignment.max-allowed-drift',
+]);
+
+// Filter session properties to only include valid ones
+const filterSessionProperties = (props?: Record<string, string>): Record<string, string> => {
+  if (!props) return {};
+  const filtered: Record<string, string> = {};
+  Object.entries(props).forEach(([key, value]) => {
+    if (VALID_SESSION_PROPERTIES.has(key)) {
+      filtered[key] = value;
+    }
+  });
+  return filtered;
+};
+
 /**
  * Execute a SQL statement
  */
@@ -64,7 +94,7 @@ export const executeSQL = async (sql: string, name?: string, sessionProperties?:
       statement: sql,
       compute_pool_id: env.computePoolId,
       properties: {
-        ...(sessionProperties || {}),
+        ...filterSessionProperties(sessionProperties),
         // Reserved keys always enforced - cannot be overridden by user
         'sql.current-catalog': env.flinkCatalog,
         'sql.current-database': env.flinkDatabase,

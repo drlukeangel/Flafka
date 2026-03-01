@@ -29,9 +29,13 @@ export async function getTopicDetail(topicName: string): Promise<KafkaTopic> {
   return response.data;
 }
 
-export async function getTopicConfigs(topicName: string): Promise<TopicConfig[]> {
+// R2-ABT: accept an optional AbortSignal so callers (TopicDetail) can cancel
+// in-flight HTTP requests when the selected topic changes or the component unmounts.
+// Axios forwards the signal natively to the underlying XHR/fetch layer.
+export async function getTopicConfigs(topicName: string, signal?: AbortSignal): Promise<TopicConfig[]> {
   const response = await kafkaRestClient.get<{ data: TopicConfig[] }>(
-    `${clusterPath()}/topics/${encodeURIComponent(topicName)}/configs`
+    `${clusterPath()}/topics/${encodeURIComponent(topicName)}/configs`,
+    { signal }
   );
   return response.data.data;
 }

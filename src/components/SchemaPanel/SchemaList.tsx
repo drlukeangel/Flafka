@@ -11,12 +11,28 @@ import {
 } from 'react-icons/fi';
 import CreateSchema from './CreateSchema';
 
+// ORIG-8: Schema type badge color helper (consistent with SchemaDetail type badge)
+function getSchemaTypeBadgeStyle(schemaType: string): { background: string; color: string } {
+  switch (schemaType) {
+    case 'AVRO':
+      return { background: 'rgba(73,51,215,0.12)', color: 'var(--color-primary)' };
+    case 'PROTOBUF':
+      return { background: 'rgba(245,158,11,0.12)', color: 'var(--color-warning)' };
+    case 'JSON':
+      return { background: 'rgba(34,197,94,0.12)', color: 'var(--color-success)' };
+    default:
+      return { background: 'rgba(156,163,175,0.12)', color: 'var(--color-text-secondary)' };
+  }
+}
+
 const SchemaList: React.FC = () => {
   const subjects = useWorkspaceStore((s) => s.schemaRegistrySubjects);
   const loading = useWorkspaceStore((s) => s.schemaRegistryLoading);
   const error = useWorkspaceStore((s) => s.schemaRegistryError);
   const loadSchemaRegistrySubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
   const loadSchemaDetail = useWorkspaceStore((s) => s.loadSchemaDetail);
+  // ORIG-8: Lazy cache of subject → schemaType (populated when subject is first clicked)
+  const schemaTypeCache = useWorkspaceStore((s) => s.schemaTypeCache);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -320,6 +336,24 @@ const SchemaList: React.FC = () => {
                 >
                   {subject}
                 </span>
+                {/* ORIG-8: Type badge — shown once type is known from lazy cache */}
+                {schemaTypeCache[subject] && (
+                  <span
+                    style={{
+                      ...getSchemaTypeBadgeStyle(schemaTypeCache[subject]),
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                      flexShrink: 0,
+                    }}
+                    title={`Schema type: ${schemaTypeCache[subject]}`}
+                    aria-label={`Type: ${schemaTypeCache[subject]}`}
+                  >
+                    {schemaTypeCache[subject]}
+                  </span>
+                )}
                 <FiChevronRight
                   size={13}
                   style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}

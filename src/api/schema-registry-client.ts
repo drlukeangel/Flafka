@@ -19,25 +19,33 @@ export const schemaRegistryClient: AxiosInstance = axios.create({
 
 schemaRegistryClient.interceptors.request.use(
   config => {
-    console.log(`[Schema Registry] ${config.method?.toUpperCase()} ${config.url}`);
+    if (import.meta.env.DEV) {
+      console.log(`[Schema Registry] ${config.method?.toUpperCase()} ${config.url}`);
+    }
     return config;
   },
   error => {
-    console.error('[Schema Registry Request Error]', error);
+    if (import.meta.env.DEV) {
+      console.error('[Schema Registry Request Error]', error);
+    }
     return Promise.reject(error);
   }
 );
 
 schemaRegistryClient.interceptors.response.use(
   response => {
-    console.log(`[Schema Registry Response] ${response.status}`, response.data);
+    if (import.meta.env.DEV) {
+      console.log(`[Schema Registry Response] ${response.status}`, response.data);
+    }
     return response;
   },
   (error: AxiosError) => {
     // 404s are expected for subject-level config lookups (falls back to global config)
     if (error.response?.status !== 404) {
       const message = (error.response?.data as { message?: string })?.message || error.message;
-      console.error(`[Schema Registry Error] ${error.response?.status}: ${message}`);
+      if (import.meta.env.DEV) {
+        console.error(`[Schema Registry Error] ${error.response?.status}: ${message}`);
+      }
     }
     return Promise.reject(error);
   }

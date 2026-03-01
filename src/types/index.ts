@@ -143,6 +143,9 @@ export interface KafkaTopic {
   is_internal: boolean;
   replication_factor: number;
   partitions_count: number;
+  // ENH-4: optional timestamp fields — present only if API version includes them
+  created_at?: string;
+  last_modified_at?: string;
 }
 
 // Topic configuration entry — returned by the configs endpoint

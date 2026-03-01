@@ -55,6 +55,12 @@
   /* Icon colors */
   --color-table: #22C55E;
   --color-view: #8B5CF6;
+  /* R2-5: Schema tree type badge colors */
+  --color-schema-record: #8B5CF6;
+  --color-schema-record-bg: rgba(139, 92, 246, 0.15);
+  --color-schema-array: #14B8A6;
+  --color-schema-map: #14B8A6;
+  --color-schema-array-bg: rgba(20, 184, 166, 0.15);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -130,6 +136,12 @@
   /* Icon colors */
   --color-table: #34D399;
   --color-view: #A78BFA;
+  /* R2-5: Schema tree type badge colors */
+  --color-schema-record: #A78BFA;
+  --color-schema-record-bg: rgba(167, 139, 250, 0.15);
+  --color-schema-array: #2DD4BF;
+  --color-schema-map: #2DD4BF;
+  --color-schema-array-bg: rgba(45, 212, 191, 0.15);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -460,4 +472,9 @@ body {
   background: var(--color-bg-hover);
   color: var(--color-primary);
   border-color: var(--color-primary);
+}
+
+/* Editor Cell Padding */
+.cell-editor {
+  padding: 10px 15px;  /* 10px top/bottom, 15px left/right */
 }

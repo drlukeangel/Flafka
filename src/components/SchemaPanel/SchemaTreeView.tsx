@@ -94,11 +94,14 @@ function getTypeBadgeStyle(typeName: string): BadgeStyle {
     case 'boolean':
       return { background: 'rgba(245,158,11,0.15)', color: 'var(--color-warning)' };
     case 'record':
-      return { background: 'rgba(139,92,246,0.15)', color: '#8B5CF6' };
+      // @phase-12.5-schema-colors: dedicated --color-schema-record var (light: #8B5CF6, dark: #A78BFA)
+      return { background: 'var(--color-schema-record-bg)', color: 'var(--color-schema-record)' };
     case 'array':
-      return { background: 'rgba(20,184,166,0.15)', color: '#14B8A6' };
+      // @phase-12.5-schema-colors: --color-schema-array + --color-schema-array-bg
+      return { background: 'var(--color-schema-array-bg)', color: 'var(--color-schema-array)' };
     case 'map':
-      return { background: 'rgba(20,184,166,0.15)', color: '#14B8A6' };
+      // @phase-12.5-schema-colors: --color-schema-map (alias of array teal, separate semantic var)
+      return { background: 'var(--color-schema-array-bg)', color: 'var(--color-schema-map)' };
     case 'enum':
       return { background: 'rgba(245,158,11,0.15)', color: 'var(--color-warning)' };
     case 'null':

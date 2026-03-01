@@ -118,7 +118,6 @@ describe('[@store] [@execute] executeStatement - polling loop', () => {
       toasts: [],
       sessionProperties: {
         'sql.local-time-zone': 'UTC',
-        'parallelism.default': '1',
       },
     })
   })

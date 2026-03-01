@@ -3,13 +3,11 @@ import { describe, it, expect } from 'vitest';
 describe('[@session-properties] Session Properties Logic', () => {
   const DEFAULT_PROPERTIES = {
     'sql.local-time-zone': 'UTC',
-    'parallelism.default': '1',
   };
 
   it('should have correct default properties', () => {
-    expect(Object.keys(DEFAULT_PROPERTIES)).toHaveLength(2);
+    expect(Object.keys(DEFAULT_PROPERTIES)).toHaveLength(1);
     expect(DEFAULT_PROPERTIES['sql.local-time-zone']).toBe('UTC');
-    expect(DEFAULT_PROPERTIES['parallelism.default']).toBe('1');
   });
 
   it('should reject reserved keys', () => {
@@ -53,21 +51,21 @@ describe('[@session-properties] Session Properties Logic', () => {
 
   it('should reset to defaults correctly', () => {
     const reset = { ...DEFAULT_PROPERTIES };
-    expect(Object.keys(reset)).toHaveLength(2);
+    expect(Object.keys(reset)).toHaveLength(1);
     expect(reset['sql.local-time-zone']).toBe('UTC');
-    expect(reset['parallelism.default']).toBe('1');
   });
 
   it('should allow removing a property', () => {
     const props: Record<string, string> = { ...DEFAULT_PROPERTIES, 'custom.prop': 'value' };
     delete props['custom.prop'];
     expect(props['custom.prop']).toBeUndefined();
-    expect(Object.keys(props)).toHaveLength(2);
+    expect(Object.keys(props)).toHaveLength(1);
   });
 
   it('should handle empty string values', () => {
     const props = { ...DEFAULT_PROPERTIES, 'empty.prop': '' };
     expect(props['empty.prop']).toBe('');
+    expect(Object.keys(props)).toHaveLength(2);
   });
 
   it('should not set sql.tables.scan.startup.mode by default', () => {

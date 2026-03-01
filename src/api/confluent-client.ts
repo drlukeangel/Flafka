@@ -40,11 +40,15 @@ export const fcpmClient: AxiosInstance = axios.create({
 // Add request interceptor for logging
 confluentClient.interceptors.request.use(
   config => {
-    console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+    if (import.meta.env.DEV) {
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+    }
     return config;
   },
   error => {
-    console.error('[API Request Error]', error);
+    if (import.meta.env.DEV) {
+      console.error('[API Request Error]', error);
+    }
     return Promise.reject(error);
   }
 );
@@ -52,12 +56,16 @@ confluentClient.interceptors.request.use(
 // Add response interceptor for error handling
 confluentClient.interceptors.response.use(
   response => {
-    console.log(`[API Response] ${response.status}`, response.data);
+    if (import.meta.env.DEV) {
+      console.log(`[API Response] ${response.status}`, response.data);
+    }
     return response;
   },
   (error: AxiosError) => {
     const message = (error.response?.data as { message?: string })?.message || error.message;
-    console.error(`[API Error] ${error.response?.status}: ${message}`);
+    if (import.meta.env.DEV) {
+      console.error(`[API Error] ${error.response?.status}: ${message}`);
+    }
     return Promise.reject(error);
   }
 );
@@ -65,11 +73,15 @@ confluentClient.interceptors.response.use(
 // Add request interceptor for FCPM client
 fcpmClient.interceptors.request.use(
   config => {
-    console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+    if (import.meta.env.DEV) {
+      console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+    }
     return config;
   },
   error => {
-    console.error('[API Request Error]', error);
+    if (import.meta.env.DEV) {
+      console.error('[API Request Error]', error);
+    }
     return Promise.reject(error);
   }
 );
@@ -77,12 +89,16 @@ fcpmClient.interceptors.request.use(
 // Add response interceptor for FCPM client
 fcpmClient.interceptors.response.use(
   response => {
-    console.log(`[API Response] ${response.status}`, response.data);
+    if (import.meta.env.DEV) {
+      console.log(`[API Response] ${response.status}`, response.data);
+    }
     return response;
   },
   (error: AxiosError) => {
     const message = (error.response?.data as { message?: string })?.message || error.message;
-    console.error(`[API Error] ${error.response?.status}: ${message}`);
+    if (import.meta.env.DEV) {
+      console.error(`[API Error] ${error.response?.status}: ${message}`);
+    }
     return Promise.reject(error);
   }
 );

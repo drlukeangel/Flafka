@@ -58,7 +58,6 @@ function resetStore() {
     statementHistory: [],
     sessionProperties: {
       'sql.local-time-zone': 'UTC',
-      'parallelism.default': '1',
     },
   })
 }
@@ -669,9 +668,9 @@ describe('[@store] [@session] session properties', () => {
   })
 
   it('setSessionProperty overwrites existing property', () => {
-    useWorkspaceStore.getState().setSessionProperty('parallelism.default', '4')
+    useWorkspaceStore.getState().setSessionProperty('sql.local-time-zone', 'America/New_York')
 
-    expect(useWorkspaceStore.getState().sessionProperties['parallelism.default']).toBe('4')
+    expect(useWorkspaceStore.getState().sessionProperties['sql.local-time-zone']).toBe('America/New_York')
   })
 
   it('setSessionProperty does nothing for empty key', () => {
@@ -715,7 +714,6 @@ describe('[@store] [@session] session properties', () => {
 
     const { sessionProperties } = useWorkspaceStore.getState()
     expect(sessionProperties['sql.local-time-zone']).toBe('UTC')
-    expect(sessionProperties['parallelism.default']).toBe('1')
     expect(sessionProperties['custom.key']).toBeUndefined()
   })
 })
