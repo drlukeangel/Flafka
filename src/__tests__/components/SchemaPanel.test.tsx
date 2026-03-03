@@ -33,6 +33,7 @@ vi.mock('../../store/workspaceStore', () => ({
       clearSelectedSchema: mockClearSelectedSchema,
       clearSchemaRegistryError: mockClearSchemaRegistryError,
       addToast: mockAddToast,
+      navigateToTopic: vi.fn(),
     }
     return typeof selector === 'function' ? selector(state) : state
   },
@@ -75,6 +76,7 @@ vi.mock('../../api/schema-registry-api', () => ({
   deleteSubject: vi.fn(),
   deleteSchemaVersion: vi.fn(), // Item 12: per-version delete
   setCompatibilityMode: vi.fn(),
+  getSubjectsForSchemaId: vi.fn().mockResolvedValue([]),
 }))
 
 // Import components AFTER mocks are registered.
@@ -238,16 +240,16 @@ describe('[@schema-list] loading state', () => {
     mockSchemaRegistryError = null
   })
 
-  it('shows "Loading schemas..." text while loading', () => {
+  it('shows skeleton loading state while loading', () => {
     mockSchemaRegistryLoading = true
-    render(<SchemaList />)
-    expect(screen.getByText(/loading schemas/i)).toBeInTheDocument()
+    const { container } = render(<SchemaList />)
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
   })
 
   it('renders an accessible loading region while loading', () => {
     mockSchemaRegistryLoading = true
-    render(<SchemaList />)
-    expect(screen.getByLabelText(/loading schemas/i)).toBeInTheDocument()
+    const { container } = render(<SchemaList />)
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument()
   })
 
   it('does not render the subject list while loading', () => {
@@ -257,10 +259,11 @@ describe('[@schema-list] loading state', () => {
     expect(screen.queryByRole('list', { name: /schema registry subjects/i })).not.toBeInTheDocument()
   })
 
-  it('does not render the filter input while loading', () => {
+  it('renders the filter input disabled while loading', () => {
     mockSchemaRegistryLoading = true
     render(<SchemaList />)
-    expect(screen.queryByLabelText(/filter schema subjects/i)).not.toBeInTheDocument()
+    const filterInput = screen.getByPlaceholderText(/filter subjects/i) as HTMLInputElement
+    expect(filterInput).toBeDisabled()
   })
 })
 
@@ -3662,32 +3665,35 @@ describe('[@schema-r2-type-badge] Type badge in SchemaList rows from lazy cache'
     mockSchemaTypeCache = { 'orders-value': 'AVRO' }
     render(<SchemaList />)
 
-    expect(screen.getByTitle('Schema type: AVRO')).toBeInTheDocument()
-    expect(screen.getByText('AVRO')).toBeInTheDocument()
+    const badge = screen.getByTitle('Schema type: AVRO')
+    expect(badge).toBeInTheDocument()
+    expect(badge.textContent).toBe('AVRO')
   })
 
   it('shows PROTOBUF badge for PROTOBUF subject in cache', () => {
     mockSchemaTypeCache = { 'payments-value': 'PROTOBUF' }
     render(<SchemaList />)
 
-    expect(screen.getByTitle('Schema type: PROTOBUF')).toBeInTheDocument()
-    expect(screen.getByText('PROTOBUF')).toBeInTheDocument()
+    const badge = screen.getByTitle('Schema type: PROTOBUF')
+    expect(badge).toBeInTheDocument()
+    expect(badge.textContent).toBe('PROTOBUF')
   })
 
   it('shows JSON badge for JSON subject in cache', () => {
     mockSchemaTypeCache = { 'users-value': 'JSON' }
     render(<SchemaList />)
 
-    expect(screen.getByTitle('Schema type: JSON')).toBeInTheDocument()
-    expect(screen.getByText('JSON')).toBeInTheDocument()
+    const badge = screen.getByTitle('Schema type: JSON')
+    expect(badge).toBeInTheDocument()
+    expect(badge.textContent).toBe('JSON')
   })
 
   it('shows multiple type badges when multiple subjects are cached', () => {
     mockSchemaTypeCache = { 'orders-value': 'AVRO', 'payments-value': 'PROTOBUF' }
     render(<SchemaList />)
 
-    expect(screen.getAllByText('AVRO')).toHaveLength(1)
-    expect(screen.getAllByText('PROTOBUF')).toHaveLength(1)
+    expect(screen.getByTitle('Schema type: AVRO')).toBeInTheDocument()
+    expect(screen.getByTitle('Schema type: PROTOBUF')).toBeInTheDocument()
   })
 })
 

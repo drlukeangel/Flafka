@@ -30,6 +30,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
 import type { CompatibilityLevel } from '../../types';
 import SchemaTreeView from './SchemaTreeView';
+import { SchemaDatasets } from './SchemaDatasets';
 import {
   FiRefreshCw,
   FiX,
@@ -39,6 +40,7 @@ import {
   FiTrash2,
   FiCode,
   FiCopy,
+  FiLoader,
 } from 'react-icons/fi';
 
 // ---------------------------------------------------------------------------
@@ -342,7 +344,7 @@ function DeleteConfirm({ subject, onConfirm, onCancel, isLoading }: DeleteConfir
               borderRadius: 4,
               border: 'none',
               background: canDelete ? 'var(--color-error)' : 'var(--color-border)',
-              color: canDelete ? '#ffffff' : 'var(--color-text-tertiary)',
+              color: canDelete ? 'var(--color-button-danger-text)' : 'var(--color-text-tertiary)',
               fontSize: 12,
               fontWeight: 600,
               cursor: canDelete && !isLoading ? 'pointer' : 'not-allowed',
@@ -463,7 +465,7 @@ function VersionDeleteConfirm({ subject, version, onConfirm, onCancel }: Version
               borderRadius: 4,
               border: 'none',
               background: 'var(--color-error)',
-              color: '#ffffff',
+              color: 'var(--color-button-danger-text)',
               fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
@@ -488,9 +490,32 @@ export default function SchemaDetail() {
   const addToast = useWorkspaceStore((s) => s.addToast);
   const clearSelectedSchema = useWorkspaceStore((s) => s.clearSelectedSchema);
   const loadSchemaDetail = useWorkspaceStore((s) => s.loadSchemaDetail);
+  const navigateToTopic = useWorkspaceStore((s) => s.navigateToTopic);
+  const loadSchemaRegistrySubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
+  const topicList = useWorkspaceStore((s) => s.topicList);
+  const loadTopics = useWorkspaceStore((s) => s.loadTopics);
+  const schemaInitialView = useWorkspaceStore((s) => s.schemaInitialView);
+  const clearSchemaInitialView = useWorkspaceStore((s) => s.clearSchemaInitialView);
 
-  // Read-mode view
+  // Top-level mode: schema vs datasets
+  const [topMode, setTopMode] = useState<'schema' | 'datasets'>('schema');
+
+  // Read-mode view (within schema mode)
   const [view, setView] = useState<'code' | 'tree'>('code');
+
+  // Consume schemaInitialView on mount (one-shot)
+  const initialViewConsumed = useRef(false);
+  useEffect(() => {
+    if (schemaInitialView && !initialViewConsumed.current) {
+      initialViewConsumed.current = true;
+      if (schemaInitialView === 'datasets') {
+        setTopMode('datasets');
+      } else {
+        setView(schemaInitialView as 'code' | 'tree');
+      }
+      clearSchemaInitialView();
+    }
+  }, [schemaInitialView, clearSchemaInitialView]);
 
   // Version list
   const [versions, setVersions] = useState<number[]>([]);
@@ -528,6 +553,18 @@ export default function SchemaDetail() {
   const [diffVersion, setDiffVersion] = useState<number | 'latest'>('latest');
   const [diffSchema, setDiffSchema] = useState<string | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  // Phase 12.6 F5: AbortController ref for diff version fetch cancellation
+  const diffFetchAbortRef = useRef<AbortController | null>(null);
+
+  // F8: Topic associations state
+  const [associatedTopics, setAssociatedTopics] = useState<string[]>([]);
+  const [associatedSubjects, setAssociatedSubjects] = useState<string[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const [topicSearch, setTopicSearch] = useState('');
+  const [topicDropdownFocusIdx, setTopicDropdownFocusIdx] = useState(-1);
+  const [topicAdding, setTopicAdding] = useState(false);
+  const [topicRemoving, setTopicRemoving] = useState<string | null>(null);
+  const [topicAddError, setTopicAddError] = useState<string | null>(null);
 
   const subject = selectedSchemaSubject?.subject ?? null;
 
@@ -582,25 +619,50 @@ export default function SchemaDetail() {
     setDiffMode(false);
     setDiffSchema(null);
     setDiffVersion('latest');
+    // Phase 12.6 F5: Abort any in-flight diff fetch when subject changes
+    diffFetchAbortRef.current?.abort();
+    diffFetchAbortRef.current = null;
   }, [subject]);
+
+  // Phase 12.6 F5: Abort in-flight diff fetch on component unmount
+  useEffect(() => {
+    return () => {
+      diffFetchAbortRef.current?.abort();
+    };
+  }, []);
 
   // Item 6: Load diff schema when diffVersion changes
   // R2-3: Guard against self-compare — skip if same as selectedVersion
+  // Phase 12.6 F5: Uses AbortController to cancel in-flight requests on rapid version changes
+  // Phase 12.6 F7: Accepts optional currentPrimary param to avoid stale closure on self-compare guard
   // Declared before handleVersionChange so R2-1 can reference it
-  const handleDiffVersionChange = useCallback(async (version: number | 'latest') => {
+  const handleDiffVersionChange = useCallback(async (
+    version: number | 'latest',
+    currentPrimary?: number | 'latest'
+  ) => {
     if (!subject) return;
+    // Use explicit currentPrimary if provided (F7 stale closure fix), else fall back to state
+    const primaryToCompare = currentPrimary !== undefined ? currentPrimary : selectedVersion;
     // Resolve both versions to numbers for comparison (latest = last in versions array)
     const resolvedDiff = version === 'latest' ? null : version;
-    const resolvedSelected = selectedVersion === 'latest' ? null : selectedVersion;
+    const resolvedSelected = primaryToCompare === 'latest' ? null : primaryToCompare;
     if (resolvedDiff !== null && resolvedSelected !== null && resolvedDiff === resolvedSelected) {
       return; // same version — no-op (R2-3 self-compare guard)
     }
     setDiffVersion(version);
     setDiffLoading(true);
+    // Phase 12.6 F5: Cancel any in-flight diff fetch before starting a new one
+    diffFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    diffFetchAbortRef.current = controller;
     try {
-      const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
+      const detail = await schemaRegistryApi.getSchemaDetail(subject, version, { signal: controller.signal });
       setDiffSchema(formatSchemaJson(detail.schema));
     } catch (err) {
+      // F5: Silently ignore abort errors — they are expected on rapid version switching
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError')) {
+        return;
+      }
       console.error('Failed to load diff schema:', err);
       setDiffSchema(null);
     } finally {
@@ -616,12 +678,30 @@ export default function SchemaDetail() {
       if (subject) {
         loadSchemaDetail(subject, version);
         // R2-1: Reload diffSchema when primary version changes while diff mode is active
+        // Phase 12.6 F7: Fix stale closure — pass new primary version explicitly so the
+        // self-compare guard operates on the updated value, not the stale closure.
         if (diffMode) {
-          handleDiffVersionChange(diffVersion);
+          // Check if current diffVersion would self-compare with the NEW primary
+          const resolvedNewPrimary = version === 'latest' ? null : version;
+          const resolvedCurrentDiff = diffVersion === 'latest' ? null : diffVersion;
+          if (resolvedNewPrimary !== null && resolvedCurrentDiff !== null && resolvedNewPrimary === resolvedCurrentDiff) {
+            // Self-compare would occur: auto-select a different diff version
+            const alternative = versions.find((v) => v !== resolvedNewPrimary);
+            if (alternative !== undefined) {
+              handleDiffVersionChange(alternative, version);
+            } else {
+              // No alternative version exists — exit diff mode
+              setDiffMode(false);
+              setDiffSchema(null);
+              setDiffVersion('latest');
+            }
+          } else {
+            handleDiffVersionChange(diffVersion, version);
+          }
         }
       }
     },
-    [subject, loadSchemaDetail, diffMode, diffVersion, handleDiffVersionChange]
+    [subject, loadSchemaDetail, diffMode, diffVersion, versions, handleDiffVersionChange]
   );
 
   const handleEvolveClick = useCallback(() => {
@@ -629,6 +709,7 @@ export default function SchemaDetail() {
     setEditSchema(formatSchemaJson(selectedSchemaSubject.schema));
     setIsValidated(false);
     setValidationError(null);
+    setView('code');
     setIsEditing(true);
   }, [selectedSchemaSubject]);
 
@@ -700,9 +781,14 @@ export default function SchemaDetail() {
     setDeleting(true);
     try {
       await schemaRegistryApi.deleteSubject(selectedSchemaSubject.subject);
+      // Also delete all datasets associated with this schema subject
+      const { schemaDatasets, deleteSchemaDataset } = useWorkspaceStore.getState();
+      schemaDatasets
+        .filter((ds) => ds.schemaSubject === selectedSchemaSubject.subject)
+        .forEach((ds) => deleteSchemaDataset(ds.id));
       addToast({
         type: 'success',
-        message: `"${selectedSchemaSubject.subject}" deleted`,
+        message: `"${selectedSchemaSubject.subject}" and its datasets deleted`,
         duration: 4000,
       });
       clearSelectedSchema();
@@ -763,6 +849,7 @@ export default function SchemaDetail() {
   }, [diffMode, versions, handleDiffVersionChange]);
 
   // Item 12 + R2-4: Delete a specific schema version — uses overlay instead of window.confirm
+  // Phase 12.6 F9: Auto-exit diff mode when deletion reduces subject to fewer than 2 versions
   const handleDeleteVersion = useCallback(async () => {
     if (!subject || selectedVersion === 'latest') return;
     setShowDeleteVersionConfirm(false);
@@ -771,9 +858,15 @@ export default function SchemaDetail() {
       await schemaRegistryApi.deleteSchemaVersion(subject, selectedVersion as number);
       addToast({ type: 'success', message: `Version ${selectedVersion} deleted` });
       // Reload versions and jump to latest
-      const v = await schemaRegistryApi.getSchemaVersions(subject);
-      setVersions(v);
+      const updatedVersions = await schemaRegistryApi.getSchemaVersions(subject);
+      setVersions(updatedVersions);
       setSelectedVersion('latest');
+      // F9: If fewer than 2 versions remain, diff mode is no longer possible — exit it
+      if (diffMode && updatedVersions.length < 2) {
+        setDiffMode(false);
+        setDiffSchema(null);
+        setDiffVersion('latest');
+      }
       await loadSchemaDetail(subject, 'latest');
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to delete version';
@@ -781,7 +874,110 @@ export default function SchemaDetail() {
     } finally {
       setDeletingVersion(false);
     }
-  }, [subject, selectedVersion, addToast, loadSchemaDetail]);
+  }, [subject, selectedVersion, diffMode, addToast, loadSchemaDetail]);
+
+  // -------------------------------------------------------------------------
+  // F8: Topic associations — load, add, remove
+  // -------------------------------------------------------------------------
+
+  const loadAssociatedTopics = useCallback(async (signal?: AbortSignal) => {
+    if (!selectedSchemaSubject?.id) return;
+    setTopicsLoading(true);
+    try {
+      const subjects = await schemaRegistryApi.getSubjectsForSchemaId(
+        selectedSchemaSubject.id, { signal }
+      );
+      if (signal?.aborted) return;
+      const relevantSubjects = subjects.filter((s) => /-(value|key)$/.test(s));
+      const topics = relevantSubjects
+        .map((s) => s.replace(/-(value|key)$/, ''))
+        .filter((v) => v.length > 0)
+        .filter((v, i, a) => a.indexOf(v) === i);
+      setAssociatedSubjects(relevantSubjects);
+      setAssociatedTopics(topics);
+    } catch {
+      if (signal?.aborted) return;
+      setAssociatedTopics([]);
+      setAssociatedSubjects([]);
+    } finally {
+      if (!signal?.aborted) setTopicsLoading(false);
+    }
+  }, [selectedSchemaSubject?.id]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadAssociatedTopics(controller.signal);
+    return () => controller.abort();
+  }, [loadAssociatedTopics]);
+
+  const topicSearchResults = topicSearch.trim()
+    ? topicList
+        .map((t) => t.topic_name)
+        .filter((name) =>
+          name.toLowerCase().includes(topicSearch.toLowerCase()) &&
+          !associatedTopics.includes(name)
+        ).slice(0, 20)
+    : [];
+
+  const handleSearchFocus = useCallback(() => {
+    if (topicList.length === 0) loadTopics();
+  }, [topicList.length, loadTopics]);
+
+  const handleAddTopic = useCallback(async (topicName: string) => {
+    if (!selectedSchemaSubject) return;
+    setTopicAdding(true);
+    setTopicAddError(null);
+    setTopicDropdownFocusIdx(-1);
+    try {
+      await schemaRegistryApi.registerSchema(
+        `${topicName}-value`,
+        selectedSchemaSubject.schema,
+        selectedSchemaSubject.schemaType ?? 'AVRO'
+      );
+      addToast({ type: 'success', message: `Associated with ${topicName}` });
+      setTopicSearch('');
+      await loadAssociatedTopics();
+      await loadSchemaRegistrySubjects();
+    } catch (err) {
+      setTopicAddError(err instanceof Error ? err.message : 'Failed to associate');
+    } finally {
+      setTopicAdding(false);
+    }
+  }, [selectedSchemaSubject, addToast, loadAssociatedTopics, loadSchemaRegistrySubjects]);
+
+  const handleRemoveTopic = useCallback(async (topicName: string) => {
+    const subjectsToDelete = associatedSubjects.filter(
+      (s) => s === `${topicName}-value` || s === `${topicName}-key`
+    );
+    setTopicRemoving(topicName);
+    try {
+      await Promise.all(subjectsToDelete.map((s) => schemaRegistryApi.deleteSubject(s)));
+      const deletedList = subjectsToDelete.join(', ');
+      addToast({ type: 'success', message: `Removed: ${deletedList}` });
+      await loadAssociatedTopics();
+    } catch (err) {
+      addToast({ type: 'error', message: err instanceof Error ? err.message : 'Failed to remove' });
+    } finally {
+      setTopicRemoving(null);
+    }
+  }, [associatedSubjects, addToast, loadAssociatedTopics]);
+
+  const handleTopicSearchKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (topicSearchResults.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setTopicDropdownFocusIdx((i) => Math.min(i + 1, topicSearchResults.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setTopicDropdownFocusIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && topicDropdownFocusIdx >= 0) {
+      e.preventDefault();
+      handleAddTopic(topicSearchResults[topicDropdownFocusIdx]);
+    } else if (e.key === 'Escape') {
+      setTopicSearch('');
+      setTopicDropdownFocusIdx(-1);
+    }
+  }, [topicSearchResults, topicDropdownFocusIdx, handleAddTopic]);
 
   // -------------------------------------------------------------------------
   // Empty state — no subject selected
@@ -859,22 +1055,6 @@ export default function SchemaDetail() {
           rowGap: 6,
         }}
       >
-        {/* Schema type badge */}
-        <span
-          style={{
-            ...typeBadgeStyle,
-            padding: '2px 7px',
-            borderRadius: 3,
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: '0.04em',
-            flexShrink: 0,
-          }}
-          title={`Schema type: ${schemaType}`}
-        >
-          {schemaType}
-        </span>
-
         {/* Schema ID */}
         <span
           style={{
@@ -889,6 +1069,72 @@ export default function SchemaDetail() {
         </span>
 
         <div style={{ flex: 1 }} />
+
+        {/* Schema / Datasets toggle (centered) */}
+        <div style={{ display: 'flex', borderRadius: 4, overflow: 'hidden' }} role="group" aria-label="Detail mode">
+          <button
+            style={{
+              padding: '3px 10px',
+              fontSize: 12,
+              border: '1px solid var(--color-border)',
+              borderRight: 'none',
+              borderRadius: '4px 0 0 4px',
+              background: topMode === 'schema' ? 'var(--color-primary)' : 'var(--color-surface)',
+              color: topMode === 'schema' ? '#fff' : 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              lineHeight: 1.4,
+            }}
+            onClick={() => setTopMode('schema')}
+            aria-pressed={topMode === 'schema'}
+          >
+            Schema
+          </button>
+          <button
+            style={{
+              padding: '3px 10px',
+              fontSize: 12,
+              border: '1px solid var(--color-border)',
+              borderRadius: '0 4px 4px 0',
+              background: topMode === 'datasets' ? 'var(--color-primary)' : 'var(--color-surface)',
+              color: topMode === 'datasets' ? '#fff' : 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              lineHeight: 1.4,
+            }}
+            onClick={() => setTopMode('datasets')}
+            aria-pressed={topMode === 'datasets'}
+          >
+            Datasets
+          </button>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        {/* Delete (header-level — deletes schema + datasets) */}
+        {!isEditing && (
+          <button
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 5,
+              border: '1px solid var(--color-border)',
+              borderRadius: 4,
+              background: 'var(--color-surface)',
+              color: 'var(--color-text-secondary)',
+              cursor: 'pointer',
+            }}
+            onClick={() => setShowDeleteConfirm(true)}
+            title="Delete schema subject and all datasets"
+            aria-label="Delete subject"
+          >
+            <FiTrash2 size={13} aria-hidden="true" />
+          </button>
+        )}
+
+        {/* Separator */}
+        {!isEditing && (
+          <div style={{ width: 1, height: 18, background: 'var(--color-border)', flexShrink: 0 }} />
+        )}
 
         {/* Refresh */}
         <button
@@ -937,8 +1183,8 @@ export default function SchemaDetail() {
         </button>
       </div>
 
-      {/* ── Meta row: version + compatibility ──────────────────────────────── */}
-      <div
+      {/* ── Meta row: version + compatibility (schema mode only) ────────── */}
+      {topMode === 'schema' && <div
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1042,25 +1288,6 @@ export default function SchemaDetail() {
                   </option>
                 ))}
               </select>
-              {/* Item 4: "Global" label when compat is inherited from the global default */}
-              {compatIsGlobal && !compatSaving && (
-                <span
-                  title="This subject inherits the global compatibility setting"
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: 'var(--color-text-tertiary)',
-                    background: 'var(--color-surface-secondary)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 3,
-                    padding: '1px 5px',
-                    letterSpacing: '0.04em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Global
-                </span>
-              )}
               {compatSaving && (
                 <span
                   className="spin"
@@ -1071,10 +1298,10 @@ export default function SchemaDetail() {
             </>
           )}
         </div>
-      </div>
+      </div>}
 
-      {/* ── Toolbar: view toggle + action buttons ──────────────────────────── */}
-      <div
+      {/* ── Toolbar: view toggle + action buttons (schema mode only) ──────── */}
+      {topMode === 'schema' && <div
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1087,6 +1314,45 @@ export default function SchemaDetail() {
         }}
       >
         {!isEditing && <ViewToggle view={view} onChange={setView} treeDisabled={schemaType !== 'AVRO'} />}
+
+        {/* Schema type badge (moved here from header) */}
+        {!isEditing && (
+          <span
+            style={{
+              ...typeBadgeStyle,
+              padding: '2px 7px',
+              borderRadius: 3,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              flexShrink: 0,
+            }}
+            title={`Schema type: ${schemaType}`}
+          >
+            {schemaType}
+          </span>
+        )}
+
+        {/* GLOBAL badge */}
+        {!isEditing && compatIsGlobal && (
+          <span
+            title="This subject inherits the global compatibility setting"
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: 'var(--color-text-tertiary)',
+              background: 'var(--color-surface-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 3,
+              padding: '1px 5px',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+            }}
+          >
+            Global
+          </span>
+        )}
+
         <div style={{ flex: 1 }} />
 
         {!isEditing ? (
@@ -1160,26 +1426,6 @@ export default function SchemaDetail() {
             >
               <FiEdit2 size={12} aria-hidden="true" />
               Evolve
-            </button>
-            <button
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 12px',
-                borderRadius: 4,
-                border: '1px solid var(--color-error)',
-                background: 'transparent',
-                color: 'var(--color-error)',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-              onClick={() => setShowDeleteConfirm(true)}
-              title="Delete all versions of this subject"
-              aria-label="Delete subject"
-            >
-              <FiTrash2 size={12} aria-hidden="true" />
-              Delete
             </button>
           </>
         ) : (
@@ -1266,7 +1512,7 @@ export default function SchemaDetail() {
             </button>
           </>
         )}
-      </div>
+      </div>}
 
       {/* ── Validation feedback banner ──────────────────────────────────────── */}
       {isEditing && validationError && !validating && (
@@ -1308,9 +1554,131 @@ export default function SchemaDetail() {
         </div>
       )}
 
+      {/* F8: Topics section — collapsed stub in edit/diff mode */}
+      {topMode === 'schema' && selectedSchemaSubject && (isEditing || diffMode) && (
+        <div style={{ borderBottom: '1px solid var(--color-border)', padding: '8px 12px', flexShrink: 0 }}>
+          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
+            TOPICS ({associatedTopics.length}) — unavailable while editing
+          </span>
+        </div>
+      )}
+
+      {/* F8: Topics section — full management in read mode */}
+      {topMode === 'schema' && selectedSchemaSubject && !isEditing && !diffMode && (
+        <div style={{ borderBottom: '1px solid var(--color-border)', padding: '10px 12px', flexShrink: 0 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)',
+            textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Topics
+          </span>
+          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 6,
+            fontStyle: 'italic' }}>
+            (TopicNameStrategy)
+          </span>
+
+          {/* Associated topic rows */}
+          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {topicsLoading && <FiLoader size={11} className="history-spin" aria-hidden="true" />}
+            {associatedTopics.map((name) => (
+              <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  onClick={() => navigateToTopic(name)}
+                  title={`Open topic ${name}`}
+                  aria-label={`Go to topic ${name}`}
+                  style={{ flex: 1, fontSize: 12, fontFamily: 'monospace',
+                    color: 'var(--color-primary)', overflow: 'hidden',
+                    textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left',
+                    background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                >
+                  {name}
+                </button>
+                <button
+                  onClick={() => handleRemoveTopic(name)}
+                  disabled={!!topicRemoving}
+                  title={`Remove association with ${name}`}
+                  aria-label={`Remove topic ${name}`}
+                  style={{ display: 'flex', alignItems: 'center', padding: 3,
+                    border: '1px solid var(--color-border)', borderRadius: 4,
+                    background: 'transparent', color: 'var(--color-text-tertiary)',
+                    cursor: topicRemoving === name ? 'wait' : 'pointer',
+                    opacity: topicRemoving === name ? 0.5 : 1, flexShrink: 0 }}
+                  onMouseEnter={(e) => { if (!topicRemoving) (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)'; }}
+                >
+                  {topicRemoving === name
+                    ? <FiLoader size={10} className="history-spin" aria-hidden="true" />
+                    : <FiX size={10} aria-hidden="true" />}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Search to add — ARIA combobox pattern */}
+          <div style={{ position: 'relative', marginTop: associatedTopics.length > 0 ? 8 : 6 }}>
+            <input
+              type="text" value={topicSearch}
+              role="combobox"
+              aria-expanded={topicSearchResults.length > 0 && !topicAdding}
+              aria-autocomplete="list"
+              aria-controls="topic-associate-listbox"
+              onChange={(e) => { setTopicSearch(e.target.value); setTopicAddError(null); setTopicDropdownFocusIdx(-1); }}
+              onKeyDown={handleTopicSearchKeyDown}
+              onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; handleSearchFocus(); }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; }}
+              placeholder="Associate with a topic..."
+              disabled={topicAdding}
+              style={{ width: '100%', padding: '4px 8px', fontSize: 11, fontFamily: 'monospace',
+                border: '1px solid var(--color-border)', borderRadius: 4,
+                background: 'var(--color-surface)', color: 'var(--color-text-primary)',
+                outline: 'none', boxSizing: 'border-box', opacity: topicAdding ? 0.6 : 1 }}
+            />
+            {topicSearchResults.length > 0 && !topicAdding && (
+              <div
+                role="listbox" id="topic-associate-listbox" aria-label="Available topics"
+                style={{ position: 'absolute', top: '100%', left: 0, right: 0,
+                  maxHeight: 140, overflowY: 'auto',
+                  background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                  borderTop: 'none', borderRadius: '0 0 4px 4px', zIndex: 20,
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.15)' }}>
+                {topicSearchResults.map((name, idx) => (
+                  <button key={name}
+                    role="option" aria-selected={false} tabIndex={-1}
+                    onMouseDown={(e) => { e.preventDefault(); handleAddTopic(name); }}
+                    style={{ display: 'block', width: '100%', padding: '5px 8px',
+                      fontSize: 11, fontFamily: 'monospace', textAlign: 'left',
+                      border: 'none', cursor: 'pointer',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      background: idx === topicDropdownFocusIdx ? 'var(--color-bg-hover)' : 'transparent',
+                      color: 'var(--color-text-primary)' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)'; }}
+                    onMouseLeave={(e) => {
+                      if (idx !== topicDropdownFocusIdx)
+                        (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    }}
+                  >{name}</button>
+                ))}
+              </div>
+            )}
+            {topicAdding && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5,
+                fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+                <FiLoader size={11} className="history-spin" aria-hidden="true" /> Associating...
+              </div>
+            )}
+            {topicAddError && (
+              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-error)' }}>
+                {topicAddError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Content area ───────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {isEditing ? (
+        {topMode === 'datasets' ? (
+          /* Datasets view (top-level mode) */
+          <SchemaDatasets subject={selectedSchemaSubject.subject} schemaText={schema} schemaType={schemaType} />
+        ) : isEditing ? (
           /* Edit mode: schema editor textarea */
           <textarea
             value={editSchema}

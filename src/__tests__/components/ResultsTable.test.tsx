@@ -15,9 +15,8 @@ vi.mock('../../store/workspaceStore', () => ({
 }))
 
 // Mock react-virtual to avoid complex DOM requirements.
-// NOTE: Both grid and list views use virtualItems.map() for rows, so getVirtualItems()
-// must return actual items for any row data to render. We return mock virtual items
-// matching the mockData indices so both views render all rows.
+// getVirtualItems() must return actual items for any row data to render. We return
+// mock virtual items matching the data count so all rows render.
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getVirtualItems: () =>
@@ -58,13 +57,8 @@ describe('[@results-table] [@core] ResultsTable', () => {
       expect(screen.getByText('email')).toBeInTheDocument()
     })
 
-    it('should render row data', async () => {
-      const user = userEvent.setup()
+    it('should render row data', () => {
       render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-      // Switch to list view so rows render without virtualizer
-      const listViewBtn = screen.getByTitle('List view')
-      await user.click(listViewBtn)
 
       expect(screen.getByText('Alice')).toBeInTheDocument()
       expect(screen.getByText('Bob')).toBeInTheDocument()
@@ -83,10 +77,6 @@ describe('[@results-table] [@core] ResultsTable', () => {
       const user = userEvent.setup()
       render(<ResultsTable data={mockData} columns={mockColumns} />)
 
-      // Switch to list view so rows render without virtualizer
-      const listViewBtn = screen.getByTitle('List view')
-      await user.click(listViewBtn)
-
       const searchInput = screen.getByPlaceholderText('Search...')
       await user.type(searchInput, 'Alice')
 
@@ -97,10 +87,6 @@ describe('[@results-table] [@core] ResultsTable', () => {
     it('should show empty state when search has no matches', async () => {
       const user = userEvent.setup()
       render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-      // Switch to list view so rows render without virtualizer
-      const listViewBtn = screen.getByTitle('List view')
-      await user.click(listViewBtn)
 
       const searchInput = screen.getByPlaceholderText('Search...')
       await user.type(searchInput, 'NonExistent')
@@ -142,25 +128,6 @@ describe('[@results-table] [@core] ResultsTable', () => {
       // All three columns' sort icons: the active "name" column has no inactive class
       // The other 2 columns each have one inactive arrow; so count should be 2
       expect(inactiveArrows.length).toBe(2)
-    })
-  })
-
-  describe('[@results-table] view modes', () => {
-    it('should support grid and list view toggle', async () => {
-      const user = userEvent.setup()
-      render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-      // Grid view button starts active; click list view button to switch
-      const gridViewBtn = screen.getByTitle('Grid view')
-      const listViewBtn = screen.getByTitle('List view')
-
-      expect(gridViewBtn).toHaveClass('active')
-      expect(listViewBtn).not.toHaveClass('active')
-
-      await user.click(listViewBtn)
-
-      expect(listViewBtn).toHaveClass('active')
-      expect(gridViewBtn).not.toHaveClass('active')
     })
   })
 
@@ -331,47 +298,34 @@ describe('[@results-table] [@cell-interaction] ResultsTable cell click and null 
     vi.clearAllMocks()
   })
 
-  it('renders null values as "null" span', async () => {
-    const user = userEvent.setup()
+  it('renders null values as "null" span', () => {
     const dataWithNull = [{ id: 1, value: null, data: 'ok' }]
     render(<ResultsTable data={dataWithNull} columns={mockColumns} />)
-
-    // Switch to list view to ensure rows render
-    await user.click(screen.getByTitle('List view'))
 
     const nullSpan = document.querySelector('.null-value')
     expect(nullSpan).toBeInTheDocument()
     expect(nullSpan).toHaveTextContent('null')
   })
 
-  it('renders undefined values as "null" span', async () => {
-    const user = userEvent.setup()
+  it('renders undefined values as "null" span', () => {
     const dataWithUndefined = [{ id: 1, value: undefined, data: 'ok' }]
     render(<ResultsTable data={dataWithUndefined} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     const nullSpan = document.querySelector('.null-value')
     expect(nullSpan).toBeInTheDocument()
   })
 
-  it('renders JSON objects with expand button', async () => {
-    const user = userEvent.setup()
+  it('renders JSON objects with expand button', () => {
     const dataWithObj = [{ id: 1, value: { nested: 'data' }, data: 'ok' }]
     render(<ResultsTable data={dataWithObj} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     const expandBtn = document.querySelector('.json-expand-btn')
     expect(expandBtn).toBeInTheDocument()
   })
 
-  it('cells have onClick handler (results-cell class present)', async () => {
-    const user = userEvent.setup()
+  it('cells have onClick handler (results-cell class present)', () => {
     const mockData = [{ id: 1, value: 'hello-world', data: 'x' }]
     render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     // Verify all data cells have the results-cell class (which has onClick)
     const dataCells = document.querySelectorAll('.results-cell')
@@ -390,7 +344,6 @@ describe('[@results-table] [@cell-interaction] ResultsTable cell click and null 
     })
 
     render(<ResultsTable data={mockData} columns={mockColumns} />)
-    await user.click(screen.getByTitle('List view'))
 
     const cell = screen.getByText('copyable').closest('td')!
     await user.click(cell)
@@ -399,12 +352,9 @@ describe('[@results-table] [@cell-interaction] ResultsTable cell click and null 
     expect(writeTextMock).toHaveBeenCalledWith('copyable')
   })
 
-  it('JSON object cell shows preview text', async () => {
-    const user = userEvent.setup()
+  it('JSON object cell shows preview text', () => {
     const dataWithObj = [{ id: 1, value: { key: 'val' }, data: 'ok' }]
     render(<ResultsTable data={dataWithObj} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     // The JSON preview span renders JSON.stringify of the object
     const preview = document.querySelector('.results-cell-json-preview')
@@ -454,8 +404,6 @@ describe('[@results-table] [@sorting] ResultsTable sort edge cases', () => {
       { id: 3, name: 'Alice' },
     ]
     render(<ResultsTable data={dataWithNull} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     // Click name header to sort ascending
     const nameHeaderSpan = screen.getAllByText('name')[0]
@@ -587,12 +535,9 @@ describe('[@results-table] [@row-index] Row index column', () => {
     expect(headers[0]).toHaveTextContent('#')
   })
 
-  it('shows original 1-based row index for each data row', async () => {
-    const user = userEvent.setup()
+  it('shows original 1-based row index for each data row', () => {
     const data = [{ val: 'first' }, { val: 'second' }, { val: 'third' }]
     render(<ResultsTable data={data} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     const indexCells = document.querySelectorAll('.results-index-cell')
     // First is the header "#", rest are data rows
@@ -600,45 +545,6 @@ describe('[@results-table] [@row-index] Row index column', () => {
     expect(dataCells[0]).toHaveTextContent('1')
     expect(dataCells[1]).toHaveTextContent('2')
     expect(dataCells[2]).toHaveTextContent('3')
-  })
-})
-
-describe('[@results-table] [@view-modes] List view rendering', () => {
-  const mockColumns: Column[] = [
-    { name: 'id', type: 'INTEGER' },
-    { name: 'name', type: 'STRING' },
-  ]
-  const mockData = [
-    { id: 1, name: 'Alice' },
-    { id: 2, name: 'Bob' },
-  ]
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('list view renders data rows', async () => {
-    const user = userEvent.setup()
-    render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    // Both rows should appear in the list
-    expect(screen.getByText('Alice')).toBeInTheDocument()
-    expect(screen.getByText('Bob')).toBeInTheDocument()
-  })
-
-  it('list view shows same column headers as grid view', async () => {
-    const user = userEvent.setup()
-    render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    // Column headers should still be present
-    const headers = screen.getAllByRole('columnheader')
-    const headerTexts = headers.map(h => h.textContent?.trim())
-    expect(headerTexts).toContain('id')
-    expect(headerTexts).toContain('name')
   })
 })
 
@@ -741,8 +647,6 @@ describe('[@results-table] [@json-expander] JSON expander portal', () => {
     const user = userEvent.setup()
     render(<ResultsTable data={mockData} columns={mockColumns} />)
 
-    await user.click(screen.getByTitle('List view'))
-
     const expandBtn = document.querySelector('.json-expand-btn')!
     await user.click(expandBtn)
 
@@ -756,8 +660,6 @@ describe('[@results-table] [@json-expander] JSON expander portal', () => {
     const user = userEvent.setup()
     render(<ResultsTable data={mockData} columns={mockColumns} />)
 
-    await user.click(screen.getByTitle('List view'))
-
     const expandBtn = document.querySelector('.json-expand-btn')!
     await user.click(expandBtn)
 
@@ -770,8 +672,6 @@ describe('[@results-table] [@json-expander] JSON expander portal', () => {
   it('clicking expand button again closes the expander (toggle)', async () => {
     const user = userEvent.setup()
     render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     const expandBtn = document.querySelector('.json-expand-btn')!
     // Open
@@ -795,8 +695,6 @@ describe('[@results-table] [@json-expander] JSON expander portal', () => {
 
     render(<ResultsTable data={mockData} columns={mockColumns} />)
 
-    await user.click(screen.getByTitle('List view'))
-
     const expandBtn = document.querySelector('.json-expand-btn')!
     await user.click(expandBtn)
 
@@ -813,8 +711,6 @@ describe('[@results-table] [@json-expander] JSON expander portal', () => {
   it('Escape key closes the JSON expander', async () => {
     const user = userEvent.setup()
     render(<ResultsTable data={mockData} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
 
     const expandBtn = document.querySelector('.json-expand-btn')!
     await user.click(expandBtn)
@@ -973,100 +869,3 @@ describe('[@results-table] [@export-filename] Export with statementName', () => 
   })
 })
 
-// ---------------------------------------------------------------------------
-// List view specific rendering in detail
-// ---------------------------------------------------------------------------
-describe('[@results-table] [@list-view-detail] List view detailed rendering', () => {
-  const mockColumns: Column[] = [
-    { name: 'id', type: 'INTEGER' },
-    { name: 'data', type: 'STRING' },
-  ]
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it('list view renders null values as null span', async () => {
-    const user = userEvent.setup()
-    const dataWithNull = [{ id: 1, data: null }]
-    render(<ResultsTable data={dataWithNull} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    const nullSpan = document.querySelector('.null-value')
-    expect(nullSpan).toBeInTheDocument()
-    expect(nullSpan).toHaveTextContent('null')
-  })
-
-  it('list view renders JSON objects with expand button', async () => {
-    const user = userEvent.setup()
-    const dataWithObj = [{ id: 1, data: { key: 'val' } }]
-    render(<ResultsTable data={dataWithObj} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    const expandBtn = document.querySelector('.json-expand-btn')
-    expect(expandBtn).toBeInTheDocument()
-    const preview = document.querySelector('.results-cell-json-preview')
-    expect(preview).toBeInTheDocument()
-  })
-
-  it('list view applies odd row class to alternating rows', async () => {
-    const user = userEvent.setup()
-    const data = [
-      { id: 1, data: 'a' },
-      { id: 2, data: 'b' },
-      { id: 3, data: 'c' },
-    ]
-    render(<ResultsTable data={data} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    const rows = document.querySelectorAll('tbody tr')
-    // Row at index 1 (second row) should have odd class
-    const oddRows = document.querySelectorAll('.results-row-odd')
-    expect(oddRows.length).toBeGreaterThan(0)
-  })
-
-  it('list view shows original row index after sorting', async () => {
-    const user = userEvent.setup()
-    const data = [
-      { id: 3, data: 'c' },
-      { id: 1, data: 'a' },
-      { id: 2, data: 'b' },
-    ]
-    render(<ResultsTable data={data} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    // Sort by id ascending
-    const idHeader = screen.getAllByText('id')[0]
-    await user.click(idHeader)
-
-    // After sorting, check index cells still show original 1-based indices
-    const indexCells = document.querySelectorAll('.results-index-cell')
-    // First is header "#", then data rows
-    const dataIndexCells = Array.from(indexCells).slice(1)
-    // Row with id=1 was originally at index 2, so its index cell should show 2
-    expect(dataIndexCells[0]).toHaveTextContent('2')
-  })
-
-  it('clicking cell in list view copies value to clipboard', async () => {
-    const user = userEvent.setup()
-    const writeTextMock = vi.fn().mockResolvedValue(undefined)
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      clipboard: { writeText: writeTextMock },
-    })
-
-    const data = [{ id: 1, data: 'list-cell-value' }]
-    render(<ResultsTable data={data} columns={mockColumns} />)
-
-    await user.click(screen.getByTitle('List view'))
-
-    const cell = screen.getByText('list-cell-value').closest('td')!
-    await user.click(cell)
-
-    expect(writeTextMock).toHaveBeenCalledWith('list-cell-value')
-  })
-})

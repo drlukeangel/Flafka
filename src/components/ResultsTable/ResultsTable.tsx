@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { ExpandableJsonPane } from '../shared/ExpandableJsonPane';
 import type { Column, SortConfig } from '../../types';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import {
@@ -8,8 +8,6 @@ import {
   FiDownload,
   FiArrowUp,
   FiArrowDown,
-  FiGrid,
-  FiList,
   FiColumns,
   FiClipboard,
 } from 'react-icons/fi';
@@ -71,7 +69,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
   const addToast = useWorkspaceStore((s) => s.addToast);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [copiedCell, setCopiedCell] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
@@ -98,48 +95,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [columnsDropdownOpen]);
-
-  useEffect(() => {
-    if (!expandedCell) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setExpandedCell(null);
-        setExpandedCellRect(null);
-        setExpandedCellValue(null);
-      }
-    };
-
-    const handleMouseDown = (e: MouseEvent) => {
-      const pane = document.querySelector('.json-expander-pane');
-      if (pane && !pane.contains(e.target as Node)) {
-        setExpandedCell(null);
-        setExpandedCellRect(null);
-        setExpandedCellValue(null);
-      }
-    };
-
-    const handleScroll = () => {
-      setExpandedCell(null);
-      setExpandedCellRect(null);
-      setExpandedCellValue(null);
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('mousedown', handleMouseDown);
-    containerRef.current?.addEventListener('scroll', handleScroll);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('mousedown', handleMouseDown);
-      containerRef.current?.removeEventListener('scroll', handleScroll);
-    };
-  }, [expandedCell]);
-
-  const formattedJSON = useMemo(() => {
-    if (expandedCellValue === null || expandedCellValue === undefined) return '';
-    return formatJSON(expandedCellValue);
-  }, [expandedCellValue]);
 
   // Filter data by search term
   const filteredData = useMemo(() => {
@@ -186,11 +141,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     virtualItems.length > 0
       ? virtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
       : 0;
-
-  // Reset pinned state when switching view modes
-  useEffect(() => {
-    isPinnedToBottom.current = false;
-  }, [viewMode]);
 
   // Scroll-lock: auto-scroll to bottom when new streaming data arrives if pinned
   useEffect(() => {
@@ -244,14 +194,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       setExpandedCellRect(rect);
       setExpandedCellValue(value);
     }
-  };
-
-  const handleCopyJSON = () => {
-    navigator.clipboard.writeText(formattedJSON).then(() => {
-      addToast({ type: 'success', message: 'JSON copied to clipboard', duration: 2000 });
-    }).catch(() => {
-      addToast({ type: 'error', message: 'Failed to copy JSON', duration: 2000 });
-    });
   };
 
   const copyAsMarkdown = () => {
@@ -410,20 +352,6 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
           </span>
         </div>
         <div className="toolbar-right">
-          <button
-            className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
-            onClick={() => setViewMode('grid')}
-            title="Grid view"
-          >
-            <FiGrid size={14} />
-          </button>
-          <button
-            className={`view-btn ${viewMode === 'list' ? 'active' : ''}`}
-            onClick={() => setViewMode('list')}
-            title="List view"
-          >
-            <FiList size={14} />
-          </button>
           <div className="columns-dropdown-wrapper" ref={columnsDropdownRef}>
             <button
               className={`export-btn${columnsDropdownOpen ? ' active' : ''}`}
@@ -477,188 +405,96 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
       </div>
 
       <div className="results-table-wrapper" ref={containerRef}>
-        {viewMode === 'grid' ? (
-          <table className="results-table">
-            <colgroup>
-              <col style={{ width: '50px' }} />
+        <table className="results-table">
+          <colgroup>
+            <col style={{ width: '50px' }} />
+            {visibleColumnNames.map((colName) => (
+              <col key={colName} />
+            ))}
+          </colgroup>
+          <thead>
+            <tr>
+              <th className="results-index-cell">#</th>
               {visibleColumnNames.map((colName) => (
-                <col key={colName} />
-              ))}
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="results-index-cell">#</th>
-                {visibleColumnNames.map((colName) => (
-                  <th key={colName} onClick={() => handleSort(colName)}>
-                    <div className="th-content">
-                      <span>{colName}</span>
-                      <span className="sort-icons">
-                        {sortConfig?.column === colName ? (
-                          sortConfig.direction === 'asc' ? (
-                            <FiArrowUp size={12} />
-                          ) : (
-                            <FiArrowDown size={12} />
-                          )
+                <th key={colName} onClick={() => handleSort(colName)}>
+                  <div className="th-content">
+                    <span>{colName}</span>
+                    <span className="sort-icons">
+                      {sortConfig?.column === colName ? (
+                        sortConfig.direction === 'asc' ? (
+                          <FiArrowUp size={12} />
                         ) : (
-                          <FiArrowUp size={12} className="sort-icon-inactive" />
-                        )}
-                      </span>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {paddingTop > 0 && (
-                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
-              )}
-              {virtualItems.map((virtualRow) => {
-                const row = sortedData[virtualRow.index];
-                const originalIndex = originalIndexMap.get(row);
-                return (
-                  <tr
-                    key={virtualRow.key}
-                    className={virtualRow.index % 2 !== 0 ? 'results-row-odd' : ''}
-                  >
-                    <td className="results-index-cell">{originalIndex}</td>
-                    {visibleColumnNames.map((colName) => {
-                      const cellKey = `${virtualRow.index}-${colName}`;
-                      return (
-                        <td
-                          key={colName}
-                          className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
-                          onClick={() => handleCellClick(row[colName], cellKey)}
-                        >
-                          {row[colName] === null || row[colName] === undefined ? (
-                            <span className="null-value">null</span>
-                          ) : typeof row[colName] === 'object' ? (
-                            <span className="results-cell-json">
-                              <span className="results-cell-json-preview">{JSON.stringify(row[colName])}</span>
-                              <button
-                                className="json-expand-btn"
-                                onClick={(e) => handleExpandClick(e, cellKey, row[colName], e.currentTarget.closest('td')!)}
-                                title="Expand JSON"
-                              >
-                                {expandedCell === cellKey ? '▲' : '▼'}
-                              </button>
-                            </span>
-                          ) : (
-                            String(row[colName])
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-              {paddingBottom > 0 && (
-                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
-              )}
-            </tbody>
-          </table>
-        ) : (
-          <table className="results-table">
-            <colgroup>
-              <col style={{ width: '50px' }} />
-              {visibleColumnNames.map((colName) => (
-                <col key={colName} />
+                          <FiArrowDown size={12} />
+                        )
+                      ) : (
+                        <FiArrowUp size={12} className="sort-icon-inactive" />
+                      )}
+                    </span>
+                  </div>
+                </th>
               ))}
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="results-index-cell">#</th>
-                {visibleColumnNames.map((colName) => (
-                  <th key={colName} onClick={() => handleSort(colName)}>
-                    <div className="th-content">
-                      <span>{colName}</span>
-                      <span className="sort-icons">
-                        {sortConfig?.column === colName ? (
-                          sortConfig.direction === 'asc' ? (
-                            <FiArrowUp size={12} />
-                          ) : (
-                            <FiArrowDown size={12} />
-                          )
+            </tr>
+          </thead>
+          <tbody>
+            {paddingTop > 0 && (
+              <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
+            )}
+            {virtualItems.map((virtualRow) => {
+              const row = sortedData[virtualRow.index];
+              const originalIndex = originalIndexMap.get(row);
+              return (
+                <tr
+                  key={virtualRow.key}
+                  className={virtualRow.index % 2 !== 0 ? 'results-row-odd' : ''}
+                >
+                  <td className="results-index-cell">{originalIndex}</td>
+                  {visibleColumnNames.map((colName) => {
+                    const cellKey = `${virtualRow.index}-${colName}`;
+                    return (
+                      <td
+                        key={colName}
+                        className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
+                        onClick={() => handleCellClick(row[colName], cellKey)}
+                      >
+                        {row[colName] === null || row[colName] === undefined ? (
+                          <span className="null-value">null</span>
+                        ) : typeof row[colName] === 'object' ? (
+                          <span className="results-cell-json">
+                            <span className="results-cell-json-preview">{JSON.stringify(row[colName])}</span>
+                            <button
+                              className="json-expand-btn"
+                              onClick={(e) => handleExpandClick(e, cellKey, row[colName], e.currentTarget.closest('td')!)}
+                              title="Expand JSON"
+                            >
+                              {expandedCell === cellKey ? '▲' : '▼'}
+                            </button>
+                          </span>
                         ) : (
-                          <FiArrowUp size={12} className="sort-icon-inactive" />
+                          String(row[colName])
                         )}
-                      </span>
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {paddingTop > 0 && (
-                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
-              )}
-              {virtualItems.map((virtualRow) => {
-                const row = sortedData[virtualRow.index];
-                const originalIndex = originalIndexMap.get(row);
-                return (
-                  <tr
-                    key={virtualRow.key}
-                    className={virtualRow.index % 2 !== 0 ? 'results-row-odd' : ''}
-                  >
-                    <td className="results-index-cell">{originalIndex}</td>
-                    {visibleColumnNames.map((colName) => {
-                      const cellKey = `${virtualRow.index}-${colName}`;
-                      return (
-                        <td
-                          key={colName}
-                          className={`results-cell${copiedCell === cellKey ? ' results-cell--copied' : ''}`}
-                          onClick={() => handleCellClick(row[colName], cellKey)}
-                        >
-                          {row[colName] === null || row[colName] === undefined ? (
-                            <span className="null-value">null</span>
-                          ) : typeof row[colName] === 'object' ? (
-                            <span className="results-cell-json">
-                              <span className="results-cell-json-preview">{JSON.stringify(row[colName])}</span>
-                              <button
-                                className="json-expand-btn"
-                                onClick={(e) => handleExpandClick(e, cellKey, row[colName], e.currentTarget.closest('td')!)}
-                                title="Expand JSON"
-                              >
-                                {expandedCell === cellKey ? '▲' : '▼'}
-                              </button>
-                            </span>
-                          ) : (
-                            String(row[colName])
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-              {paddingBottom > 0 && (
-                <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
-              )}
-            </tbody>
-          </table>
-        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+            {paddingBottom > 0 && (
+              <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingBottom, padding: 0, border: 0 }} /></tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {expandedCell && expandedCellRect && createPortal(
-        <div
-          className="json-expander-pane"
-          style={{
-            position: 'fixed',
-            top: expandedCellRect.bottom + 4,
-            left: expandedCellRect.left,
-            minWidth: Math.max(expandedCellRect.width, 300),
-            maxWidth: 600,
-            zIndex: 9999,
+      {expandedCell && expandedCellRect && expandedCellValue !== null && expandedCellValue !== undefined && (
+        <ExpandableJsonPane
+          value={typeof expandedCellValue === 'object' ? JSON.stringify(expandedCellValue) : String(expandedCellValue)}
+          anchorRect={expandedCellRect}
+          onClose={() => {
+            setExpandedCell(null);
+            setExpandedCellRect(null);
+            setExpandedCellValue(null);
           }}
-        >
-          <div className="json-expander-header">
-            <span className="json-expander-title">JSON Viewer</span>
-            <button className="json-expander-copy-btn" onClick={handleCopyJSON}>
-              Copy JSON
-            </button>
-          </div>
-          <pre className="json-viewer">{formattedJSON}</pre>
-        </div>,
-        document.body
+        />
       )}
     </div>
   );

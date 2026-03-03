@@ -18,6 +18,10 @@ export interface SQLStatement {
   isCollapsed?: boolean;
   lastExecutedCode?: string | null;
   label?: string;
+  scanMode?: string;
+  scanTimestampMillis?: string;
+  scanSpecificOffsets?: string;
+  scanGroupId?: string;
 }
 
 export interface Column {
@@ -95,7 +99,8 @@ export interface WorkspaceImportData {
 }
 
 // Navigation Rail Types
-export type NavItem = 'workspace' | 'tree' | 'topics' | 'schemas' | 'history' | 'help' | 'settings';
+// Phase 12.6 F6: Added 'snippets' for SQL snippet library panel
+export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'examples' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams';
 
 // Schema Registry Types
 export type CompatibilityLevel = 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE';
@@ -171,4 +176,159 @@ export interface PartitionOffsets {
 
 export interface TopicConfigAlterRequest {
   data: Array<{ name: string; value: string }>;
+}
+
+// Phase 12.6 — F1: Config Edit Audit Log
+export interface ConfigAuditEntry {
+  topicName: string;
+  configKey: string;
+  oldValue: string;
+  newValue: string;
+  timestamp: string; // ISO 8601
+}
+
+// Phase 12.6 — F6: Query Templates / Saved SQL Snippets
+export interface Snippet {
+  id: string;
+  name: string;
+  sql: string;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+}
+
+// Phase 13.1 — Stream Panel Types
+
+export interface BackgroundStatement {
+  id: string;
+  contextId: string;         // Identifies what this statement is for (e.g., topic name)
+  statementName: string;     // Flink statement name (bg-{timestamp}-{contextId})
+  sql: string;
+  status: StatementStatus;
+  results?: Record<string, unknown>[];
+  columns?: Column[];
+  error?: string;
+  createdAt: Date;
+}
+
+export interface ProduceRecord {
+  key?: { type: 'JSON' | 'AVRO' | 'PROTOBUF' | 'BINARY'; data: unknown; schema_id?: number };
+  value: { type: 'JSON' | 'AVRO' | 'PROTOBUF' | 'BINARY'; data: unknown; schema_id?: number };
+}
+
+export interface ProduceResult {
+  error_code?: number;
+  message?: string;
+  cluster_id: string;
+  topic_name: string;
+  partition_id: number;
+  offset: number;
+  timestamp: string;
+}
+
+export interface SyntheticResult {
+  sent: number;
+  errors: number;
+  lastError?: string;
+}
+
+export interface StreamCardState {
+  topicName: string;
+  isCollapsed: boolean;
+  isProducing: boolean;
+  produceCount: number;
+  error?: string;
+}
+
+// Flink Artifact Types (Confluent Cloud artifact/v1 API)
+export interface FlinkArtifactVersion {
+  version: string;         // e.g. "ver-abc123"
+  release_notes?: string;
+  is_draft?: boolean;
+  created_at?: string;     // ISO 8601
+}
+
+export interface FlinkArtifact {
+  id: string;              // e.g. "cfa-abc123"
+  display_name: string;
+  class: string;           // e.g. "com.example.MyUdf"
+  cloud: string;
+  region: string;
+  environment: string;     // environment ID
+  content_format: string;  // e.g. "JAR"
+  runtime_language: string; // e.g. "JAVA"
+  description?: string;
+  documentation_link?: string;
+  versions: FlinkArtifactVersion[];
+  metadata?: {
+    created_at?: string;
+    updated_at?: string;
+  };
+}
+
+export interface FlinkArtifactListResponse {
+  api_version: string;
+  kind: string;
+  metadata: { total_size: number };
+  data: FlinkArtifact[];
+}
+
+export interface PresignedUploadUrlResponse {
+  api_version: string;
+  kind: string;
+  content_format: string;
+  cloud: string;
+  region: string;
+  upload_url: string;
+  upload_id: string;
+  upload_form_data: Record<string, string>;
+}
+
+// Example card for the Examples panel
+export interface ExampleCard {
+  id: string;
+  title: string;
+  description: string;
+  sql: string;
+  tags: string[];
+  onImport?: (onProgress: (step: string) => void) => Promise<void>;
+}
+
+// Schema test datasets
+export interface SchemaDataset {
+  id: string;              // crypto.randomUUID()
+  name: string;            // User-given name
+  schemaSubject: string;   // Which schema this belongs to
+  records: Record<string, unknown>[];
+  createdAt: string;       // ISO 8601 string (NOT Date — survives JSON roundtrip)
+  updatedAt: string;       // ISO 8601 string
+}
+
+export interface CreateArtifactRequest {
+  display_name: string;
+  class: string;
+  cloud: string;
+  region: string;
+  environment: string;
+  content_format: string;
+  runtime_language?: string;
+  description?: string;
+  documentation_link?: string;
+  upload_source: {
+    location: string;
+    upload_id: string;
+  };
+}
+
+// Compute Pool Dashboard — telemetry per statement
+export interface StatementTelemetry {
+  statementName: string;
+  cfus: number | null;
+  recordsIn: number | null;
+  recordsOut: number | null;
+  pendingRecords: number | null;
+  stateSizeBytes: number | null;
+  // Merged from listStatements()
+  sql?: string;
+  createdAt?: string;
+  isWorkspaceStatement?: boolean;
 }

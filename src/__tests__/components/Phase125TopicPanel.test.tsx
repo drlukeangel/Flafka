@@ -87,6 +87,10 @@ vi.mock('../../store/workspaceStore', () => ({
       deleteTopicsBulk: mockDeleteTopicsBulk,
       lastFocusedTopicName: mockLastFocusedTopicName,
       setLastFocusedTopicName: mockSetLastFocusedTopicName,
+      // Phase 12.6 F1: config audit log
+      configAuditLog: [],
+      addConfigAuditEntry: vi.fn(),
+      getConfigAuditLogForTopic: vi.fn().mockReturnValue([]),
     }
     return typeof selector === 'function' ? selector(state) : state
   },
@@ -137,6 +141,7 @@ vi.mock('../../api/topic-api', () => ({
   alterTopicConfig: vi.fn().mockResolvedValue(undefined),
   getTopicPartitions: vi.fn().mockResolvedValue([]),
   getPartitionOffsets: vi.fn().mockResolvedValue({ beginning_offset: '0', end_offset: '0' }),
+  produceRecord: vi.fn(),
 }))
 
 // Import components AFTER mocks are registered

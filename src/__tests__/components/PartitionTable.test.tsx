@@ -10,6 +10,7 @@ import type { KafkaPartition, PartitionOffsets } from '../../types'
 vi.mock('../../api/topic-api', () => ({
   getTopicPartitions: vi.fn(),
   getPartitionOffsets: vi.fn(),
+  produceRecord: vi.fn(),
 }))
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { kafkaRestClient } from './kafka-rest-client';
 import { env } from '../config/environment';
-import type { KafkaTopic, TopicConfig, KafkaPartition, PartitionOffsets } from '../types';
+import type { KafkaTopic, TopicConfig, KafkaPartition, PartitionOffsets, ProduceRecord, ProduceResult } from '../types';
 
 // Convenience helper — avoids repeating cluster path in every call
 const clusterPath = () => `/kafka/v3/clusters/${env.kafkaClusterId}`;
@@ -76,6 +76,23 @@ export async function getTopicPartitions(topicName: string): Promise<KafkaPartit
 export async function getPartitionOffsets(topicName: string, partitionId: number): Promise<PartitionOffsets> {
   const response = await kafkaRestClient.get<PartitionOffsets>(
     `${clusterPath()}/topics/${encodeURIComponent(topicName)}/partitions/${partitionId}/offsets`
+  );
+  return response.data;
+}
+
+/**
+ * Produce a record to a Kafka topic via REST Proxy.
+ * POST /kafka/v3/clusters/{cluster_id}/topics/{topic_name}/records
+ */
+export async function produceRecord(
+  topicName: string,
+  record: ProduceRecord,
+  signal?: AbortSignal
+): Promise<ProduceResult> {
+  const response = await kafkaRestClient.post<ProduceResult>(
+    `${clusterPath()}/topics/${encodeURIComponent(topicName)}/records`,
+    record,
+    { signal }
   );
   return response.data;
 }

@@ -58,7 +58,7 @@ describe('[@api] [@core] flink-api', () => {
       const [_url, payload] = call as [string, unknown]
 
       expect(payload).toMatchObject({
-        name: expect.stringMatching(/^stmt-/),
+        name: expect.stringMatching(/^[a-z]+-[a-z]+-\d{3}$/),
         spec: {
           statement: 'SELECT * FROM table',
           compute_pool_id: expect.any(String),
@@ -157,11 +157,10 @@ describe('[@api] [@core] flink-api', () => {
   })
 
   describe('[@api] statement name generation', () => {
-    it('should generate names with stmt- prefix and a random component', async () => {
+    it('should generate word-word-number names with shared session number', async () => {
       const names: string[] = []
 
       for (let i = 0; i < 5; i++) {
-        const generatedName = `captured-${i}`
         vi.mocked(confluentClient.post).mockImplementationOnce((_url, payload: unknown) => {
           const body = payload as { name: string }
           names.push(body.name)
@@ -172,14 +171,19 @@ describe('[@api] [@core] flink-api', () => {
 
       expect(names).toHaveLength(5)
       for (const name of names) {
-        expect(name).toMatch(/^stmt-/)
-        // name format: stmt-<base36-timestamp>-<random>
-        expect(name.split('-')).toHaveLength(3)
+        // name format: <adjective>-<noun>-<sessionNumber>
+        const parts = name.split('-')
+        expect(parts).toHaveLength(3)
+        expect(parts[0].length).toBeGreaterThan(1) // adjective
+        expect(parts[1].length).toBeGreaterThan(1) // noun
+        const num = Number(parts[2])
+        expect(num).toBeGreaterThanOrEqual(100)
+        expect(num).toBeLessThanOrEqual(999)
       }
 
-      // All generated names must be unique
-      const uniqueNames = new Set(names)
-      expect(uniqueNames.size).toBe(5)
+      // All names share the same session number (3rd part)
+      const numbers = names.map((n) => n.split('-')[2])
+      expect(new Set(numbers).size).toBe(1)
     })
   })
 
@@ -278,48 +282,47 @@ describe('[@api] [@core] flink-api', () => {
   })
 
   describe('[@api] cancelStatement', () => {
-    it('should POST to /statements/{id}/cancel with stop_after_terminating_queries payload', async () => {
-      vi.mocked(confluentClient.post).mockResolvedValueOnce({ data: {} })
+    it('should DELETE /statements/{name} to cancel a statement', async () => {
+      vi.mocked(confluentClient.delete).mockResolvedValueOnce({ data: {} })
 
       await cancelStatement('stmt-to-cancel')
 
-      expect(vi.mocked(confluentClient.post)).toHaveBeenCalledTimes(1)
-      const [calledUrl, payload] = vi.mocked(confluentClient.post).mock.calls[0] as [string, unknown]
-      expect(calledUrl).toContain('stmt-to-cancel/cancel')
-      expect(payload).toEqual({ stop_after_terminating_queries: true })
+      expect(vi.mocked(confluentClient.delete)).toHaveBeenCalledTimes(1)
+      const [calledUrl] = vi.mocked(confluentClient.delete).mock.calls[0] as [string]
+      expect(calledUrl).toContain('stmt-to-cancel')
+      expect(calledUrl).not.toContain('/cancel')
     })
 
-    it('should use custom stopAfterTerminatingQueries option when provided', async () => {
-      vi.mocked(confluentClient.post).mockResolvedValueOnce({ data: {} })
+    it('accepts legacy options param without error', async () => {
+      vi.mocked(confluentClient.delete).mockResolvedValueOnce({ data: {} })
 
       await cancelStatement('stmt-to-cancel', { stopAfterTerminatingQueries: false })
 
-      const [_url, payload] = vi.mocked(confluentClient.post).mock.calls[0] as [string, unknown]
-      expect(payload).toEqual({ stop_after_terminating_queries: false })
+      expect(vi.mocked(confluentClient.delete)).toHaveBeenCalledTimes(1)
     })
 
     it('resolves without error on successful cancellation', async () => {
-      vi.mocked(confluentClient.post).mockResolvedValueOnce({ data: {} })
+      vi.mocked(confluentClient.delete).mockResolvedValueOnce({ data: {} })
 
       await expect(cancelStatement('stmt-to-cancel')).resolves.toBeUndefined()
     })
 
     it('should throw on 409 Conflict (already cancelled)', async () => {
       const error = new Error('409 Conflict')
-      vi.mocked(confluentClient.post).mockRejectedValueOnce(error)
+      vi.mocked(confluentClient.delete).mockRejectedValueOnce(error)
 
       await expect(cancelStatement('stmt-to-cancel')).rejects.toThrow('409 Conflict')
     })
 
     it('should throw on 500 Server Error', async () => {
       const error = new Error('500 Internal Server Error')
-      vi.mocked(confluentClient.post).mockRejectedValueOnce(error)
+      vi.mocked(confluentClient.delete).mockRejectedValueOnce(error)
 
       await expect(cancelStatement('stmt-to-cancel')).rejects.toThrow('500 Internal Server Error')
     })
 
     it('throws when the API returns an error', async () => {
-      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('403 Forbidden'))
+      vi.mocked(confluentClient.delete).mockRejectedValueOnce(new Error('403 Forbidden'))
 
       await expect(cancelStatement('stmt-to-cancel')).rejects.toThrow()
     })
@@ -382,6 +385,9 @@ describe('[@api] [@core] flink-api', () => {
             phase: 'PROVISIONING',
             current_cfu: 5,
           },
+          spec: {
+            max_cfu: 10,
+          },
         },
       })
 
@@ -394,6 +400,7 @@ describe('[@api] [@core] flink-api', () => {
       expect(result).toEqual({
         phase: 'PROVISIONING',
         currentCfu: 5,
+        maxCfu: 10,
       })
     })
 
@@ -409,6 +416,7 @@ describe('[@api] [@core] flink-api', () => {
       expect(result).toEqual({
         phase: 'UNKNOWN',
         currentCfu: 0,
+        maxCfu: 0,
       })
     })
 

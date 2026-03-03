@@ -1,5 +1,10 @@
-import React, { useState, useEffect } from 'react';
+/**
+ * Phase 12.6 F2: Added Type and Compat filter dropdowns (AND logic with name search)
+ * Phase 12.6 F3: Added loading skeleton on initial mount (not on subsequent re-fetches)
+ */
+import React, { useState, useEffect, useRef } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import type { CompatibilityLevel } from '../../types';
 import {
   FiSearch,
   FiX,
@@ -25,6 +30,69 @@ function getSchemaTypeBadgeStyle(schemaType: string): { background: string; colo
   }
 }
 
+// Phase 12.6 F2: Filter dropdown options
+const TYPE_OPTIONS = ['All Types', 'AVRO', 'PROTOBUF', 'JSON'] as const;
+const COMPAT_OPTIONS: Array<'All Compat Modes' | CompatibilityLevel> = [
+  'All Compat Modes',
+  'BACKWARD',
+  'BACKWARD_TRANSITIVE',
+  'FORWARD',
+  'FORWARD_TRANSITIVE',
+  'FULL',
+  'FULL_TRANSITIVE',
+  'NONE',
+];
+
+// Phase 12.6 F3: Skeleton shimmer rows for initial load
+function SkeletonRows({ count }: { count: number }) {
+  return (
+    <div aria-busy="true">
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          aria-hidden="true"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--color-border)',
+          }}
+        >
+          <div
+            className="shimmer"
+            style={{
+              width: 14,
+              height: 14,
+              borderRadius: 3,
+              background: 'var(--color-bg-skeleton, var(--color-border))',
+            }}
+          />
+          <div
+            className="shimmer"
+            style={{
+              flex: 1,
+              height: 12,
+              borderRadius: 3,
+              background: 'var(--color-bg-skeleton, var(--color-border))',
+              maxWidth: `${60 + (i * 17) % 40}%`,
+            }}
+          />
+          <div
+            className="shimmer"
+            style={{
+              width: 36,
+              height: 16,
+              borderRadius: 3,
+              background: 'var(--color-bg-skeleton, var(--color-border))',
+            }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const SchemaList: React.FC = () => {
   const subjects = useWorkspaceStore((s) => s.schemaRegistrySubjects);
   const loading = useWorkspaceStore((s) => s.schemaRegistryLoading);
@@ -33,11 +101,21 @@ const SchemaList: React.FC = () => {
   const loadSchemaDetail = useWorkspaceStore((s) => s.loadSchemaDetail);
   // ORIG-8: Lazy cache of subject → schemaType (populated when subject is first clicked)
   const schemaTypeCache = useWorkspaceStore((s) => s.schemaTypeCache);
+  // Phase 12.6 F2: Lazy cache of subject → compatibilityLevel
+  const schemaCompatCache = useWorkspaceStore((s) => s.schemaCompatCache);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [focusedIndex, setFocusedIndex] = useState<number>(-1);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Phase 12.6 F2: Type and Compat filter state (resets on panel mount — AC-2.10)
+  const [typeFilter, setTypeFilter] = useState<string>('All Types');
+  const [compatFilter, setCompatFilter] = useState<string>('All Compat Modes');
+
+  // Phase 12.6 F3: Track whether initial load has happened (skeleton vs spinner)
+  const hasLoadedOnceRef = useRef(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   // Debounce the search input by 300ms
   useEffect(() => {
@@ -48,11 +126,36 @@ const SchemaList: React.FC = () => {
   // Reset focused index whenever filtered list changes
   useEffect(() => {
     setFocusedIndex(-1);
-  }, [debouncedQuery]);
+  }, [debouncedQuery, typeFilter, compatFilter]);
 
-  const filteredSubjects = subjects.filter((s) =>
-    s.toLowerCase().includes(debouncedQuery.toLowerCase())
-  );
+  // Phase 12.6 F3: Mark initial load complete once loading transitions from true to false
+  useEffect(() => {
+    if (!loading && !hasLoadedOnceRef.current) {
+      hasLoadedOnceRef.current = true;
+      setHasLoadedOnce(true);
+    }
+  }, [loading]);
+
+  // Phase 12.6 F2: AND filtering: name search + type filter + compat filter
+  const filteredSubjects = subjects.filter((s) => {
+    // Name search filter
+    if (debouncedQuery && !s.toLowerCase().includes(debouncedQuery.toLowerCase())) {
+      return false;
+    }
+    // Type filter — exclude subjects with unloaded type if a specific type is selected
+    if (typeFilter !== 'All Types') {
+      const cachedType = schemaTypeCache[s];
+      if (!cachedType) return false; // Not yet loaded — exclude from specific type filter
+      if (cachedType !== typeFilter) return false;
+    }
+    // Compat filter — exclude subjects with unloaded compat if a specific mode is selected
+    if (compatFilter !== 'All Compat Modes') {
+      const cachedCompat = schemaCompatCache[s];
+      if (!cachedCompat) return false; // Not yet loaded — exclude from specific compat filter
+      if (cachedCompat !== compatFilter) return false;
+    }
+    return true;
+  });
 
   const handleItemClick = (subject: string) => {
     loadSchemaDetail(subject);
@@ -78,32 +181,69 @@ const SchemaList: React.FC = () => {
     }
   };
 
-  if (loading) {
+  // Phase 12.6 F3: Show skeleton only on initial mount while loading
+  // Subsequent refreshes keep the existing list visible (no skeleton flash)
+  if (loading && !hasLoadedOnce) {
     return (
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
           flex: 1,
-          gap: 10,
-          padding: 24,
-          color: 'var(--color-text-secondary)',
-          fontSize: 13,
+          overflow: 'hidden',
         }}
-        aria-live="polite"
-        aria-label="Loading schemas"
       >
-        <FiLoader
-          size={20}
-          className="history-spin"
-          aria-hidden="true"
-        />
-        <span>Loading schemas...</span>
+        {/* Keep filter toolbar visible during initial load */}
+        <div
+          style={{
+            padding: '8px 12px',
+            borderBottom: '1px solid var(--color-border)',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: 'var(--color-surface-secondary)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 4,
+              padding: '0 8px',
+              height: 32,
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            <FiSearch size={13} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} aria-hidden="true" />
+            <input
+              type="text"
+              placeholder="Filter subjects..."
+              disabled
+              aria-label="Filter schema subjects"
+              style={{
+                flex: 1,
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                fontSize: 13,
+                color: 'var(--color-text-primary)',
+                minWidth: 0,
+              }}
+            />
+          </div>
+        </div>
+        {/* F3: Skeleton shimmer rows — initial load only */}
+        <SkeletonRows count={5} />
       </div>
     );
   }
+
+  // Active filter check — used to show "clear all" indicator
+  const hasActiveFilters = typeFilter !== 'All Types' || compatFilter !== 'All Compat Modes' || debouncedQuery;
 
   return (
     <>
@@ -221,7 +361,100 @@ const SchemaList: React.FC = () => {
           </button>
         </div>
 
-        {/* Inline error banner — shown below search row, never replaces it */}
+        {/* Phase 12.6 F2: Type and Compat filter dropdowns */}
+        <div
+          style={{
+            padding: '6px 12px',
+            borderBottom: '1px solid var(--color-border)',
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <label
+              htmlFor="schema-type-filter"
+              style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}
+            >
+              Type:
+            </label>
+            <select
+              id="schema-type-filter"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              aria-label="Filter by schema type"
+              style={{
+                fontSize: 11,
+                padding: '2px 4px',
+                border: `1px solid ${typeFilter !== 'All Types' ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                borderRadius: 3,
+                background: 'var(--color-surface)',
+                color: typeFilter !== 'All Types' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                cursor: 'pointer',
+              }}
+            >
+              {TYPE_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <label
+              htmlFor="schema-compat-filter"
+              style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}
+            >
+              Compat:
+            </label>
+            <select
+              id="schema-compat-filter"
+              value={compatFilter}
+              onChange={(e) => setCompatFilter(e.target.value)}
+              aria-label="Filter by compatibility mode"
+              style={{
+                fontSize: 11,
+                padding: '2px 4px',
+                border: `1px solid ${compatFilter !== 'All Compat Modes' ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                borderRadius: 3,
+                background: 'var(--color-surface)',
+                color: compatFilter !== 'All Compat Modes' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                cursor: 'pointer',
+              }}
+            >
+              {COMPAT_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Clear all filters shortcut */}
+          {hasActiveFilters && (typeFilter !== 'All Types' || compatFilter !== 'All Compat Modes') && (
+            <button
+              onClick={() => { setTypeFilter('All Types'); setCompatFilter('All Compat Modes'); }}
+              style={{
+                fontSize: 10,
+                padding: '2px 6px',
+                border: '1px solid var(--color-border)',
+                borderRadius: 3,
+                background: 'transparent',
+                color: 'var(--color-text-tertiary)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title="Clear type and compat filters"
+            >
+              Clear
+            </button>
+          )}
+
+          {/* F3: Show loading spinner on re-fetch (not initial load) */}
+          {loading && hasLoadedOnce && (
+            <FiLoader size={12} className="history-spin" aria-hidden="true" style={{ color: 'var(--color-text-tertiary)', flexShrink: 0, marginLeft: 'auto' }} />
+          )}
+        </div>
+
+        {/* Inline error banner — shown below filter row, never replaces it */}
         {error && (
           <div
             role="alert"
@@ -262,13 +495,13 @@ const SchemaList: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            {debouncedQuery
+            {(debouncedQuery || typeFilter !== 'All Types' || compatFilter !== 'All Compat Modes')
               ? `${filteredSubjects.length} of ${subjects.length} subjects`
               : `${subjects.length} subject${subjects.length !== 1 ? 's' : ''}`}
           </div>
         )}
 
-        {/* Subject list */}
+        {/* Phase 12.6 F2: Subject list with aria-live for empty state announcements (U-4) */}
         <div
           style={{
             flex: 1,
@@ -276,6 +509,7 @@ const SchemaList: React.FC = () => {
           }}
           role="list"
           aria-label="Schema Registry subjects"
+          aria-live="polite"
         >
           {filteredSubjects.length > 0 ? (
             filteredSubjects.map((subject, index) => (
@@ -407,7 +641,7 @@ const SchemaList: React.FC = () => {
               </button>
             </div>
           ) : (
-            /* No filter results */
+            /* Phase 12.6 F2: No filter results — updated empty state message (AC-2.6) */
             <div
               style={{
                 display: 'flex',
@@ -422,7 +656,9 @@ const SchemaList: React.FC = () => {
             >
               <FiSearch size={22} aria-hidden="true" />
               <div style={{ fontSize: 13 }}>
-                No results for &ldquo;{debouncedQuery}&rdquo;
+                {(typeFilter !== 'All Types' || compatFilter !== 'All Compat Modes')
+                  ? 'No subjects match the current filters.'
+                  : <>No results for &ldquo;{debouncedQuery}&rdquo;</>}
               </div>
             </div>
           )}

@@ -13,6 +13,7 @@ export interface StatementResponse {
   name: string;
   metadata?: {
     resource_version?: string;
+    created_at?: string;
   };
   spec?: {
     statement?: string;
@@ -47,10 +48,8 @@ export interface ResultsResponse {
   };
 }
 
-// Generate unique statement name
-const generateStatementName = (): string => {
-  return `stmt-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 8)}`;
-};
+// Generate a memorable statement name like "wobbling-penguin-a3f"
+import { generateStatementName } from '../utils/names';
 
 // Valid Flink SQL session properties (filter out invalid ones before sending to API)
 const VALID_SESSION_PROPERTIES = new Set([
@@ -94,10 +93,10 @@ export const executeSQL = async (sql: string, name?: string, sessionProperties?:
       statement: sql,
       compute_pool_id: env.computePoolId,
       properties: {
-        ...filterSessionProperties(sessionProperties),
-        // Reserved keys always enforced - cannot be overridden by user
+        // Env vars as defaults, session properties can override catalog/database
         'sql.current-catalog': env.flinkCatalog,
         'sql.current-database': env.flinkDatabase,
+        ...filterSessionProperties(sessionProperties),
       },
     },
   };
@@ -159,22 +158,18 @@ export const getStatementResults = async (
 };
 
 /**
- * Cancel a statement using POST to /cancel endpoint.
- * Per Confluent Flink SQL API: POST /statements/{name}/cancel with payload { stop_after_terminating_queries: boolean }
+ * Cancel/stop a statement using DELETE endpoint.
+ * Per Confluent Flink SQL API: DELETE /statements/{name} → 202 Accepted
  * @param statementName - The name of the statement to cancel
- * @param options - Optional configuration for cancellation
- * @param options.stopAfterTerminatingQueries - If true, stop the job after terminating all queries (default: true)
- * @throws ApiError if the cancel request fails (e.g., 409 Conflict if already cancelled)
+ * @param _options - Deprecated, kept for backward compatibility (DELETE has no body)
+ * @throws ApiError if the delete request fails (e.g., 409 Conflict if already in terminal state)
  */
 export const cancelStatement = async (
   statementName: string,
-  options?: { stopAfterTerminatingQueries?: boolean }
+  _options?: { stopAfterTerminatingQueries?: boolean }
 ): Promise<void> => {
   try {
-    const payload = {
-      stop_after_terminating_queries: options?.stopAfterTerminatingQueries ?? true,
-    };
-    await confluentClient.post(`${buildStatementsUrl()}/${statementName}/cancel`, payload);
+    await confluentClient.delete(`${buildStatementsUrl()}/${statementName}`);
   } catch (error) {
     throw handleApiError(error);
   }
@@ -184,6 +179,7 @@ export const cancelStatement = async (
 export interface ComputePoolStatus {
   phase: string;
   currentCfu: number;
+  maxCfu: number;
 }
 
 /**
@@ -200,6 +196,7 @@ export const getComputePoolStatus = async (): Promise<ComputePoolStatus> => {
     return {
       phase: data?.status?.phase ?? 'UNKNOWN',
       currentCfu: data?.status?.current_cfu ?? 0,
+      maxCfu: data?.spec?.max_cfu ?? 0,
     };
   } catch (error) {
     throw handleApiError(error);
@@ -207,13 +204,40 @@ export const getComputePoolStatus = async (): Promise<ComputePoolStatus> => {
 };
 
 /**
- * List all statements
+ * List all statements (follows pagination to collect all pages).
+ * Pass onPage callback to receive results progressively as each page loads.
  */
-export const listStatements = async (pageSize?: number): Promise<StatementResponse[]> => {
+export const listStatements = async (
+  pageSize?: number,
+  onPage?: (accumulated: StatementResponse[]) => void
+): Promise<StatementResponse[]> => {
   try {
-    const url = pageSize ? `${buildStatementsUrl()}?page_size=${pageSize}` : buildStatementsUrl();
-    const response = await confluentClient.get(url);
-    return response.data.data || [];
+    const size = pageSize ?? 100;
+    let url: string = `${buildStatementsUrl()}?page_size=${size}`;
+    const allStatements: StatementResponse[] = [];
+
+    while (url) {
+      const response = await confluentClient.get(url);
+      const page = response.data.data || [];
+      allStatements.push(...page);
+
+      // Notify caller with accumulated results so far
+      if (onPage && page.length > 0) {
+        onPage([...allStatements]);
+      }
+
+      // Follow next page if available
+      const nextUrl = response.data.metadata?.next;
+      if (nextUrl && page.length > 0) {
+        // next is a full URL — extract the path+query for the proxy
+        const parsed = new URL(nextUrl);
+        url = parsed.pathname + parsed.search;
+      } else {
+        url = '';
+      }
+    }
+
+    return allStatements;
   } catch (error) {
     throw handleApiError(error);
   }

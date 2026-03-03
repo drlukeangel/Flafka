@@ -9,6 +9,7 @@ import {
   setCompatibilityMode,
   deleteSubject,
   deleteSchemaVersion,
+  getSubjectsForSchemaId,
 } from '../../api/schema-registry-api'
 import { schemaRegistryClient } from '../../api/schema-registry-client'
 
@@ -108,7 +109,8 @@ describe('[@schema-registry-api] schema-registry-api', () => {
       const result = await getSchemaDetail('test-subject')
 
       expect(schemaRegistryClient.get).toHaveBeenCalledWith(
-        `/subjects/${encodeURIComponent('test-subject')}/versions/latest`
+        `/subjects/${encodeURIComponent('test-subject')}/versions/latest`,
+        undefined
       )
       expect(result.subject).toBe('test-subject')
       expect(result.schemaType).toBe('AVRO')
@@ -150,7 +152,8 @@ describe('[@schema-registry-api] schema-registry-api', () => {
       const result = await getSchemaDetail('test-subject', 3)
 
       expect(schemaRegistryClient.get).toHaveBeenCalledWith(
-        `/subjects/${encodeURIComponent('test-subject')}/versions/3`
+        `/subjects/${encodeURIComponent('test-subject')}/versions/3`,
+        undefined
       )
       expect(result.version).toBe(3)
     })
@@ -596,6 +599,73 @@ describe('[@schema-registry-api] schema-registry-api', () => {
       vi.mocked(schemaRegistryClient.delete).mockRejectedValueOnce(error)
 
       await expect(deleteSchemaVersion('test-subject', 3)).rejects.toThrow('500 Internal Server Error')
+    })
+  })
+
+  // ==========================================================================
+  // getSubjectsForSchemaId
+  // ==========================================================================
+
+  describe('[@schema-registry-api] getSubjectsForSchemaId', () => {
+    it('calls GET /schemas/ids/{id}/subjects and returns subject names', async () => {
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({
+        data: ['orders-value', 'orders-key', 'payments-value'],
+      })
+
+      const result = await getSubjectsForSchemaId(100005)
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        '/schemas/ids/100005/subjects',
+        undefined
+      )
+      expect(result).toEqual(['orders-value', 'orders-key', 'payments-value'])
+    })
+
+    it('returns an empty array when no subjects reference this schema', async () => {
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({ data: [] })
+
+      const result = await getSubjectsForSchemaId(99999)
+
+      expect(result).toEqual([])
+    })
+
+    it('passes abort signal when provided', async () => {
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({
+        data: ['test-value'],
+      })
+      const controller = new AbortController()
+
+      await getSubjectsForSchemaId(42, { signal: controller.signal })
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        '/schemas/ids/42/subjects',
+        { signal: controller.signal }
+      )
+    })
+
+    it('does not pass signal config when no options provided', async () => {
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({ data: [] })
+
+      await getSubjectsForSchemaId(1)
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        '/schemas/ids/1/subjects',
+        undefined
+      )
+    })
+
+    it('throws on 404 when schema id does not exist', async () => {
+      const error = new Error('404 Not Found')
+      vi.mocked(schemaRegistryClient.get).mockRejectedValueOnce(error)
+
+      await expect(getSubjectsForSchemaId(0)).rejects.toThrow('404 Not Found')
+    })
+
+    it('throws on 500 Server Error', async () => {
+      const error = new Error('500 Internal Server Error')
+      vi.mocked(schemaRegistryClient.get).mockRejectedValueOnce(error)
+
+      await expect(getSubjectsForSchemaId(42)).rejects.toThrow('500 Internal Server Error')
     })
   })
 

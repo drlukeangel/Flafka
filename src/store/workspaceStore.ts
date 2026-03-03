@@ -2,11 +2,14 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
+import * as telemetryApi from '../api/telemetry-api';
 import { env } from '../config/environment';
-import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem } from '../types';
+import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry } from '../types';
+import * as artifactApi from '../api/artifact-api';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 import * as schemaRegistryApi from '../api/schema-registry-api';
 import * as topicApi from '../api/topic-api';
+import { generateFunName } from '../utils/names';
 import type { SchemaSubject, KafkaTopic } from '../types';
 
 export interface WorkspaceState {
@@ -45,6 +48,15 @@ export interface WorkspaceState {
   computePoolPhase: string | null;
   computePoolCfu: number | null;
 
+  // Compute Pool Dashboard (runtime only, not persisted)
+  computePoolMaxCfu: number | null;
+  computePoolDashboardOpen: boolean;
+  statementTelemetry: StatementTelemetry[];
+  telemetryLoading: boolean;
+  telemetryError: string | null;
+  telemetryLastUpdated: Date | null;
+  dashboardHeight: number;
+
   // Statement History (runtime only, not persisted)
   statementHistory: StatementResponse[];
   historyLoading: boolean;
@@ -69,6 +81,8 @@ export interface WorkspaceState {
   schemaRegistryError: string | null;
   // ORIG-8: Lazy cache of subject name → schemaType (populated on first click)
   schemaTypeCache: Record<string, string>;
+  // Phase 12.6 F2: Lazy cache of subject name → compatibilityLevel (populated on first click)
+  schemaCompatCache: Record<string, string>;
 
   // Topics (runtime only, NOT persisted)
   topicList: KafkaTopic[];
@@ -93,7 +107,7 @@ export interface WorkspaceState {
   loadTreeNodeChildren: (nodeId: string) => Promise<void>;
   loadTableSchema: (catalog: string, database: string, tableName: string) => Promise<void>;
 
-  addStatement: (code?: string, afterId?: string) => void;
+  addStatement: (code?: string, afterId?: string, label?: string, overrides?: Partial<Pick<SQLStatement, 'status' | 'statementName' | 'startedAt'>>) => string;
   updateStatement: (id: string, code: string) => void;
   deleteStatement: (id: string) => void;
   duplicateStatement: (id: string) => void;
@@ -101,6 +115,8 @@ export interface WorkspaceState {
   reorderStatements: (fromIndex: number, toIndex: number) => void;
 
   executeStatement: (id: string) => Promise<void>;
+  resumeStatementPolling: (id: string) => Promise<void>;
+  refreshStatementStatus: (id: string) => Promise<void>;
   cancelStatement: (id: string) => Promise<void>;
   runAllStatements: () => Promise<void>;
 
@@ -111,12 +127,17 @@ export interface WorkspaceState {
   toggleNavExpanded: () => void;
   toggleTheme: () => void;
   loadComputePoolStatus: () => Promise<void>;
+  toggleComputePoolDashboard: () => void;
+  loadStatementTelemetry: () => Promise<void>;
+  stopDashboardStatement: (statementName: string) => Promise<void>;
+  setDashboardHeight: (height: number) => void;
   loadStatementHistory: () => Promise<void>;
   clearHistoryError: () => void;
   setWorkspaceName: (name: string) => void;
   dismissOnboardingHint: () => void;
   importWorkspace: (fileData: unknown) => void;
   updateStatementLabel: (id: string, label: string) => void;
+  setStatementScanMode: (id: string, mode: string | null, params?: { timestampMillis?: string; specificOffsets?: string; groupId?: string }) => void;
   setSessionProperty: (key: string, value: string) => void;
   removeSessionProperty: (key: string) => void;
   resetSessionProperties: () => void;
@@ -140,6 +161,7 @@ export interface WorkspaceState {
   }) => Promise<void>;
   setTopicError: (error: string | null) => void;
   navigateToSchemaSubject: (subjectName: string) => void;
+  navigateToTopic: (topicName: string) => Promise<void>;
   // ENH-5: bulk delete actions
   enterBulkMode: () => void;
   exitBulkMode: () => void;
@@ -149,6 +171,77 @@ export interface WorkspaceState {
   deleteTopicsBulk: (topicNames: string[]) => Promise<{ deleted: string[]; failed: string[] }>;
   // LOW-2: set last focused topic name for focus restore
   setLastFocusedTopicName: (name: string | null) => void;
+
+  // Phase 12.6 — F1: Config Edit Audit Log (session only, not persisted)
+  configAuditLog: ConfigAuditEntry[];
+  addConfigAuditEntry: (entry: Omit<ConfigAuditEntry, 'timestamp'>) => void;
+  getConfigAuditLogForTopic: (topicName: string) => ConfigAuditEntry[];
+
+  // Phase 12.6 — F6: Query Templates / Saved SQL Snippets (persisted to localStorage)
+  snippets: Snippet[];
+  addSnippet: (name: string, sql: string) => { success: boolean; error?: string };
+  deleteSnippet: (id: string) => void;
+  renameSnippet: (id: string, newName: string) => void;
+
+  // Jobs Page (runtime only, NOT persisted)
+  jobStatements: StatementResponse[];
+  jobsLoading: boolean;
+  jobsError: string | null;
+  selectedJobName: string | null;
+
+  // Jobs actions
+  loadJobs: () => Promise<void>;
+  cancelJob: (statementName: string) => Promise<void>;
+  deleteJob: (statementName: string) => Promise<void>;
+  navigateToJobDetail: (statementName: string) => void;
+
+  // Artifacts (runtime only, NOT persisted)
+  artifactList: FlinkArtifact[];
+  selectedArtifact: FlinkArtifact | null;
+  artifactLoading: boolean;
+  artifactUploading: boolean;
+  uploadProgress: number | null;
+  artifactError: string | null;
+
+  // Artifact actions
+  loadArtifacts: () => Promise<void>;
+  selectArtifact: (artifact: FlinkArtifact) => void;
+  clearSelectedArtifact: () => void;
+  deleteArtifact: (id: string) => Promise<void>;
+  setArtifactError: (error: string | null) => void;
+  setArtifactUploading: (uploading: boolean) => void;
+  setUploadProgress: (progress: number | null) => void;
+
+  // Phase 13.1 — Stream Panel (runtime only, NOT persisted)
+  streamsPanelOpen: boolean;
+  streamCards: Array<{ id: string; topicName: string }>;
+  backgroundStatements: BackgroundStatement[];
+
+  // Schema test datasets (persisted)
+  schemaDatasets: SchemaDataset[];
+
+  // Cross-panel navigation (runtime only, NOT persisted)
+  schemaInitialView: 'code' | 'tree' | 'datasets' | null;
+
+  // Stream Panel actions
+  toggleStreamsPanel: () => void;
+  setStreamsPanelOpen: (open: boolean) => void;
+  addStreamCard: (topicName: string) => void;
+  removeStreamCard: (cardId: string) => void;
+  removeStreamCardsByTopic: (topicName: string) => void;
+
+  // Schema dataset actions
+  addSchemaDataset: (dataset: SchemaDataset) => void;
+  updateSchemaDataset: (id: string, updates: { name?: string; records?: Record<string, unknown>[] }) => void;
+  deleteSchemaDataset: (id: string) => void;
+
+  // Cross-panel navigation
+  navigateToSchemaDatasets: (subject: string) => void;
+  clearSchemaInitialView: () => void;
+
+  executeBackgroundStatement: (contextId: string, sql: string, scanMode?: string) => Promise<void>;
+  cancelBackgroundStatement: (contextId: string) => Promise<void>;
+  clearBackgroundStatements: () => Promise<void>;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -176,12 +269,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           code: `SELECT * FROM \`${env.flinkCatalog}\`.\`${env.flinkDatabase}\`.\`EOT-PLATFORM-EXAMPLES-LOANS-v1\`;`,
           status: 'IDLE',
           createdAt: new Date(),
+          label: generateFunName(),
         },
       ],
 
       toasts: [],
       sidebarCollapsed: false,
-      workspaceName: 'SQL Workspace',
+      workspaceName: 'F.o.B',
       activeNavItem: 'workspace' as NavItem,
       navExpanded: false,
       theme: 'light',
@@ -190,6 +284,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       computePoolPhase: null,
       computePoolCfu: null,
+
+      computePoolMaxCfu: null,
+      computePoolDashboardOpen: false,
+      statementTelemetry: [],
+      telemetryLoading: false,
+      telemetryError: null,
+      telemetryLastUpdated: null,
+      dashboardHeight: 280,
 
       statementHistory: [],
       historyLoading: false,
@@ -208,6 +310,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       schemaRegistryLoading: false,
       schemaRegistryError: null,
       schemaTypeCache: {},
+      schemaCompatCache: {},
 
       topicList: [],
       selectedTopic: null,
@@ -216,6 +319,36 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       lastFocusedTopicName: null,
       isBulkMode: false,
       bulkSelectedTopics: [],
+      // Phase 12.6 — F1: Config Audit Log (session-scoped, not persisted)
+      configAuditLog: [],
+
+      // Phase 12.6 — F6: Snippets (persisted via partialize)
+      snippets: [],
+
+      // Jobs Page (runtime only, NOT persisted)
+      jobStatements: [],
+      jobsLoading: false,
+      jobsError: null,
+      selectedJobName: null,
+
+      // Artifacts (runtime only, NOT persisted)
+      artifactList: [],
+      selectedArtifact: null,
+      artifactLoading: false,
+      artifactUploading: false,
+      uploadProgress: null,
+      artifactError: null,
+
+      // Phase 13.1 — Stream Panel (runtime only, NOT persisted)
+      streamsPanelOpen: false,
+      streamCards: [],
+      backgroundStatements: [],
+
+      // Schema test datasets (persisted)
+      schemaDatasets: [],
+
+      // Cross-panel navigation (runtime only, NOT persisted)
+      schemaInitialView: null,
 
       // Catalog & Database Actions
       setCatalog: (catalog) => {
@@ -383,13 +516,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       // Statement Actions
-      addStatement: (code, afterId) => {
+      addStatement: (code, afterId, label, overrides) => {
         const { catalog, database } = get();
+        const newId = generateId();
         const newStatement: SQLStatement = {
-          id: generateId(),
+          id: newId,
           code: code || `-- Write your Flink SQL query here\nSELECT * FROM \`${catalog}\`.\`${database}\`.<table_name> LIMIT 10;`,
-          status: 'IDLE',
+          status: overrides?.status || 'IDLE',
           createdAt: new Date(),
+          label: label ?? generateFunName(),
+          statementName: overrides?.statementName,
+          startedAt: overrides?.startedAt,
         };
         set((state) => {
           if (afterId) {
@@ -402,6 +539,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           }
           return { statements: [...state.statements, newStatement], lastSavedAt: new Date().toISOString() };
         });
+        return newId;
       },
 
       updateStatement: (id, code) => {
@@ -422,6 +560,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               code: '-- Write your Flink SQL query here',
               status: 'IDLE' as const,
               createdAt: new Date(),
+              label: generateFunName(),
             }],
             lastSavedAt: new Date().toISOString(),
           };
@@ -443,7 +582,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           startedAt: undefined,
           lastExecutedCode: null,
           updatedAt: undefined,
-          label: statement.label ? `${statement.label} Copy` : undefined,
+          label: statement.label ? `${statement.label}-copy` : undefined,
           createdAt: new Date(),
         };
 
@@ -481,6 +620,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const statement = get().statements.find((s) => s.id === id);
         if (!statement) return;
 
+        // Require a valid job name (label) before execution
+        const jobName = statement.label?.trim();
+        if (!jobName) {
+          get().addToast({ type: 'warning', message: 'Enter a job name before running.' });
+          return;
+        }
+        // Flink API: lowercase alphanumeric + hyphens, 1-72 chars, must start/end with alphanumeric
+        if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(jobName) || jobName.length > 72) {
+          get().addToast({ type: 'warning', message: 'Job name: lowercase letters, numbers, hyphens only (max 72 chars). Must start/end with a letter or number.' });
+          return;
+        }
+
         const submittedCode = statement.code;
 
         // Update status to PENDING
@@ -493,8 +644,36 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const startTime = Date.now();
 
         try {
-          // Execute the SQL
-          const result = await flinkApi.executeSQL(statement.code, undefined, get().sessionProperties);
+          // Build execution properties: catalog/database + global session props + per-statement scan mode
+          const { catalog, database, sessionProperties } = get();
+          const execProps: Record<string, string> = {
+            'sql.current-catalog': catalog,
+            'sql.current-database': database,
+            ...sessionProperties,
+          };
+          const scanMode = statement.scanMode || 'earliest-offset';
+          execProps['sql.tables.scan.startup.mode'] = scanMode;
+          if (scanMode === 'timestamp' && statement.scanTimestampMillis) {
+            execProps['sql.tables.scan.startup.timestamp-millis'] = statement.scanTimestampMillis;
+          }
+          if (scanMode === 'specific-offsets' && statement.scanSpecificOffsets) {
+            execProps['sql.tables.scan.startup.specific-offsets'] = statement.scanSpecificOffsets;
+          }
+          if (scanMode === 'group-offsets' && statement.scanGroupId) {
+            execProps['properties.group.id'] = statement.scanGroupId;
+          }
+
+          // If restarting (same name exists on server), delete the old statement first
+          if (statement.statementName === jobName) {
+            try {
+              await flinkApi.cancelStatement(jobName);
+            } catch {
+              // 404 = already gone, 409 = conflict — both OK to ignore
+            }
+          }
+
+          // Execute the SQL — use the label as the Flink API statement name
+          const result = await flinkApi.executeSQL(statement.code, jobName, execProps);
           const statementName = result.name;
 
           // Update with statement name and RUNNING status
@@ -533,6 +712,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }
 
             if (phase === 'CANCELLED') {
+              return;
+            }
+
+            // INSERT INTO creates a persistent streaming job — no results to poll
+            if (/^\s*INSERT\s+INTO/i.test(submittedCode) && phase === 'RUNNING') {
+              get().addToast({
+                type: 'info',
+                message: 'Streaming job started — use Stop to end it',
+              });
               return;
             }
 
@@ -611,9 +799,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
                 if (phase === 'COMPLETED' && !resultsData.metadata?.next) {
                   const executionTime = Date.now() - startTime;
+                  set((state) => ({
+                    statements: state.statements.map((s) =>
+                      s.id === id
+                        ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime, lastExecutedAt: new Date() }
+                        : s
+                    ),
+                  }));
                   get().addToast({
                     type: 'success',
-                    message: `Query completed in ${(executionTime / 1000).toFixed(2)}s - ${allResults.length} rows`,
+                    message: `Statement completed in ${(executionTime / 1000).toFixed(2)}s${allResults.length > 0 ? ` — ${allResults.length} rows` : ''}`,
                   });
                   return;
                 }
@@ -622,6 +817,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   console.log('Results not ready yet:', resultError);
                 }
               }
+            }
+
+            // DDL / empty-result completion: server says COMPLETED but results fetch failed or returned nothing
+            if (phase === 'COMPLETED' && !nextCursor) {
+              const executionTime = Date.now() - startTime;
+              set((state) => ({
+                statements: state.statements.map((s) =>
+                  s.id === id
+                    ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime, lastExecutedAt: new Date() }
+                    : s
+                ),
+              }));
+              get().addToast({
+                type: 'success',
+                message: `Statement completed in ${(executionTime / 1000).toFixed(2)}s`,
+              });
+              return;
             }
 
             // Continue polling
@@ -640,13 +852,183 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
           await poll();
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          const apiErr = error as { message?: string; details?: string };
+          const errorMessage = [apiErr?.message, apiErr?.details].filter(Boolean).join(': ') || (error instanceof Error ? error.message : 'Unknown error');
           set((state) => ({
             statements: state.statements.map((s) =>
               s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
             ),
           }));
           get().addToast({ type: 'error', message: errorMessage });
+        }
+      },
+
+      // Resume polling for a statement that is already running on the server (e.g. after page refresh)
+      resumeStatementPolling: async (id) => {
+        const statement = get().statements.find((s) => s.id === id);
+        if (!statement?.statementName || statement.status !== 'RUNNING') return;
+
+        const statementName = statement.statementName;
+        const submittedCode = statement.code;
+        const startTime = statement.startedAt ? new Date(statement.startedAt).getTime() : Date.now();
+        const MAX_ROWS = 5000;
+        let allResults: Record<string, unknown>[] = [];
+        let totalRowsReceived = 0;
+        let columns: Column[] = [];
+        let nextCursor: string | undefined;
+        let attempts = 0;
+        const maxAttempts = 600;
+
+        // INSERT INTO: check API status once to verify still running, but don't poll for results
+        if (/^\s*INSERT\s+INTO/i.test(submittedCode)) {
+          try {
+            const status = await flinkApi.getStatementStatus(statementName);
+            const phase = status.status?.phase;
+            if (phase !== 'RUNNING' && phase !== 'PENDING') {
+              const newStatus = phase === 'FAILED' ? 'ERROR' as const :
+                                phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
+              set((state) => ({
+                statements: state.statements.map((s) =>
+                  s.id === id ? { ...s, status: newStatus, lastExecutedAt: new Date(), error: phase === 'FAILED' ? (status.status?.detail || 'Query failed') : undefined } : s
+                ),
+              }));
+            }
+          } catch {
+            // API check failed — keep showing RUNNING, user can manually stop
+          }
+          return;
+        }
+
+        try {
+          const poll = async (): Promise<void> => {
+            if (attempts >= maxAttempts) throw new Error('Query timeout');
+
+            const currentStatement = get().statements.find((s) => s.id === id);
+            if (currentStatement?.status === 'CANCELLED') return;
+
+            const status = await flinkApi.getStatementStatus(statementName);
+            const phase = status.status?.phase;
+
+            if (phase === 'FAILED') throw new Error(status.status?.detail || 'Query failed');
+            if (phase === 'CANCELLED') {
+              set((state) => ({
+                statements: state.statements.map((s) =>
+                  s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
+                ),
+              }));
+              return;
+            }
+
+            // Extract columns from schema
+            if (columns.length === 0 && status.status?.traits?.schema?.columns) {
+              columns = status.status.traits.schema.columns.map((col) => ({
+                name: col.name,
+                type: col.type?.type || 'STRING',
+                nullable: col.type?.nullable,
+              }));
+            }
+
+            if (phase === 'COMPLETED' || phase === 'RUNNING') {
+              try {
+                const resultsData = await flinkApi.getStatementResults(statementName, nextCursor);
+                const rawRows = resultsData.results?.data || [];
+                const rows = rawRows.map((item) => item.row || []);
+
+                if (rows.length > 0) {
+                  if (columns.length === 0) {
+                    columns = rows[0].map((_: unknown, idx: number) => ({ name: `col_${idx}`, type: 'STRING' }));
+                  }
+                  const newResults = rows.map((row: unknown[]) => {
+                    const obj: Record<string, unknown> = {};
+                    row.forEach((val, idx) => {
+                      obj[columns[idx]?.name || `col_${idx}`] = val;
+                    });
+                    return obj;
+                  });
+
+                  allResults = [...allResults, ...newResults];
+                  totalRowsReceived += newResults.length;
+                  if (allResults.length > MAX_ROWS) allResults = allResults.slice(allResults.length - MAX_ROWS);
+
+                  set((state) => ({
+                    statements: state.statements.map((s) =>
+                      s.id === id ? { ...s, status: phase as StatementStatus, results: allResults, columns, executionTime: Date.now() - startTime, totalRowsReceived, lastExecutedAt: new Date() } : s
+                    ),
+                  }));
+                }
+
+                if (resultsData.metadata?.next) nextCursor = resultsData.metadata.next;
+
+                if (phase === 'COMPLETED' && !resultsData.metadata?.next) {
+                  set((state) => ({
+                    statements: state.statements.map((s) =>
+                      s.id === id ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime: Date.now() - startTime, lastExecutedAt: new Date() } : s
+                    ),
+                  }));
+                  return;
+                }
+              } catch {
+                // Results not ready yet
+              }
+            }
+
+            if (phase === 'COMPLETED' && !nextCursor) {
+              set((state) => ({
+                statements: state.statements.map((s) =>
+                  s.id === id ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime: Date.now() - startTime, lastExecutedAt: new Date() } : s
+                ),
+              }));
+              return;
+            }
+
+            if (phase !== 'COMPLETED' || nextCursor) {
+              attempts++;
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              await poll();
+            }
+          };
+
+          await poll();
+        } catch (error) {
+          const apiErr = error as { message?: string; details?: string };
+          const errorMessage = [apiErr?.message, apiErr?.details].filter(Boolean).join(': ') || (error instanceof Error ? error.message : 'Unknown error');
+          set((state) => ({
+            statements: state.statements.map((s) =>
+              s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
+            ),
+          }));
+        }
+      },
+
+      refreshStatementStatus: async (id) => {
+        const statement = get().statements.find((s) => s.id === id);
+        if (!statement?.statementName) return;
+        try {
+          const apiStatus = await flinkApi.getStatementStatus(statement.statementName);
+          const phase = apiStatus.status?.phase;
+          if (!phase) return;
+          const statusMap: Record<string, StatementStatus> = {
+            RUNNING: 'RUNNING', PENDING: 'PENDING', COMPLETED: 'COMPLETED',
+            FAILED: 'ERROR', CANCELLED: 'CANCELLED', STOPPED: 'CANCELLED',
+          };
+          const newStatus = statusMap[phase] || statement.status;
+          if (newStatus !== statement.status) {
+            set((state) => ({
+              statements: state.statements.map((s) =>
+                s.id === id ? {
+                  ...s,
+                  status: newStatus,
+                  lastExecutedAt: newStatus !== 'RUNNING' && newStatus !== 'PENDING' ? new Date() : s.lastExecutedAt,
+                  error: phase === 'FAILED' ? (apiStatus.status?.detail || 'Query failed') : undefined,
+                } : s
+              ),
+            }));
+            get().addToast({ type: 'info', message: `${statement.statementName}: ${phase}` });
+          } else {
+            get().addToast({ type: 'info', message: `Status confirmed: ${phase}` });
+          }
+        } catch {
+          get().addToast({ type: 'error', message: 'Failed to check statement status' });
         }
       },
 
@@ -726,11 +1108,65 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadComputePoolStatus: async () => {
         try {
           const status = await flinkApi.getComputePoolStatus();
-          set({ computePoolPhase: status.phase, computePoolCfu: status.currentCfu });
+          set({ computePoolPhase: status.phase, computePoolCfu: status.currentCfu, computePoolMaxCfu: status.maxCfu });
         } catch (error) {
           console.error('Failed to load compute pool status:', error);
-          set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null });
+          set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null, computePoolMaxCfu: null });
         }
+      },
+
+      toggleComputePoolDashboard: () => {
+        const isOpen = !get().computePoolDashboardOpen;
+        set({ computePoolDashboardOpen: isOpen });
+        if (isOpen) {
+          get().loadStatementTelemetry();
+        }
+      },
+
+      loadStatementTelemetry: async () => {
+        set({ telemetryLoading: true, telemetryError: null });
+        try {
+          // Collect workspace statement names for origin tagging
+          const wsNames = get().statements
+            .filter((s) => s.statementName)
+            .map((s) => s.statementName!);
+          const telemetry = await telemetryApi.getStatementTelemetry(wsNames);
+          set({
+            statementTelemetry: telemetry,
+            telemetryLoading: false,
+            telemetryLastUpdated: new Date(),
+          });
+        } catch (error: unknown) {
+          const err = error as { message?: string };
+          set({
+            telemetryError: err?.message || 'Failed to load telemetry',
+            telemetryLoading: false,
+          });
+        }
+      },
+
+      stopDashboardStatement: async (statementName: string) => {
+        try {
+          await flinkApi.cancelStatement(statementName);
+          get().addToast({ type: 'success', message: `Stopped ${statementName}` });
+          // Refresh telemetry to reflect the change
+          get().loadStatementTelemetry();
+        } catch (error: unknown) {
+          const err = error as { message?: string; status?: number };
+          // 409 = statement already terminated — treat as success
+          if (err?.status === 409) {
+            get().addToast({ type: 'info', message: `${statementName} already stopped` });
+            get().loadStatementTelemetry();
+          } else {
+            const msg = (error as { details?: string })?.details || err?.message || 'Failed to stop statement';
+            get().addToast({ type: 'error', message: msg });
+          }
+        }
+      },
+
+      setDashboardHeight: (height: number) => {
+        // Clamp between 120 and 600
+        set({ dashboardHeight: Math.min(Math.max(height, 120), 600) });
       },
 
       // Statement History Actions
@@ -803,6 +1239,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
       },
 
+      setStatementScanMode: (id, mode, params) => {
+        set((state) => ({
+          statements: state.statements.map((s) =>
+            s.id === id
+              ? {
+                  ...s,
+                  scanMode: mode ?? undefined,
+                  scanTimestampMillis: mode === 'timestamp' ? params?.timestampMillis : undefined,
+                  scanSpecificOffsets: mode === 'specific-offsets' ? params?.specificOffsets : undefined,
+                  scanGroupId: mode === 'group-offsets' ? params?.groupId : undefined,
+                }
+              : s
+          ),
+          lastSavedAt: new Date().toISOString(),
+        }));
+      },
+
       setSessionProperty: (key, value) => {
         const trimmedKey = key.trim();
         if (!trimmedKey) return;
@@ -862,7 +1315,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           // ORIG-8: Populate lazy schema type cache so SchemaList can show type badges
           const existingCache = get().schemaTypeCache;
           const updatedCache = { ...existingCache, [detail.subject]: detail.schemaType };
-          set({ selectedSchemaSubject: detail, schemaRegistryLoading: false, schemaTypeCache: updatedCache });
+          // Phase 12.6 F2: Populate lazy compat cache for schema subject filter
+          const existingCompatCache = get().schemaCompatCache;
+          const updatedCompatCache = detail.compatibilityLevel
+            ? { ...existingCompatCache, [detail.subject]: detail.compatibilityLevel }
+            : existingCompatCache;
+          set({
+            selectedSchemaSubject: detail,
+            schemaRegistryLoading: false,
+            schemaTypeCache: updatedCache,
+            schemaCompatCache: updatedCompatCache,
+          });
         } catch (error) {
           if ((get() as unknown as Record<string, string>)._schemaDetailRequestId !== requestId) return;
           const errorMessage = error instanceof Error ? error.message : 'Failed to load schema detail';
@@ -1023,20 +1486,511 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ activeNavItem: 'schemas' });
         get().loadSchemaDetail(subjectName, 'latest');
       },
+
+      navigateToTopic: async (topicName) => {
+        set({ activeNavItem: 'topics' });
+        let list = get().topicList;
+        if (list.length === 0) {
+          await get().loadTopics();
+          list = get().topicList;
+        }
+        const match = list.find((t) => t.topic_name === topicName);
+        if (match) {
+          get().selectTopic(match);
+        } else {
+          set({ selectedTopic: null });
+        }
+      },
+
+      // Phase 12.6 — F1: Config Audit Log Actions
+      addConfigAuditEntry: (entry) => {
+        const timestamp = new Date().toISOString();
+        set((state) => {
+          const newEntry: ConfigAuditEntry = { ...entry, timestamp };
+          const updated = [newEntry, ...state.configAuditLog];
+          // FIFO cap: max 200 entries across all topics
+          return { configAuditLog: updated.slice(0, 200) };
+        });
+      },
+
+      getConfigAuditLogForTopic: (topicName) => {
+        return get().configAuditLog.filter((e) => e.topicName === topicName);
+      },
+
+      // Phase 12.6 — F6: Snippet Actions
+      addSnippet: (name, sql) => {
+        const { snippets } = get();
+        if (snippets.length >= 100) {
+          return { success: false, error: 'Snippet limit reached (100). Delete existing snippets to add new ones.' };
+        }
+        const now = new Date().toISOString();
+        const newSnippet: Snippet = {
+          id: crypto.randomUUID(),
+          name,
+          sql,
+          createdAt: now,
+          updatedAt: now,
+        };
+        set((state) => ({
+          snippets: [...state.snippets, newSnippet].sort((a, b) =>
+            a.name.localeCompare(b.name)
+          ),
+        }));
+        return { success: true };
+      },
+
+      deleteSnippet: (id) => {
+        set((state) => ({
+          snippets: state.snippets.filter((s) => s.id !== id),
+        }));
+      },
+
+      renameSnippet: (id, newName) => {
+        if (!newName.trim()) return; // Empty name: revert (caller must handle)
+        set((state) => ({
+          snippets: state.snippets
+            .map((s) =>
+              s.id === id
+                ? { ...s, name: newName.trim(), updatedAt: new Date().toISOString() }
+                : s
+            )
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        }));
+      },
+
+      // Jobs Page actions
+      navigateToJobDetail: (statementName: string) => {
+        set({ activeNavItem: 'jobs' as NavItem, selectedJobName: statementName });
+      },
+
+      loadJobs: async () => {
+        set({ jobsLoading: true, jobsError: null });
+        try {
+          await flinkApi.listStatements(200, (accumulated) => {
+            // Show results progressively as each page arrives
+            set({ jobStatements: accumulated });
+          });
+          set({ jobsLoading: false });
+        } catch (error: unknown) {
+          const err = error as { message?: string };
+          const msg = err?.message || 'Failed to load jobs';
+          set({ jobsError: msg, jobsLoading: false });
+          get().addToast({ type: 'error', message: msg });
+        }
+      },
+
+      cancelJob: async (statementName: string) => {
+        const { jobStatements } = get();
+        const idx = jobStatements.findIndex((s) => s.name === statementName);
+        if (idx === -1) return;
+
+        const previousPhase = jobStatements[idx].status?.phase;
+
+        // Optimistic update
+        set({
+          jobStatements: jobStatements.map((s) =>
+            s.name === statementName
+              ? { ...s, status: { ...s.status, phase: 'CANCELLED' as const } }
+              : s
+          ),
+        });
+
+        try {
+          await flinkApi.cancelStatement(statementName, { stopAfterTerminatingQueries: true });
+          get().addToast({ type: 'success', message: `Stopped ${statementName}` });
+        } catch (error: unknown) {
+          // Rollback on failure
+          set({
+            jobStatements: get().jobStatements.map((s) =>
+              s.name === statementName && previousPhase
+                ? { ...s, status: { ...s.status, phase: previousPhase } }
+                : s
+            ),
+          });
+          const err = error as { message?: string; status?: number; details?: string };
+          const msg = err?.details || err?.message || 'Failed to stop job';
+          get().addToast({ type: 'error', message: msg });
+        }
+      },
+
+      deleteJob: async (statementName: string) => {
+        const { jobStatements } = get();
+        const idx = jobStatements.findIndex((s) => s.name === statementName);
+        if (idx === -1) return;
+
+        // Optimistic removal
+        set({ jobStatements: jobStatements.filter((s) => s.name !== statementName) });
+
+        try {
+          await flinkApi.cancelStatement(statementName);
+          get().addToast({ type: 'success', message: `Deleted ${statementName}` });
+        } catch (error: unknown) {
+          // Rollback on failure
+          set({ jobStatements: [...get().jobStatements, jobStatements[idx]] });
+          const err = error as { message?: string; status?: number; details?: string };
+          const msg = err?.details || err?.message || 'Failed to delete statement';
+          get().addToast({ type: 'error', message: msg });
+        }
+      },
+
+      // Artifact actions
+      loadArtifacts: async () => {
+        set({ artifactLoading: true, artifactError: null });
+        try {
+          const artifacts = await artifactApi.listArtifacts();
+          set({ artifactList: artifacts, artifactLoading: false });
+          // Enrich with version data (list endpoint omits versions)
+          const enriched = await Promise.all(
+            artifacts.map(async (a) => {
+              try {
+                return await artifactApi.getArtifact(a.id);
+              } catch {
+                return a;
+              }
+            })
+          );
+          set({ artifactList: enriched });
+        } catch (error: unknown) {
+          const err = error as { response?: { status?: number }; message?: string };
+          const status = err?.response?.status;
+          let msg = 'Failed to load artifacts';
+          if (status === 401 || status === 403) msg = 'Unauthorized — check your Cloud API keys';
+          else if (status === 409) msg = 'Conflict — environment may not support artifacts';
+          set({ artifactError: msg, artifactLoading: false });
+        }
+      },
+
+      selectArtifact: (artifact) => {
+        set({ selectedArtifact: artifact });
+      },
+
+      clearSelectedArtifact: () => {
+        set({ selectedArtifact: null });
+      },
+
+      deleteArtifact: async (id: string) => {
+        const { artifactList } = get();
+        const removed = artifactList.find((a) => a.id === id);
+        if (!removed) return;
+
+        // Optimistic delete
+        set({
+          artifactList: artifactList.filter((a) => a.id !== id),
+          selectedArtifact: null,
+        });
+
+        try {
+          await artifactApi.deleteArtifact(id);
+          get().addToast({ type: 'success', message: `Deleted artifact "${removed.display_name}"` });
+        } catch (error: unknown) {
+          // Rollback on failure
+          set({ artifactList: [...get().artifactList, removed] });
+          const err = error as { response?: { status?: number }; message?: string };
+          const status = err?.response?.status;
+          const msg = status === 409
+            ? 'Cannot delete — artifact is in use by active functions'
+            : 'Failed to delete artifact';
+          get().addToast({ type: 'error', message: msg });
+        }
+      },
+
+      setArtifactError: (error) => {
+        set({ artifactError: error });
+      },
+
+      setArtifactUploading: (uploading) => {
+        set({ artifactUploading: uploading });
+        if (!uploading) set({ uploadProgress: null });
+      },
+
+      setUploadProgress: (progress) => {
+        set({ uploadProgress: progress });
+      },
+
+      // Phase 13.1 — Stream Panel actions
+      toggleStreamsPanel: () => {
+        set({ streamsPanelOpen: !get().streamsPanelOpen });
+        // Panel stays mounted — cards and background statements persist across open/close
+      },
+
+      setStreamsPanelOpen: (open) => {
+        set({ streamsPanelOpen: open });
+        // Panel stays mounted — cards and background statements persist across open/close
+      },
+
+      addStreamCard: (topicName) => {
+        set((state) => {
+          if (state.streamCards.length >= 10) return state; // Max 10 cards
+          return { streamCards: [...state.streamCards, { id: crypto.randomUUID(), topicName }] };
+        });
+      },
+
+      removeStreamCard: (cardId) => {
+        // Cancel background statement for this card
+        get().cancelBackgroundStatement(cardId);
+        set((state) => ({
+          streamCards: state.streamCards.filter((c) => c.id !== cardId),
+        }));
+      },
+
+      removeStreamCardsByTopic: (topicName) => {
+        // Cancel all background statements for cards with this topic
+        const cards = get().streamCards.filter((c) => c.topicName === topicName);
+        cards.forEach((c) => get().cancelBackgroundStatement(c.id));
+        set((state) => ({
+          streamCards: state.streamCards.filter((c) => c.topicName !== topicName),
+        }));
+      },
+
+      // Schema dataset actions
+      addSchemaDataset: (dataset) => {
+        if (dataset.records.length > 500) return; // Size guard
+        set((state) => ({
+          schemaDatasets: [...state.schemaDatasets, dataset],
+        }));
+      },
+
+      updateSchemaDataset: (id, updates) => {
+        set((state) => ({
+          schemaDatasets: state.schemaDatasets.map((ds) =>
+            ds.id === id
+              ? {
+                  ...ds,
+                  ...(updates.name !== undefined ? { name: updates.name } : {}),
+                  ...(updates.records !== undefined ? { records: updates.records } : {}),
+                  updatedAt: new Date().toISOString(),
+                }
+              : ds
+          ),
+        }));
+      },
+
+      deleteSchemaDataset: (id) => {
+        set((state) => ({
+          schemaDatasets: state.schemaDatasets.filter((ds) => ds.id !== id),
+        }));
+      },
+
+      navigateToSchemaDatasets: (subject) => {
+        set({
+          activeNavItem: 'schemas',
+          schemaInitialView: 'datasets',
+        });
+        get().loadSchemaDetail(subject, 'latest');
+      },
+
+      clearSchemaInitialView: () => {
+        set({ schemaInitialView: null });
+      },
+
+      executeBackgroundStatement: async (contextId, sql, scanMode) => {
+        // Cancel existing statement for same contextId first (max 1 per contextId — AC-8.5)
+        const existing = get().backgroundStatements.find((s) => s.contextId === contextId);
+        if (existing && existing.statementName) {
+          try {
+            await flinkApi.cancelStatement(existing.statementName);
+          } catch {
+            // Ignore cancel errors for existing statement
+          }
+        }
+
+        const statementName = `bg-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 8)}`;
+        const bgStatement: BackgroundStatement = {
+          id: crypto.randomUUID(),
+          contextId,
+          statementName,
+          sql,
+          status: 'PENDING',
+          createdAt: new Date(),
+        };
+
+        // Remove old statement for same contextId, add new one
+        set((state) => ({
+          backgroundStatements: [
+            ...state.backgroundStatements.filter((s) => s.contextId !== contextId),
+            bgStatement,
+          ],
+        }));
+
+        try {
+          // For background statements (stream monitoring), use caller's scan mode or default to earliest
+          const { catalog: bgCatalog, database: bgDatabase } = get();
+          const streamSessionProps = {
+            'sql.current-catalog': bgCatalog,
+            'sql.current-database': bgDatabase,
+            ...get().sessionProperties,
+            'sql.tables.scan.startup.mode': scanMode || 'earliest-offset',
+          };
+          await flinkApi.executeSQL(sql, statementName, streamSessionProps);
+
+          // Update to RUNNING
+          set((state) => ({
+            backgroundStatements: state.backgroundStatements.map((s) =>
+              s.id === bgStatement.id ? { ...s, status: 'RUNNING' as const } : s
+            ),
+          }));
+
+          // Poll for results
+          let nextCursor: string | undefined;
+          let allResults: Record<string, unknown>[] = [];
+          let columns: Column[] = [];
+          const maxAttempts = 120;
+
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            // Check if statement was cancelled
+            const current = get().backgroundStatements.find((s) => s.id === bgStatement.id);
+            if (!current || current.status === 'CANCELLED') return;
+
+            const status = await flinkApi.getStatementStatus(statementName);
+            const phase = status.status?.phase;
+
+            if (phase === 'FAILED') {
+              set((state) => ({
+                backgroundStatements: state.backgroundStatements.map((s) =>
+                  s.id === bgStatement.id
+                    ? { ...s, status: 'ERROR' as const, error: status.status?.detail || 'Query failed' }
+                    : s
+                ),
+              }));
+              return;
+            }
+
+            if (phase === 'CANCELLED') {
+              set((state) => ({
+                backgroundStatements: state.backgroundStatements.map((s) =>
+                  s.id === bgStatement.id ? { ...s, status: 'CANCELLED' as const } : s
+                ),
+              }));
+              return;
+            }
+
+            // Extract columns from schema
+            if (columns.length === 0 && status.status?.traits?.schema?.columns) {
+              columns = status.status.traits.schema.columns.map((col) => ({
+                name: col.name,
+                type: col.type?.type || 'STRING',
+                nullable: col.type?.nullable,
+              }));
+            }
+
+            if (phase === 'COMPLETED' || phase === 'RUNNING') {
+              try {
+                const resultsData = await flinkApi.getStatementResults(statementName, nextCursor);
+                const rawRows = resultsData.results?.data || [];
+                const rows = rawRows.map((item) => item.row || []);
+
+                if (rows.length > 0) {
+                  if (columns.length === 0) {
+                    columns = rows[0].map((_: unknown, idx: number) => ({
+                      name: `col_${idx}`,
+                      type: 'STRING',
+                    }));
+                  }
+
+                  const newResults = rows.map((row: unknown[]) => {
+                    const obj: Record<string, unknown> = {};
+                    row.forEach((val, idx) => {
+                      const colName = columns[idx]?.name || `col_${idx}`;
+                      obj[colName] = val;
+                    });
+                    return obj;
+                  });
+
+                  allResults = [...allResults, ...newResults];
+                  // Keep last 500 rows for background statements
+                  if (allResults.length > 500) {
+                    allResults = allResults.slice(allResults.length - 500);
+                  }
+
+                  set((state) => ({
+                    backgroundStatements: state.backgroundStatements.map((s) =>
+                      s.id === bgStatement.id
+                        ? { ...s, results: allResults, columns, status: phase === 'COMPLETED' ? 'COMPLETED' as const : 'RUNNING' as const }
+                        : s
+                    ),
+                  }));
+                }
+
+                if (resultsData.metadata?.next) {
+                  nextCursor = resultsData.metadata.next;
+                }
+
+                if (phase === 'COMPLETED' && !resultsData.metadata?.next) {
+                  set((state) => ({
+                    backgroundStatements: state.backgroundStatements.map((s) =>
+                      s.id === bgStatement.id ? { ...s, status: 'COMPLETED' as const } : s
+                    ),
+                  }));
+                  return;
+                }
+              } catch {
+                // Continue polling on transient errors
+              }
+            }
+
+            // Wait before next poll
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Background query failed';
+          set((state) => ({
+            backgroundStatements: state.backgroundStatements.map((s) =>
+              s.id === bgStatement.id ? { ...s, status: 'ERROR' as const, error: message } : s
+            ),
+          }));
+        }
+      },
+
+      cancelBackgroundStatement: async (contextId) => {
+        const statement = get().backgroundStatements.find((s) => s.contextId === contextId);
+        if (!statement) return;
+
+        try {
+          await flinkApi.cancelStatement(statement.statementName);
+        } catch {
+          // Ignore cancel errors
+        }
+
+        set((state) => ({
+          backgroundStatements: state.backgroundStatements.map((s) =>
+            s.contextId === contextId ? { ...s, status: 'CANCELLED' as const } : s
+          ),
+        }));
+      },
+
+      clearBackgroundStatements: async () => {
+        const statements = get().backgroundStatements;
+        // Cancel all active background statements
+        await Promise.allSettled(
+          statements
+            .filter((s) => s.status === 'RUNNING' || s.status === 'PENDING')
+            .map((s) => flinkApi.cancelStatement(s.statementName).catch(() => {}))
+        );
+        set({ backgroundStatements: [] });
+      },
     }),
     {
       name: 'flink-workspace',
       partialize: (state) => ({
-        statements: state.statements.map((s) => ({
-          id: s.id,
-          code: s.code,
-          status: s.status === 'RUNNING' || s.status === 'PENDING' ? 'IDLE' as const : s.status,
-          createdAt: s.createdAt,
-          isCollapsed: s.isCollapsed,
-          lastExecutedCode: s.lastExecutedCode ?? null,
-          label: s.label,
-          // Don't persist results, error, statementName (transient)
-        })),
+        statements: state.statements.map((s) => {
+          // Statements running server-side — persist RUNNING + statementName so we can reconnect
+          const keepRunning = s.status === 'RUNNING' && !!s.statementName;
+          return {
+            id: s.id,
+            code: s.code,
+            status: keepRunning ? 'RUNNING' as const : (s.status === 'RUNNING' || s.status === 'PENDING' ? 'IDLE' as const : s.status),
+            createdAt: s.createdAt,
+            isCollapsed: s.isCollapsed,
+            lastExecutedCode: s.lastExecutedCode ?? null,
+            label: s.label,
+            scanMode: s.scanMode,
+            scanTimestampMillis: s.scanTimestampMillis,
+            scanSpecificOffsets: s.scanSpecificOffsets,
+            scanGroupId: s.scanGroupId,
+            // Persist statementName + startedAt for running statements so we can reconnect after refresh
+            ...(keepRunning ? { statementName: s.statementName, startedAt: s.startedAt } : {}),
+          };
+        }),
         catalog: state.catalog,
         database: state.database,
         lastSavedAt: state.lastSavedAt,
@@ -1045,15 +1999,89 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         hasSeenOnboardingHint: state.hasSeenOnboardingHint,
         navExpanded: state.navExpanded,
         sessionProperties: state.sessionProperties,
+        // Phase 12.6 — F6: Snippets persisted to localStorage
+        snippets: state.snippets,
+        schemaDatasets: state.schemaDatasets,
       }) as unknown as WorkspaceState,
       migrate: (persistedState: unknown, _version: number) => {
-        // Migration: remove invalid 'parallelism.default' session property
-        // (not a valid Flink SQL configuration option as of latest version)
         const state = persistedState as any;
+        // Migration: remove invalid 'parallelism.default' session property
         if (state?.sessionProperties?.['parallelism.default']) {
           delete state.sessionProperties['parallelism.default'];
         }
+        // Rehydrate Date fields from JSON strings
+        if (state?.statements) {
+          for (const s of state.statements) {
+            if (s.startedAt && typeof s.startedAt === 'string') s.startedAt = new Date(s.startedAt);
+            if (s.createdAt && typeof s.createdAt === 'string') s.createdAt = new Date(s.createdAt);
+            if (s.lastExecutedAt && typeof s.lastExecutedAt === 'string') s.lastExecutedAt = new Date(s.lastExecutedAt);
+          }
+        }
         return state as WorkspaceState;
+      },
+      onRehydrateStorage: () => {
+        // After store rehydrates from localStorage, verify RUNNING statements against the API
+        return (_state, error) => {
+          if (error) return;
+
+          // Rehydrate Date fields — JSON serializes Date to string, we need real Date objects
+          const { statements } = useWorkspaceStore.getState();
+          let needsUpdate = false;
+          const fixed = statements.map((s) => {
+            const startedAt = s.startedAt && typeof s.startedAt === 'string' ? new Date(s.startedAt) : s.startedAt;
+            const createdAt = s.createdAt && typeof s.createdAt === 'string' ? new Date(s.createdAt) : s.createdAt;
+            const lastExecutedAt = s.lastExecutedAt && typeof s.lastExecutedAt === 'string' ? new Date(s.lastExecutedAt) : s.lastExecutedAt;
+            if (startedAt !== s.startedAt || createdAt !== s.createdAt || lastExecutedAt !== s.lastExecutedAt) {
+              needsUpdate = true;
+              return { ...s, startedAt, createdAt, lastExecutedAt };
+            }
+            return s;
+          });
+          if (needsUpdate) {
+            useWorkspaceStore.setState({ statements: fixed });
+          }
+
+          // Wait for React to fully mount before verifying server-side statements
+          const verify = () => {
+            const { statements } = useWorkspaceStore.getState();
+            const runningStatements = statements.filter(
+              (s) => s.status === 'RUNNING' && s.statementName
+            );
+            if (runningStatements.length === 0) return;
+
+            // Verify each running statement against the Flink API
+
+            // Verify each running statement's status against the server
+            for (const stmt of runningStatements) {
+              flinkApi.getStatementStatus(stmt.statementName!).then((apiStatus) => {
+                const phase = apiStatus.status?.phase;
+
+                if (phase === 'RUNNING') {
+                  // Still running on server — resume polling to reconnect (with extra delay)
+                  setTimeout(() => useWorkspaceStore.getState().resumeStatementPolling(stmt.id), 100);
+                } else if (phase === 'COMPLETED' || phase === 'FAILED' || phase === 'CANCELLED') {
+                  // Statement finished while we were away — update local status
+                  const newStatus = phase === 'FAILED' ? 'ERROR' as const :
+                                    phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
+                  useWorkspaceStore.setState((state) => ({
+                    statements: state.statements.map((s) =>
+                      s.id === stmt.id ? { ...s, status: newStatus, error: phase === 'FAILED' ? (apiStatus.status?.detail || 'Query failed') : undefined } : s
+                    ),
+                  }));
+                }
+              }).catch(() => {
+                // API check failed — mark as IDLE so user can re-run
+                useWorkspaceStore.setState((state) => ({
+                  statements: state.statements.map((s) =>
+                    s.id === stmt.id ? { ...s, status: 'IDLE' as const, statementName: undefined } : s
+                  ),
+                }));
+              });
+            }
+          };
+          // Delay until after React render cycle completes
+          setTimeout(verify, 2000);
+        };
       },
     }
   )

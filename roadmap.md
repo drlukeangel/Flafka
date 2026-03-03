@@ -1,6 +1,6 @@
 # Platform Roadmap
 
-**Last Updated:** 2026-03-01T19:00:00Z (Phase 12.5 Phase 4A Closure: Phase 12.5 Phase 2 implementation committed — 1653 tests (100% pass). Contextual help cleanup, health score refinement, inline error banners, Schema Registry env guard, AbortController signal forwarding.)
+**Last Updated:** 2026-03-01T23:00:00Z (Phase 12.6 ad-hoc improvements documented — 7 product-owner-directed changes, ~24 pts. Schema->Topic nav chip, resizable side panel, BadgeTooltip, Kafka config tooltips, real Schema Registry API integration. Outside workflow automation. Phase 12.7 Phase 1 PRD previously approved — 42 story points, 8 features.)
 **Orchestration Model:** Multi-Agent Workflow (Phases 1-5)
 
 ---
@@ -11,13 +11,33 @@
 
 | Active Feature | Stage | Lead Agent | Started |
 | :--- | :--- | :--- | :--- |
-| Phase 12.5: Advanced Topic & Schema Operations | **✅ PRD SIGN-OFF APPROVED — Ready for Phase 2** | Engineering | 2026-03-01 |
+| Phase 12.6: Config Audit, Schema Filtering & Query Templates | **✅ PRD SIGN-OFF APPROVED — Ready for Phase 2** | Engineering | 2026-03-01 |
+
+### Next Feature (TPPM ahead)
+
+| Feature | Stage | PRD | Notes |
+| :--- | :--- | :--- | :--- |
+| Phase 12.7: Bulk Operations, ISR Health, Snippet Sharing & Schema Productivity | **✅ Phase 1 Complete — PRD SIGN-OFF APPROVED** | `docs/features/phase-12.7-prd.md` | 42 story points, 8 features. Bulk topic delete, ISR health warning, snippet export/import, Generate SELECT, cross-field validation, topic timestamps, cross-topic audit summary, sidebar resize. Phase 2 ready upon Phase 12.6 Phase 4 completion. |
+
+### Ad-Hoc Improvements (Product Owner Directed — Outside Workflow Automation)
+
+| Feature | Stage | Doc | Notes |
+| :--- | :--- | :--- | :--- |
+| Phase 12.6 Ad-Hoc: Schema-Topic Nav, Resizable Panel, Tooltips, Schema API & Scan Mode | **Implemented** (uncommitted on `master`) | `docs/features/phase-12.6-ad-hoc-improvements.md` | 8 improvements, ~29 pts. Schema->Topic nav chip, resizable side panel, schema association reorder, icon-only delete, portal BadgeTooltip, Kafka config tooltips, real Schema Registry API integration, scan startup mode pushdown panel. Direct product owner session. |
+
+### Phase 13 Series (Product Owner Directed — Outside Workflow Automation)
+
+| Feature | Stage | PRD | Notes |
+| :--- | :--- | :--- | :--- |
+| Phase 13.1: Topic Message Browser, Stream Cards & Synthetic Producer | **Phase 1 — PRD DRAFT** | `docs/features/phase-13.1-prd.md` | 49 story points, 8 features. Stream Panel slide-out, multi-topic Stream Cards, Kafka REST v3 produce, schema-aware synthetic data generator, play/stop producer toggle, background statement management. |
+| Phase 13.2: Live Pipeline View | Phase 1 (not yet started) | TBD | Streaming Flink SQL consumer, end-to-end feedback loop: produce → SQL transform → consume output live. Depends on 13.1. |
 
 ### Last Completed Cycle
 
 | Feature | Final Status | Completed | Notes |
 | :--- | :--- | :--- | :--- |
-| Phase 12.2 R2 + 12.3 R2 + 12.3 R3 | **Phase 5: Synthesis COMPLETE** | 2026-03-01 | 50 items, 149 story points delivered. All CRIT/HIGH/MED fixes validated. 1625+ tests (100% pass). Zero regressions. Commit ea6e4c8. Phase 4 Tracks A/B/E complete; Track C async; Track D deferred. |
+| Phase 12.5: Advanced Topic & Schema Operations | **Phase 5: Synthesis COMPLETE** | 2026-03-01 | 8 features, 1653 tests (100% pass). Schema delete safety, diff view fixes, config validation, health score, CSS vars, AbortController. Commit c319471. |
+| Phase 12.2 R2 + 12.3 R2 + 12.3 R3 | **Phase 5: Synthesis COMPLETE** | 2026-03-01 | 50 items, 149 story points delivered. All CRIT/HIGH/MED fixes validated. 1625+ tests (100% pass). Zero regressions. Commit ea6e4c8. |
 
 ---
 
@@ -29,7 +49,26 @@
 
 | Priority | Feature | Release | Status | Points | Type |
 | :---: | :--- | :--- | :--- | :---: | :--- |
-| **0** | Phase 12.5: Advanced Topic & Schema Operations | Release 1 | ✅ Phase 1 Complete — **Phase 2 READY** | — | Feature |
+| **0** | Phase 12.6: Config Audit, Schema Filtering & Query Templates | Release 1 | ✅ Phase 1 Complete — **Phase 2 READY** | 41 | Feature |
+| **1** | Phase 12.5: Advanced Topic & Schema Operations | Release 1 | ✅ Complete — Phase 5 Synthesis done | — | Feature |
+
+### Phase 12.6: Release 1 Details (Config Audit, Schema Filtering & Query Templates)
+
+*41 story points total. 11 items: 5 bugs from Run-5 Flink Developer stress test + 6 enhancements from Run-4 Interview Analyst. Sources: `docs/agents/feedback/run-5/FLINK-DEVELOPER.md`, `docs/agents/feedback/run-4/INTERVIEW-ANALYST.md`. PRD: `docs/features/phase-12.6-prd.md`.*
+
+| Points | Item | ID | Type | Priority | Notes |
+| :---: | :--- | :--- | :--- | :--- | :--- |
+| **13** | Query templates / saved SQL snippets library | F6 | Enhancement | High | Users A+D upgraded from Phase 12.4 low to explicit Phase 12.6 request. New SnippetsPanel component, localStorage persistence. |
+| **8** | Config edit audit log (who changed what, when) | F1 | Enhancement | High | Compliance blocker — Users B+E. Session-scoped log in Zustand store. |
+| **5** | Schema subject list: filter by type and compat mode | F2 | Enhancement | High | User C: 200+ subjects, no filter. Type + compat dropdowns. |
+| **3** | Config table sort persistence within session | F4 | Enhancement | Medium | User B: multi-topic comparison workflow. sessionStorage. |
+| **3** | Diff view stale closure fix (S5-MED-1) | F7 | Bug | Medium | Primary version change matches diffVersion → self-compare. |
+| **2** | Schema panel loading skeleton on initial mount | F3 | Enhancement | Medium | User D: panel looks broken on open. 5 shimmer rows. |
+| **2** | AbortController on schema diff fetch | F5 | Bug/Hardening | Medium | Parity with Phase 12.5 F8 (topic config). Rapid diff version switching. |
+| **2** | TopicDetail health dot always shown for healthy topics (S5-MED-2) | F8 | Bug | Medium | AC-6.1 inconsistency — TopicList hides dot, TopicDetail doesn't. |
+| **1** | Diff mode stuck after last-version delete (S5-LOW-1) | F9 | Bug | Low | One-line fix: setDiffMode(false) when versions.length < 2 after delete. |
+| **1** | Duplicate health warnings for 0-partition topics (S5-LOW-2) | F10 | Bug | Low | Refactor computeHealthScore to use early-return pattern. |
+| **1** | VersionDeleteConfirm hardcoded #ffffff button text (S5-LOW-3) | F11 | Bug | Low | Add --color-button-danger-text CSS var. |
 
 ### Phase 12.2: Release 2 Details (Schema Management Updates)
 
@@ -161,6 +200,7 @@
 
 | Date | Feature | Closer | Commits | Notes |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-03-01 | Phase 12.6 Ad-Hoc: Schema-Topic Nav, Resizable Panel, Tooltips, Schema API & Scan Mode | Product Owner | uncommitted (`master`) | 8 ad-hoc improvements, ~29 pts. Schema->Topic nav chip, resizable side panel, schema assoc reorder, icon-only delete, portal BadgeTooltip, Kafka config tooltips, real Schema Registry API, scan startup mode pushdown panel. Outside workflow automation. Doc: `docs/features/phase-12.6-ad-hoc-improvements.md`. |
 | 2026-03-01 | Phase 12.2 Release 2: Schema Management | Closer | ea6e4c8 | 18 items, 51 pts. Diff view, tree click-copy, stale state fixes, CSS color migration, UX polish. 100% quality. |
 | 2026-03-01 | Phase 12.3 Release 2: Topic Critical Bugs | Closer | ea6e4c8 | 18 items, 62 pts. Auth rotation, system topic filter, race condition, virtual scrolling, rate limiting. All CRIT/HIGH fixes validated. 100% quality. |
 | 2026-03-01 | Phase 12.3 Release 3: Topic Polish | Closer | ea6e4c8 | 14 items, 36 pts. Retention format, validation UX, tooltip improvements, keyboard nav fixes, bulk delete. 100% quality. |
@@ -171,21 +211,21 @@
 
 ---
 
-## 📊 Workflow State — Phase 12.5: Advanced Topic & Schema Operations (Current)
+## 📊 Workflow State — Phase 12.5: Advanced Topic & Schema Operations (Complete)
 
 | Phase | Status | Current Owner | Blocker? |
 | :--- | :--- | :--- | :--- |
 | Phase 1: PRD Sign-off | **✅ COMPLETE** | TPPM | — |
-| Phase 2: Dev & QA | **🎯 READY TO START** | Engineering | Phase 1 gate cleared. PRD: `docs/features/phase-12.5-prd.md` (637 lines, all ACs, acceptance tests pre-written) |
-| Phase 2.5: QA Manager | ⏳ PENDING | QA Manager | — |
-| Phase 2.6: UX/IA | ⏳ PENDING | UX/IA Reviewer | — |
-| Phase 3: Acceptance | ⏳ PENDING | TPPM | — |
-| Phase 4A: Closure | **✅ COMPLETE** | Closer | Code merged to master. 1653 tests (100% pass). Artifacts cleaned. Roadmap updated. |
-| Phase 4B: Stress Test | **✅ COMPLETE (Run 4)** | Flink Developer | Run 4: 1625 tests validated. 149 pts (3 releases) confirmed production ready. Zero regressions. Report: `docs/agents/feedback/run-4/FLINK-DEVELOPER.md` |
-| Phase 4C: Test Completion | ⏳ PENDING | Test Completion (Haiku) | — |
-| Phase 4D: Interviews | ⏳ PENDING | Interview Analyst | — |
-| Phase 4E: Agent Optimizer | ⏳ PENDING | Agent Definition Optimizer | — |
-| Phase 5: Roadmap Sync | ⏳ PENDING | TPPM | — |
+| Phase 2: Dev & QA | **✅ COMPLETE** | Engineering | 8 features implemented. Commit `0a6b7b0`. 1653 tests (100% pass). |
+| Phase 2.5: QA Manager | **✅ APPROVED** | QA Manager | All Tier 1 tests passing. QA MANAGER SIGN-OFF APPROVED. |
+| Phase 2.6: UX/IA | **✅ APPROVED** | UX/IA Reviewer | A2 design review approved (5/5 reviewers). UX/IA SIGN-OFF APPROVED. `run-4/A2-DESIGN-REVIEW-APPROVALS.md` |
+| Phase 3: Acceptance | **✅ FEATURE ACCEPTANCE APPROVED** | TPPM | All 8 features accepted. Commit `0a6b7b0` authorized. |
+| Phase 4A: Closure | **✅ COMPLETE** | Closer | Code merged to master (commits `0a6b7b0` + `e8848d4`). 1653 tests (100% pass). Artifacts cleaned. Roadmap updated. |
+| Phase 4B: Stress Test | **✅ COMPLETE (Run 5)** | Flink Developer | Run 5: 1653 tests validated. 5 findings (0 critical, 2 medium, 3 low), 8 story points → Phase 12.6 backlog. Report: `docs/agents/feedback/run-5/FLINK-DEVELOPER.md` |
+| Phase 4C: Test Completion | **✅ COMPLETE** | Test Completion (Haiku) | 70 Phase 12.5 tests implemented. Full suite 1653 tests, 100% pass. Tier 1 + Tier 2 complete. |
+| Phase 4D: Interviews | **✅ COMPLETE (Run 4)** | Interview Analyst | 5 users interviewed. All 8 Phase 12.5 features validated (100% approval). 37-55 pts Phase 12.6 backlog identified. Report: `docs/agents/feedback/run-4/INTERVIEW-ANALYST.md` |
+| Phase 4E: Agent Optimizer | **✅ CONVERGED (paused)** | Agent Definition Optimizer | 99.7% alignment. Auto-paused. Resumes if behavior patterns shift. |
+| Phase 5: Roadmap Sync | **✅ COMPLETE** | TPPM | Phase 12.5 synthesis complete. Phase 12.6 PRD written (41 pts, 11 features). PRD SIGN-OFF APPROVED. Phase 12.6 Phase 2 ready to launch. |
 
 ---
 

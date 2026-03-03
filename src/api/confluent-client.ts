@@ -31,6 +31,19 @@ export const confluentClient: AxiosInstance = axios.create({
 // Separate client for FCPM API (different base path and credentials)
 export const fcpmClient: AxiosInstance = axios.create({
   baseURL: FCPM_API_BASE,
+  timeout: 15000,
+  headers: {
+    'Authorization': createCloudAuthHeader(),
+    'Content-Type': 'application/json',
+  },
+});
+
+// Telemetry API client (Confluent Cloud metrics)
+const TELEMETRY_API_BASE = '/api/telemetry';
+
+export const telemetryClient: AxiosInstance = axios.create({
+  baseURL: TELEMETRY_API_BASE,
+  timeout: 15000,
   headers: {
     'Authorization': createCloudAuthHeader(),
     'Content-Type': 'application/json',
@@ -98,6 +111,38 @@ fcpmClient.interceptors.response.use(
     const message = (error.response?.data as { message?: string })?.message || error.message;
     if (import.meta.env.DEV) {
       console.error(`[API Error] ${error.response?.status}: ${message}`);
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Add request interceptor for Telemetry client
+telemetryClient.interceptors.request.use(
+  config => {
+    if (import.meta.env.DEV) {
+      console.log(`[Telemetry] ${config.method?.toUpperCase()} ${config.url}`);
+    }
+    return config;
+  },
+  error => {
+    if (import.meta.env.DEV) {
+      console.error('[Telemetry Request Error]', error);
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor for Telemetry client
+telemetryClient.interceptors.response.use(
+  response => {
+    if (import.meta.env.DEV) {
+      console.log(`[Telemetry Response] ${response.status}`, response.data);
+    }
+    return response;
+  },
+  (error: AxiosError) => {
+    if (import.meta.env.DEV) {
+      console.error(`[Telemetry Error] ${error.response?.status}`, error.response?.data);
     }
     return Promise.reject(error);
   }

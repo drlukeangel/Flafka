@@ -1,0 +1,291 @@
+/* ============================================================================
+ * Compute Pool Dashboard — Push-Down Panel
+ * ============================================================================ */
+
+.compute-dashboard {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+  overflow: hidden;
+  position: relative;
+  animation: dashboard-slide-down 0.2s ease-out;
+}
+
+@keyframes dashboard-slide-down {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 600px;
+    opacity: 1;
+  }
+}
+
+/* Header */
+.compute-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.compute-dashboard-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.compute-dashboard-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.compute-dashboard-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.compute-dashboard-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.compute-dashboard-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.compute-dashboard-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.spin-icon {
+  animation: history-spin 0.7s linear infinite;
+}
+
+/* Body */
+.compute-dashboard-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Empty / Loading / Error states */
+.compute-dashboard-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  gap: 12px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.compute-dashboard-error-text {
+  color: var(--color-error);
+}
+
+.compute-dashboard-retry-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.compute-dashboard-retry-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Table */
+.compute-dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.compute-dashboard-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+}
+
+.compute-dashboard-table th {
+  padding: 6px 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.compute-dashboard-table td {
+  padding: 6px 12px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border-subtle, var(--color-border));
+}
+
+.compute-dashboard-table tbody tr:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Statement name */
+.compute-dashboard-name-cell {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compute-dashboard-name {
+  font-family: var(--font-mono, 'SF Mono', 'Cascadia Code', 'Fira Code', monospace);
+  font-size: 11px;
+}
+
+.compute-dashboard-name--clickable {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-primary);
+  text-decoration: none;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.compute-dashboard-name--clickable:hover {
+  text-decoration: underline;
+}
+
+/* External badge */
+.compute-dashboard-external-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.compute-dashboard-external td {
+  color: var(--color-text-secondary);
+}
+
+/* CFU cell — bold primary */
+.compute-dashboard-cfu-cell {
+  font-weight: 700;
+  color: var(--color-primary) !important;
+}
+
+/* Warning for pending > 0 */
+.compute-dashboard-warning {
+  color: var(--color-warning) !important;
+  font-weight: 600;
+}
+
+/* Action column */
+.compute-dashboard-action-col {
+  width: 40px;
+  text-align: center;
+}
+
+.compute-dashboard-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-error);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.compute-dashboard-stop-btn:hover {
+  background: var(--color-error);
+  color: white;
+}
+
+.compute-dashboard-stop-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* Footer */
+.compute-dashboard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.compute-dashboard-updated {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.compute-dashboard-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+
+.compute-dashboard-link-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Drag resize handle */
+.compute-dashboard-resize-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 2;
+}
+
+.compute-dashboard-resize-handle:hover {
+  background: var(--color-primary);
+  opacity: 0.3;
+}

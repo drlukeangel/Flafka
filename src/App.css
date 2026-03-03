@@ -57,21 +57,15 @@
   color: var(--color-primary);
 }
 
+.logo-icon {
+  height: 28px;
+  width: auto;
+}
+
 .logo-title-group {
   display: flex;
   align-items: center;
   gap: 6px;
-  cursor: pointer;
-}
-
-.logo-edit-icon {
-  opacity: 0;
-  transition: opacity 150ms ease;
-  color: var(--color-text-secondary);
-}
-
-.logo-title-group:hover .logo-edit-icon {
-  opacity: 1;
 }
 
 .logo-text {
@@ -81,26 +75,10 @@
   white-space: nowrap;
 }
 
-.logo-editable-input {
-  font-size: 18px;
-  font-weight: 600;
-  font-family: inherit;
-  background-color: var(--color-surface-secondary);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 2px 6px;
-  outline: none;
-  max-width: 300px;
-}
-
-.logo-editable-input:focus {
-  border-color: var(--color-primary);
-}
-
 .header-center {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .environment-info {
@@ -144,6 +122,39 @@
 
 .pool-status-dot.unknown {
   background-color: var(--color-text-tertiary);
+}
+
+/* Clickable badge styles */
+.compute-pool-status--clickable {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.compute-pool-status--clickable:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.compute-pool-status--clickable:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.compute-pool-status--active {
+  background: var(--color-bg-hover);
+  border-color: var(--color-primary);
+}
+
+/* Chevron rotation */
+.pool-chevron {
+  transition: transform 0.2s ease;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.pool-chevron--open {
+  transform: rotate(180deg);
 }
 
 .header-right {
@@ -232,6 +243,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 160px;
+}
+
+.settings-select {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 160px;
+}
+.settings-select:hover {
+  border-color: var(--color-primary);
+}
+.settings-select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
 }
 
 /* History Panel */
@@ -558,7 +589,7 @@
 /* Side Panel */
 .side-panel {
   width: var(--side-panel-width, 300px);
-  min-width: var(--side-panel-width, 300px);
+  min-width: 200px;
   height: 100%;
   background-color: var(--color-surface);
   border-right: 1px solid var(--color-border);
@@ -566,12 +597,54 @@
   flex-direction: column;
   overflow: hidden;
   flex-shrink: 0;
+  position: relative;
 }
 
 .side-panel-content {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.side-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.side-panel-resize-handle:hover,
+.side-panel-resize-handle:active {
+  background: var(--color-primary);
+  opacity: 0.3;
+}
+
+/* Badge tooltip — styled tooltip rendered via React portal */
+.badge-tooltip-popup {
+  position: fixed;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #1e1e2e;
+  color: #f0f0f0;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+  width: max-content;
+  max-width: 260px;
+  text-align: left;
+  pointer-events: none;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  animation: badge-tooltip-in 120ms ease-in forwards;
+}
+
+@keyframes badge-tooltip-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Settings in Side Panel (override absolute positioning) */
@@ -924,11 +997,74 @@
 
 /* Main Content */
 .main-content {
+  position: relative;
   flex: 1;
+  min-width: 480px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background-color: var(--color-background);
+}
+
+/* Stream Panel Aside (right side) */
+.stream-panel-aside {
+  position: relative;
+  width: 420px;
+  min-width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--color-surface);
+}
+
+/* Resize handle on LEFT edge of stream panel */
+.stream-panel-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+.stream-panel-resize-handle:hover,
+.stream-panel-resize-handle:active {
+  background: var(--color-primary);
+  opacity: 0.3;
+}
+
+/* Collapsed state — panel stays mounted but invisible */
+.stream-panel-aside--hidden {
+  width: 0 !important;
+  min-width: 0;
+  border-left: none;
+  overflow: hidden;
+}
+
+/* Floating handle — positioned at right edge of <main> */
+.stream-panel-handle {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  width: 28px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  box-shadow: -2px 0 6px rgba(0,0,0,0.08);
+}
+.stream-panel-handle:hover {
+  color: var(--color-primary);
+  background: var(--color-surface-hover);
 }
 
 /* Editor Toolbar */
@@ -1135,6 +1271,7 @@
   border-radius: 4px;
   box-shadow: var(--shadow-cell);
   overflow: hidden;
+  flex-shrink: 0;
   transition: opacity 0.15s ease;
 }
 
@@ -1439,10 +1576,30 @@
 
 /* Cell Editor */
 .cell-editor {
+  position: relative;
   border-bottom: 1px solid var(--color-border);
   min-height: 80px;
   max-height: 400px;
   overflow: hidden;
+}
+
+.cell-editor--locked {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.cell-editor-locked-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  cursor: pointer;
+  pointer-events: all;
+  z-index: 1;
 }
 
 /* Cell Error */
@@ -1549,6 +1706,7 @@
 
 .error-details-message {
   margin-top: 8px;
+  position: relative;
 }
 
 .error-details-message pre {
@@ -1560,6 +1718,31 @@
   margin: 0;
   max-height: 200px;
   overflow-y: auto;
+  padding-right: 32px;
+}
+
+.error-copy-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: var(--color-surface-secondary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.error-copy-btn:hover {
+  opacity: 1;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
 }
 
 /* Cell Cancelled notice */
@@ -1575,9 +1758,39 @@
 }
 
 /* Cell Results */
+.cell-results-wrapper {
+  position: relative;
+}
+
 .cell-results {
-  max-height: 250px;
+  max-height: min(750px, calc(100vh - 350px));
   overflow: auto;
+}
+
+.cell-results-resize-handle {
+  height: 10px;
+  cursor: ns-resize;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s;
+}
+
+.cell-results-resize-handle::after {
+  content: '';
+  width: 48px;
+  height: 4px;
+  border-radius: 2px;
+  background: #b0b8c4;
+}
+
+.cell-results-resize-handle:hover {
+  background-color: rgba(99, 102, 241, 0.08);
+}
+
+.cell-results-resize-handle:hover::after {
+  background: #6366f1;
 }
 
 /* Cell Collapsed Preview */
@@ -1734,25 +1947,6 @@
   gap: 8px;
 }
 
-.view-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  transition: all var(--transition-fast);
-}
-
-.view-btn:hover,
-.view-btn.active {
-  background-color: var(--color-surface-secondary);
-  color: var(--color-text-primary);
-}
 
 .export-dropdown {
   position: relative;
@@ -2098,7 +2292,8 @@
 .statement-status-bar {
   display: flex;
   align-items: center;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 16px 24px;
   padding: 8px 16px;
   background-color: var(--color-surface-secondary);
   border-top: 1px solid var(--color-border);
@@ -2145,6 +2340,43 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-primary);
+}
+
+.status-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  padding: 1px 3px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.status-refresh-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-bg-hover);
+}
+
+.status-bar-metric {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+
+.status-bar-warning {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+/* Highlight effect when scrolled to from dashboard */
+.editor-cell.highlight-pulse {
+  animation: cell-pulse 1.5s ease-out;
+}
+
+@keyframes cell-pulse {
+  0% { box-shadow: inset 0 0 0 2px var(--color-primary); }
+  100% { box-shadow: none; }
 }
 
 /* Help Modal */
@@ -2416,6 +2648,12 @@
   margin-left: 8px;
 }
 
+/* When editing, expand to fill remaining header width */
+.cell-label-group--editing {
+  flex: 1;
+  min-width: 0;
+}
+
 .cell-label {
   color: var(--color-text);
   font-size: 14px;
@@ -2434,8 +2672,11 @@
   transition: opacity 0.2s ease;
 }
 
-.cell-header-left:hover .cell-label-placeholder {
+.cell-header-left:hover .cell-label-placeholder,
+.cell-label-placeholder--required {
   opacity: 1;
+  color: var(--color-warning);
+  font-style: normal;
 }
 
 .cell-label-input {
@@ -2446,13 +2687,51 @@
   font-weight: 500;
   background: var(--color-input-bg);
   color: var(--color-text);
-  max-width: 200px;
+  flex: 1;
+  min-width: 0;
 }
 
 .cell-label-input:focus {
   outline: none;
   border-color: var(--color-focus);
   box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.cell-label-edit-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.cell-label-save-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  background: var(--color-primary);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.cell-label-save-btn:hover {
+  opacity: 0.85;
+}
+
+.cell-label-input--invalid {
+  border-color: var(--color-error);
+}
+
+.cell-label-input--invalid:focus {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
 }
 
 .cell-collapsed-label {

@@ -22,6 +22,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ReactDOM from 'react-dom';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as topicApi from '../../api/topic-api';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
@@ -45,6 +46,95 @@ import {
   FiExternalLink,
 } from 'react-icons/fi';
 import PartitionTable from './PartitionTable';
+
+// ---------------------------------------------------------------------------
+// BadgeTooltip — portal-based tooltip that escapes overflow:hidden containers
+// ---------------------------------------------------------------------------
+
+function BadgeTooltip({
+  text,
+  children,
+  style,
+}: {
+  text: string;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  const show = useCallback(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    setPos({ x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+  }, []);
+
+  const hide = useCallback(() => setPos(null), []);
+
+  return (
+    <>
+      <span
+        ref={ref}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        style={{ cursor: 'help', ...style }}
+      >
+        {children}
+      </span>
+      {pos &&
+        ReactDOM.createPortal(
+          <div
+            className="badge-tooltip-popup"
+            style={{ left: pos.x, top: pos.y, transform: 'translateX(-50%)' }}
+          >
+            {text}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Kafka config descriptions — hardcoded from Apache Kafka documentation
+// ---------------------------------------------------------------------------
+
+const KAFKA_CONFIG_DESCRIPTIONS: Record<string, string> = {
+  'cleanup.policy': 'How old log segments are discarded. "delete" removes by time/size; "compact" keeps latest value per key.',
+  'compression.type': 'Compression codec for the topic: uncompressed, zstd, lz4, snappy, gzip, or producer (use producer\'s setting).',
+  'compression.gzip.level': 'Gzip compression level (1\u20139). Higher = better compression, more CPU.',
+  'compression.lz4.level': 'LZ4 compression level (1\u201317). Higher = better ratio, slower.',
+  'compression.zstd.level': 'Zstandard compression level (1\u201322). Higher = better ratio, slower.',
+  'delete.retention.ms': 'How long tombstone markers are kept for compacted topics before deletion.',
+  'file.delete.delay.ms': 'Delay before a log segment file is deleted from the filesystem.',
+  'flush.messages': 'Number of messages written before forcing an fsync to disk. Use OS defaults for best performance.',
+  'flush.ms': 'Maximum time before forcing an fsync to disk. Use OS defaults for best performance.',
+  'follower.replication.throttled.replicas': 'Replicas throttled for log replication on the follower side.',
+  'index.interval.bytes': 'How often a new index entry is added to the offset index. Smaller = larger index, more precise seeks.',
+  'leader.replication.throttled.replicas': 'Replicas throttled for log replication on the leader side.',
+  'local.retention.bytes': 'Max local log size before segments are moved to remote storage (tiered storage).',
+  'local.retention.ms': 'Max time segments stay in local storage before moving to remote (tiered storage).',
+  'max.compaction.lag.ms': 'Maximum time a message stays uncompacted in a compacted topic.',
+  'max.message.bytes': 'Largest record batch size the broker will accept. Must align with consumer fetch size.',
+  'message.downconversion.enable': 'Whether down-conversion of message formats is enabled for older consumer compatibility.',
+  'message.format.version': 'Message format version the broker uses. Usually managed automatically.',
+  'message.timestamp.after.max.ms': 'Maximum allowed difference when a message timestamp is after the broker time.',
+  'message.timestamp.before.max.ms': 'Maximum allowed difference when a message timestamp is before the broker time.',
+  'message.timestamp.difference.max.ms': 'Maximum allowed time difference between broker time and message timestamp.',
+  'message.timestamp.type': 'Whether the timestamp is set at message creation ("CreateTime") or log append ("LogAppendTime").',
+  'min.cleanable.dirty.ratio': 'Ratio of dirty log to total log size before compaction runs. Lower = more frequent compaction.',
+  'min.compaction.lag.ms': 'Minimum time a message must stay uncompacted. Prevents compaction of very recent data.',
+  'min.insync.replicas': 'Minimum replicas that must acknowledge a write when producer uses acks=all. Critical for durability.',
+  'preallocate': 'Whether to preallocate log segment files on disk before writing.',
+  'remote.storage.enable': 'Whether tiered (remote) storage is enabled for this topic.',
+  'retention.bytes': 'Maximum total size of the log before old segments are deleted. -1 = no size limit.',
+  'retention.ms': 'How long messages are retained before deletion. -1 = infinite retention.',
+  'segment.bytes': 'Maximum size of a single log segment file before a new one is rolled.',
+  'segment.index.bytes': 'Maximum size of the offset index for a segment. Controls memory usage per segment.',
+  'segment.jitter.ms': 'Random jitter added to segment roll time to avoid all partitions rolling simultaneously.',
+  'segment.ms': 'Maximum time before a log segment is rolled, even if not full.',
+  'unclean.leader.election.enable': 'Whether out-of-sync replicas can become leader. Enabling risks data loss but improves availability.',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -128,30 +218,35 @@ interface HealthScore {
  * - YELLOW: partitions < 2 OR replication_factor < 2
  * - GREEN: otherwise
  */
+// Phase 12.6 F10: Refactored to use early-return pattern (matching TopicList.tsx) to prevent
+// duplicate warnings — critical conditions return immediately without falling through to yellow.
 function computeHealthScore(topic: { partitions_count: number; replication_factor: number }): HealthScore {
-  const warnings: string[] = [];
-
-  if (topic.partitions_count < 1) {
-    warnings.push('Topic has no partitions');
-  }
-  if (topic.replication_factor < 1) {
-    warnings.push('Replication factor is too low');
-  }
-  if (topic.partitions_count < 2) {
-    warnings.push('Single-partition topics have no parallelism — performance may be limited');
-  }
-  if (topic.replication_factor < 2) {
-    warnings.push('Low replication factor — data loss risk if a broker fails');
-  }
-
-  // Determine level
+  // RED: critical conditions — early return before yellow checks
   if (topic.partitions_count < 1 || topic.replication_factor < 1) {
+    const warnings: string[] = [];
+    if (topic.partitions_count < 1) {
+      warnings.push('Topic has no partitions');
+    }
+    if (topic.replication_factor < 1) {
+      warnings.push('Replication factor is too low');
+    }
     return { level: 'red', warnings };
   }
+
+  // YELLOW: degraded conditions
   if (topic.partitions_count < 2 || topic.replication_factor < 2) {
+    const warnings: string[] = [];
+    if (topic.partitions_count < 2) {
+      warnings.push('Single-partition topics have no parallelism — performance may be limited');
+    }
+    if (topic.replication_factor < 2) {
+      warnings.push('Low replication factor — data loss risk if a broker fails');
+    }
     return { level: 'yellow', warnings };
   }
-  return { level: 'green', warnings };
+
+  // GREEN: healthy
+  return { level: 'green', warnings: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -479,38 +574,101 @@ interface SchemaAssociationProps {
 function SchemaAssociation({ topicName, onNavigate }: SchemaAssociationProps) {
   const [loading, setLoading] = useState(true);
   const [foundSubjects, setFoundSubjects] = useState<string[]>([]);
+  const [foundSchemaDetails, setFoundSchemaDetails] = useState<Record<string, { version: number; schemaType: string }>>({});
+  const [isEditing, setIsEditing] = useState(false);
+  const [search, setSearch] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+  const allSubjects = useWorkspaceStore((s) => s.schemaRegistrySubjects);
+  const loadSubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
+  const addToast = useWorkspaceStore((s) => s.addToast);
+
+  // Track a refresh counter to re-trigger lookup after registering
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-
-    const candidates = [
-      `${topicName}-value`,
-      `${topicName}-key`,
-      topicName,
-    ];
-
+    const candidates = [`${topicName}-value`, `${topicName}-key`, topicName];
     const lookupAll = async () => {
       setLoading(true);
       const results = await Promise.allSettled(
         candidates.map((subject) => schemaRegistryApi.getSchemaDetail(subject))
       );
-
       if (cancelled) return;
-
       const found: string[] = [];
+      const details: Record<string, { version: number; schemaType: string }> = {};
       results.forEach((result, i) => {
         if (result.status === 'fulfilled') {
           found.push(candidates[i]);
+          details[candidates[i]] = {
+            version: result.value.version,
+            schemaType: result.value.schemaType ?? 'AVRO',
+          };
         }
       });
-
       setFoundSubjects(found);
+      setFoundSchemaDetails(details);
       setLoading(false);
     };
-
     lookupAll();
     return () => { cancelled = true; };
-  }, [topicName]);
+  }, [topicName, refreshKey]);
+
+  const handleStartEdit = async () => {
+    setIsEditing(true);
+    setSearch('');
+    setRegisterError(null);
+    if (allSubjects.length === 0) await loadSubjects();
+  };
+
+  // Real API call: fetch schema from source subject, register it under {topicName}-{value|key}
+  const handleRegisterFromSubject = async (sourceSubject: string) => {
+    const targetSubject = `${topicName}-value`;
+
+    setRegistering(true);
+    setRegisterError(null);
+    try {
+      // Fetch the schema content from the source subject
+      const detail = await schemaRegistryApi.getSchemaDetail(sourceSubject);
+      // Register it under the new topic-derived subject name
+      await schemaRegistryApi.registerSchema(targetSubject, detail.schema, detail.schemaType);
+      const verb = foundSubjects.includes(targetSubject) ? 'Updated' : 'Registered';
+      addToast({ type: 'success', message: `${verb} schema under ${targetSubject}` });
+      setSearch('');
+      setIsEditing(false);
+      // Refresh the lookup to pick up the new subject
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to register schema';
+      setRegisterError(msg);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const handleDeleteSubject = async (subject: string) => {
+    setDeleting(subject);
+    try {
+      await schemaRegistryApi.deleteSubject(subject);
+      addToast({ type: 'success', message: `Deleted subject ${subject}` });
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete subject';
+      addToast({ type: 'error', message: msg });
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const filteredSubjects = search.trim()
+    ? allSubjects.filter(
+        (s) =>
+          s.toLowerCase().includes(search.toLowerCase()) &&
+          !foundSubjects.includes(s)
+      )
+    : [];
 
   return (
     <div
@@ -520,19 +678,167 @@ function SchemaAssociation({ topicName, onNavigate }: SchemaAssociationProps) {
         marginTop: 8,
       }}
     >
+      {/* Section header with edit button */}
       <div
         style={{
-          fontSize: 10,
-          fontWeight: 600,
-          color: 'var(--color-text-tertiary)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
           marginBottom: 8,
         }}
       >
-        Schema Association
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: 'var(--color-text-tertiary)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+          }}
+        >
+          Schema Association
+        </span>
+        <div style={{ flex: 1 }} />
+        {!isEditing ? (
+          <button
+            onClick={handleStartEdit}
+            title="Register a schema for this topic"
+            aria-label="Register a schema for this topic"
+            style={{
+              border: '1px solid var(--color-border)',
+              background: 'transparent',
+              cursor: 'pointer',
+              padding: 3,
+              borderRadius: 4,
+              display: 'flex',
+              alignItems: 'center',
+              color: 'var(--color-text-tertiary)',
+              transition: 'color var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-primary)';
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)';
+            }}
+          >
+            <FiEdit2 size={11} aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            onClick={() => { setIsEditing(false); setRegisterError(null); }}
+            title="Cancel"
+            aria-label="Cancel"
+            style={{
+              border: '1px solid var(--color-border)',
+              background: 'transparent',
+              cursor: 'pointer',
+              padding: 3,
+              borderRadius: 4,
+              display: 'flex',
+              alignItems: 'center',
+              color: 'var(--color-text-tertiary)',
+            }}
+          >
+            <FiX size={11} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
+      {/* Edit mode: pick source schema to register under topic subject */}
+      {isEditing && (
+        <div style={{ marginBottom: 8 }}>
+          {/* Search existing subjects to copy schema from */}
+          <div style={{ position: 'relative' }}>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setRegisterError(null); }}
+              placeholder="Search existing subjects to copy schema from..."
+              autoFocus
+              disabled={registering}
+              style={{
+                width: '100%',
+                padding: '5px 8px',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                border: '1px solid var(--color-border)',
+                borderRadius: 4,
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-primary)',
+                outline: 'none',
+                boxSizing: 'border-box',
+                opacity: registering ? 0.6 : 1,
+              }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; }}
+            />
+            {filteredSubjects.length > 0 && !registering && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  maxHeight: 150,
+                  overflowY: 'auto',
+                  background: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  borderTop: 'none',
+                  borderRadius: '0 0 4px 4px',
+                  zIndex: 20,
+                  boxShadow: '0 4px 8px rgba(0,0,0,0.15)',
+                }}
+              >
+                {filteredSubjects.slice(0, 20).map((subject) => (
+                  <button
+                    key={subject}
+                    onMouseDown={(e) => { e.preventDefault(); handleRegisterFromSubject(subject); }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '5px 8px',
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                      textAlign: 'left',
+                      border: 'none',
+                      background: 'transparent',
+                      color: 'var(--color-text-primary)',
+                      cursor: 'pointer',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)';
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    }}
+                  >
+                    {subject}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {registering && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11, color: 'var(--color-text-tertiary)' }}>
+              <FiLoader size={11} className="history-spin" aria-hidden="true" />
+              Registering schema under {topicName}-value...
+            </div>
+          )}
+
+          {registerError && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--color-error)' }}>
+              {registerError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Display found subjects */}
       {loading ? (
         <div
           style={{
@@ -574,10 +880,51 @@ function SchemaAssociation({ topicName, onNavigate }: SchemaAssociationProps) {
               >
                 {subject}
               </span>
+              {foundSchemaDetails[subject] && (
+                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3,
+                  background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)',
+                  border: '1px solid var(--color-border)', fontFamily: 'monospace', flexShrink: 0 }}>
+                  v{foundSchemaDetails[subject].version}
+                </span>
+              )}
+              {foundSchemaDetails[subject] && (
+                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3,
+                  background: 'var(--color-bg-secondary)', color: 'var(--color-text-secondary)',
+                  border: '1px solid var(--color-border)', flexShrink: 0 }}>
+                  {foundSchemaDetails[subject].schemaType}
+                </span>
+              )}
+              <button
+                onClick={() => handleDeleteSubject(subject)}
+                disabled={deleting === subject}
+                title={`Delete subject ${subject}`}
+                aria-label={`Delete subject ${subject}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: 3,
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 4,
+                  background: 'transparent',
+                  color: 'var(--color-text-tertiary)',
+                  cursor: deleting === subject ? 'wait' : 'pointer',
+                  flexShrink: 0,
+                  opacity: deleting === subject ? 0.5 : 1,
+                  transition: 'color var(--transition-fast)',
+                }}
+                onMouseEnter={(e) => {
+                  if (deleting !== subject) (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)';
+                }}
+              >
+                {deleting === subject ? <FiLoader size={10} className="history-spin" aria-hidden="true" /> : <FiTrash2 size={10} aria-hidden="true" />}
+              </button>
               <button
                 onClick={() => onNavigate(subject)}
-                title={`View schema for ${subject}`}
-                aria-label={`Navigate to schema ${subject}`}
+                title="View in Schema Registry"
+                aria-label={`View ${subject} in Schema Registry`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -648,6 +995,27 @@ function SchemaAssociation({ topicName, onNavigate }: SchemaAssociationProps) {
 // TopicDetail main component
 // ---------------------------------------------------------------------------
 
+// Phase 12.6 F4: sessionStorage key for config table sort persistence
+const CONFIG_SORT_KEY = 'flink-ui.configTableSort';
+
+type ConfigSortColumn = 'key' | 'value' | 'default' | 'readOnly';
+interface ConfigSortState {
+  column: ConfigSortColumn;
+  direction: 'asc' | 'desc';
+}
+
+function readConfigSortFromSession(): ConfigSortState {
+  try {
+    const raw = sessionStorage.getItem(CONFIG_SORT_KEY);
+    if (!raw) return { column: 'key', direction: 'asc' };
+    const parsed = JSON.parse(raw) as ConfigSortState;
+    if (!parsed.column || !parsed.direction) return { column: 'key', direction: 'asc' };
+    return parsed;
+  } catch {
+    return { column: 'key', direction: 'asc' };
+  }
+}
+
 const TopicDetail: React.FC = () => {
   const selectedTopic = useWorkspaceStore((s) => s.selectedTopic);
   const loadTopics = useWorkspaceStore((s) => s.loadTopics);
@@ -658,6 +1026,9 @@ const TopicDetail: React.FC = () => {
   const setActiveNavItem = useWorkspaceStore((s) => s.setActiveNavItem);
   const navigateToSchemaSubject = useWorkspaceStore((s) => s.navigateToSchemaSubject);
   const focusedStatementId = useWorkspaceStore((s) => s.focusedStatementId);
+  // Phase 12.6 F1: Config audit log actions from store
+  const addConfigAuditEntry = useWorkspaceStore((s) => s.addConfigAuditEntry);
+  const getConfigAuditLogForTopic = useWorkspaceStore((s) => s.getConfigAuditLogForTopic);
 
   // Local config state (component-scoped, not store-level)
   const [configs, setConfigs] = useState<TopicConfig[]>([]);
@@ -690,6 +1061,12 @@ const TopicDetail: React.FC = () => {
 
   // Partition table collapse state
   const [partitionExpanded, setPartitionExpanded] = useState(false);
+
+  // Phase 12.6 F4: Config table sort state (persisted to sessionStorage)
+  const [configSort, setConfigSort] = useState<ConfigSortState>(readConfigSortFromSession);
+
+  // Phase 12.6 F1: Config History section state
+  const [configHistoryExpanded, setConfigHistoryExpanded] = useState(false);
 
   // Stale-response guard + HIGH-5: AbortController cancels in-flight requests when topic changes.
   const requestIdRef = useRef(0);
@@ -793,7 +1170,7 @@ const TopicDetail: React.FC = () => {
     setConfigValidationError(validateConfigValue(config.name, config.value ?? ''));
   }, []);
 
-  // Inline config edit: cancel
+  // Inline config edit: cancel (F1: no audit entry on cancel — AC-1.8)
   const handleCancelEdit = useCallback(() => {
     setEditingConfigName(null);
     setEditingValue('');
@@ -801,7 +1178,28 @@ const TopicDetail: React.FC = () => {
     setConfigValidationError(null);
   }, []);
 
+  // Phase 12.6 F4: Handle config table column sort click — persist to sessionStorage
+  const handleConfigSort = useCallback((column: ConfigSortColumn) => {
+    setConfigSort((prev) => {
+      const next: ConfigSortState = prev.column === column
+        ? { column, direction: prev.direction === 'asc' ? 'desc' : 'asc' }
+        : { column, direction: 'asc' };
+      try {
+        sessionStorage.setItem(CONFIG_SORT_KEY, JSON.stringify(next));
+      } catch {
+        // sessionStorage may be unavailable in some environments; silently ignore
+      }
+      return next;
+    });
+  }, []);
+
+  // Phase 12.6 F1: Toggle Config History section
+  const handleConfigHistoryToggle = useCallback(() => {
+    setConfigHistoryExpanded((v) => !v);
+  }, []);
+
   // Inline config edit: save
+  // Phase 12.6 F1: Captures oldValue before API call and writes audit entry on confirmed success
   const handleSaveEdit = useCallback(async () => {
     if (!selectedTopic || !editingConfigName) return;
     // F5: block save if client-side validation fails
@@ -810,12 +1208,22 @@ const TopicDetail: React.FC = () => {
       setConfigValidationError(validationErr);
       return;
     }
+    // F1: Capture oldValue now (before API call) — current value in the configs array
+    const existingConfig = configs.find((c) => c.name === editingConfigName);
+    const oldValue = existingConfig?.value ?? '';
     const mySaveId = ++saveRequestIdRef.current;
     setEditSaving(true);
     setEditError(null);
     try {
       await topicApi.alterTopicConfig(selectedTopic.topic_name, editingConfigName, editingValue);
       if (mySaveId !== saveRequestIdRef.current) return; // stale
+      // F1: Write audit log entry only on confirmed success (AC-1.1, AC-1.9)
+      addConfigAuditEntry({
+        topicName: selectedTopic.topic_name,
+        configKey: editingConfigName,
+        oldValue,
+        newValue: editingValue,
+      });
       setEditingConfigName(null);
       setEditingValue('');
       setConfigValidationError(null);
@@ -823,6 +1231,7 @@ const TopicDetail: React.FC = () => {
       await fetchConfigs();
     } catch (err) {
       if (mySaveId !== saveRequestIdRef.current) return;
+      // F1: No audit entry on API error (AC-1.9)
       const msg = (err as { response?: { data?: { message?: string } }; message?: string })
         ?.response?.data?.message ||
         (err as { message?: string })?.message ||
@@ -833,7 +1242,7 @@ const TopicDetail: React.FC = () => {
         setEditSaving(false);
       }
     }
-  }, [selectedTopic, editingConfigName, editingValue, fetchConfigs]);
+  }, [selectedTopic, editingConfigName, editingValue, configs, fetchConfigs, addConfigAuditEntry]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedTopic) return;
@@ -876,13 +1285,42 @@ const TopicDetail: React.FC = () => {
   if (!selectedTopic) return null;
 
   // ENH-3: apply search filter (name OR value substring match, case-insensitive)
-  const sortedConfigs = configSearch
+  // Phase 12.6 F4: Apply user-controlled column sort on top of filtered list
+  const filteredConfigs = configSearch
     ? configs.filter(
         (c) =>
           c.name.toLowerCase().includes(configSearch.toLowerCase()) ||
           (c.value ?? '').toLowerCase().includes(configSearch.toLowerCase())
       )
     : configs;
+
+  const sortedConfigs = [...filteredConfigs].sort((a, b) => {
+    let aVal = '';
+    let bVal = '';
+    switch (configSort.column) {
+      case 'key':
+        aVal = a.name;
+        bVal = b.name;
+        break;
+      case 'value':
+        aVal = a.value ?? '';
+        bVal = b.value ?? '';
+        break;
+      case 'default':
+        aVal = a.is_default ? '1' : '0';
+        bVal = b.is_default ? '1' : '0';
+        break;
+      case 'readOnly':
+        aVal = a.is_read_only ? '1' : '0';
+        bVal = b.is_read_only ? '1' : '0';
+        break;
+    }
+    const cmp = aVal.localeCompare(bVal);
+    return configSort.direction === 'asc' ? cmp : -cmp;
+  });
+
+  // Phase 12.6 F1: Audit log entries for current topic (most recent first)
+  const auditLogEntries = getConfigAuditLogForTopic(selectedTopic.topic_name);
 
   const schemaRegistryConfigured = !!env.schemaRegistryUrl;
 
@@ -924,7 +1362,8 @@ const TopicDetail: React.FC = () => {
         }}
       >
         {/* Partition badge — LOW-6: use CSS vars */}
-        <span
+        <BadgeTooltip
+          text={`${selectedTopic.partitions_count} partitions \u2014 data is split across this many parallel segments for throughput`}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -938,11 +1377,14 @@ const TopicDetail: React.FC = () => {
           }}
         >
           {selectedTopic.partitions_count}P
-        </span>
+        </BadgeTooltip>
 
-        {/* F6: Composite health score indicator — colored dot with tooltip */}
+        {/* Phase 12.6 F8: Composite health score indicator — colored dot with tooltip.
+            Green (healthy) topics show NO dot — consistent with TopicList.tsx behavior. */}
         {(() => {
           const health = computeHealthScore(selectedTopic);
+          // F8: Hide dot for healthy (green) topics — same guard as TopicList.tsx (AC-8.1)
+          if (health.level === 'green') return null;
           const colorMap = {
             green: 'var(--color-success)',
             yellow: 'var(--color-warning)',
@@ -959,7 +1401,7 @@ const TopicDetail: React.FC = () => {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 5,
-                cursor: health.warnings.length > 0 ? 'help' : 'default',
+                cursor: 'help',
               }}
               aria-label={`Health: ${health.level} — ${tooltipText}`}
             >
@@ -979,7 +1421,8 @@ const TopicDetail: React.FC = () => {
         })()}
 
         {/* Replication factor badge */}
-        <span
+        <BadgeTooltip
+          text={`Replication factor ${selectedTopic.replication_factor} \u2014 each message is copied to ${selectedTopic.replication_factor} brokers for durability`}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -993,7 +1436,7 @@ const TopicDetail: React.FC = () => {
           }}
         >
           RF:{selectedTopic.replication_factor}
-        </span>
+        </BadgeTooltip>
 
         <div style={{ flex: 1 }} />
 
@@ -1103,13 +1546,12 @@ const TopicDetail: React.FC = () => {
             border: '1px solid var(--color-error)',
             background: 'transparent',
             cursor: 'pointer',
-            padding: '3px 6px',
+            padding: 5,
             display: 'flex',
             alignItems: 'center',
-            gap: 4,
+            justifyContent: 'center',
             color: 'var(--color-error)',
             borderRadius: 4,
-            fontSize: 11,
             transition: 'background var(--transition-fast)',
           }}
           onMouseEnter={(e) => {
@@ -1119,8 +1561,7 @@ const TopicDetail: React.FC = () => {
             (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
           }}
         >
-          <FiTrash2 size={12} aria-hidden="true" />
-          Delete
+          <FiTrash2 size={14} aria-hidden="true" />
         </button>
       </div>
 
@@ -1372,6 +1813,14 @@ const TopicDetail: React.FC = () => {
           )}
         </div>
 
+        {/* Schema Association section — only render if Schema Registry is configured */}
+        {schemaRegistryConfigured && (
+          <SchemaAssociation
+            topicName={selectedTopic.topic_name}
+            onNavigate={handleSchemaNavigate}
+          />
+        )}
+
         {/* Divider + Configuration section header + ENH-3 search */}
         <div
           style={{
@@ -1509,6 +1958,93 @@ const TopicDetail: React.FC = () => {
               fontSize: 12,
             }}
           >
+            {/* Phase 12.6 F4: Sortable column headers with aria-sort */}
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                {(['key', 'value'] as ConfigSortColumn[]).map((col) => (
+                  <th
+                    key={col}
+                    onClick={() => handleConfigSort(col)}
+                    aria-sort={
+                      configSort.column === col
+                        ? configSort.direction === 'asc' ? 'ascending' : 'descending'
+                        : 'none'
+                    }
+                    style={{
+                      textAlign: 'left',
+                      padding: '4px 8px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--color-text-secondary)',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={`Sort by ${col}`}
+                  >
+                    {col === 'key' ? 'Key' : 'Value'}
+                    {configSort.column === col && (
+                      <span aria-hidden="true" style={{ marginLeft: 4 }}>
+                        {configSort.direction === 'asc' ? '\u2191' : '\u2193'}
+                      </span>
+                    )}
+                  </th>
+                ))}
+                <th
+                  onClick={() => handleConfigSort('default')}
+                  aria-sort={
+                    configSort.column === 'default'
+                      ? configSort.direction === 'asc' ? 'ascending' : 'descending'
+                      : 'none'
+                  }
+                  style={{
+                    textAlign: 'center',
+                    padding: '4px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Sort by default"
+                >
+                  Default
+                  {configSort.column === 'default' && (
+                    <span aria-hidden="true" style={{ marginLeft: 4 }}>
+                      {configSort.direction === 'asc' ? '\u2191' : '\u2193'}
+                    </span>
+                  )}
+                </th>
+                <th
+                  onClick={() => handleConfigSort('readOnly')}
+                  aria-sort={
+                    configSort.column === 'readOnly'
+                      ? configSort.direction === 'asc' ? 'ascending' : 'descending'
+                      : 'none'
+                  }
+                  style={{
+                    textAlign: 'center',
+                    padding: '4px 8px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: 'var(--color-text-secondary)',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Sort by read-only"
+                >
+                  R/O
+                  {configSort.column === 'readOnly' && (
+                    <span aria-hidden="true" style={{ marginLeft: 4 }}>
+                      {configSort.direction === 'asc' ? '\u2191' : '\u2193'}
+                    </span>
+                  )}
+                </th>
+                <th style={{ padding: '4px 8px', width: 24 }} />
+              </tr>
+            </thead>
             <tbody>
               {sortedConfigs.map((config) => {
                 const isDefault = config.is_default;
@@ -1634,9 +2170,14 @@ const TopicDetail: React.FC = () => {
                         whiteSpace: 'nowrap',
                         maxWidth: 130,
                       }}
-                      title={config.name}
                     >
-                      {config.name}
+                      {KAFKA_CONFIG_DESCRIPTIONS[config.name] ? (
+                        <BadgeTooltip text={KAFKA_CONFIG_DESCRIPTIONS[config.name]}>
+                          {config.name}
+                        </BadgeTooltip>
+                      ) : (
+                        <span title={config.name}>{config.name}</span>
+                      )}
                     </td>
 
                     {/* Config value column */}
@@ -1861,13 +2402,82 @@ const TopicDetail: React.FC = () => {
           </table>
         )}
 
-        {/* Schema Association section — only render if Schema Registry is configured */}
-        {schemaRegistryConfigured && (
-          <SchemaAssociation
-            topicName={selectedTopic.topic_name}
-            onNavigate={handleSchemaNavigate}
-          />
-        )}
+        {/* Phase 12.6 F1: Config History section — session-scoped audit log of config changes */}
+        <div style={{ borderTop: '1px solid var(--color-border)', marginTop: 0 }}>
+          <button
+            id="config-history-toggle"
+            aria-expanded={configHistoryExpanded}
+            aria-controls="config-history-content"
+            onClick={handleConfigHistoryToggle}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleConfigHistoryToggle(); } }}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '8px 12px',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-text-secondary)',
+              fontSize: 12,
+              fontWeight: 600,
+              textAlign: 'left',
+            }}
+          >
+            <span>Config History</span>
+            <span
+              aria-hidden="true"
+              style={{
+                display: 'inline-block',
+                transform: configHistoryExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s',
+                fontSize: 10,
+              }}
+            >
+              &#9660;
+            </span>
+          </button>
+          {configHistoryExpanded && (
+            <div
+              id="config-history-content"
+              role="region"
+              aria-label="Config history"
+              style={{ padding: '4px 12px 12px' }}
+            >
+              {auditLogEntries.length === 0 ? (
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+                  No config changes this session.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {auditLogEntries.map((entry, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                        color: 'var(--color-text-secondary)',
+                        padding: '2px 0',
+                        borderBottom: i < auditLogEntries.length - 1 ? '1px solid var(--color-border)' : 'none',
+                      }}
+                    >
+                      <span style={{ color: 'var(--color-text-tertiary)', marginRight: 8 }}>
+                        {new Date(entry.timestamp).toLocaleTimeString()}
+                      </span>
+                      <span style={{ color: 'var(--color-text-primary)', fontWeight: 600, marginRight: 8 }}>
+                        {entry.configKey}
+                      </span>
+                      <span style={{ color: 'var(--color-text-tertiary)' }}>{entry.oldValue}</span>
+                      <span style={{ color: 'var(--color-text-secondary)', margin: '0 6px' }}>{'\u2192'}</span>
+                      <span style={{ color: 'var(--color-success)' }}>{entry.newValue}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Partition Table — collapsible */}
         <PartitionTable

@@ -22,6 +22,9 @@ kafkaRestClient.interceptors.request.use(
     if (import.meta.env.DEV) {
       // LOW-1: only log in dev mode — never leak auth details in production
       console.log(`[Kafka REST] ${config.method?.toUpperCase()} ${config.url}`);
+      if (config.data && config.url?.includes('/records')) {
+        console.log(`[Kafka REST Body] ${JSON.stringify(config.data)}`);
+      }
     }
     return config;
   },

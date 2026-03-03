@@ -42,6 +42,7 @@ vi.mock('../../api/topic-api', () => ({
   alterTopicConfig: vi.fn(),
   getTopicPartitions: vi.fn(),
   getPartitionOffsets: vi.fn(),
+  produceRecord: vi.fn(),
 }));
 
 // Mock workspace-export utility (imported by the store)
@@ -672,5 +673,64 @@ describe('[@topic-store] navigateToSchemaSubject', () => {
 
     expect(schemaRegistryApi.getSchemaDetail).toHaveBeenCalledWith('payments-key', 'latest');
     expect(useWorkspaceStore.getState().selectedSchemaSubject).toEqual(mockSubject);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('[@schema-topic-link] navigateToTopic store action', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useWorkspaceStore.setState({
+      ...topicDefaults,
+      activeNavItem: 'schemas',
+    });
+  });
+
+  it('sets activeNavItem to "topics"', async () => {
+    useWorkspaceStore.setState({ topicList: [makeTopic({ topic_name: 'orders' })] });
+
+    await useWorkspaceStore.getState().navigateToTopic('orders');
+
+    expect(useWorkspaceStore.getState().activeNavItem).toBe('topics');
+  });
+
+  it('sets selectedTopic to the matching KafkaTopic when found', async () => {
+    const orders = makeTopic({ topic_name: 'orders' });
+    const payments = makeTopic({ topic_name: 'payments' });
+    useWorkspaceStore.setState({ topicList: [orders, payments] });
+
+    await useWorkspaceStore.getState().navigateToTopic('orders');
+
+    expect(useWorkspaceStore.getState().selectedTopic).toEqual(orders);
+  });
+
+  it('sets selectedTopic to null when topic name not found in populated list', async () => {
+    useWorkspaceStore.setState({ topicList: [makeTopic({ topic_name: 'orders' })] });
+
+    await useWorkspaceStore.getState().navigateToTopic('nonexistent');
+
+    expect(useWorkspaceStore.getState().activeNavItem).toBe('topics');
+    expect(useWorkspaceStore.getState().selectedTopic).toBeNull();
+  });
+
+  it('calls loadTopics when topicList is empty and does not throw', async () => {
+    useWorkspaceStore.setState({ topicList: [] });
+    vi.mocked(topicApi.listTopics).mockResolvedValueOnce([]);
+
+    await useWorkspaceStore.getState().navigateToTopic('orders');
+
+    expect(topicApi.listTopics).toHaveBeenCalledTimes(1);
+    expect(useWorkspaceStore.getState().activeNavItem).toBe('topics');
+  });
+
+  it('selects the topic after eager loadTopics populates the list', async () => {
+    const orders = makeTopic({ topic_name: 'orders' });
+    useWorkspaceStore.setState({ topicList: [] });
+    vi.mocked(topicApi.listTopics).mockResolvedValueOnce([orders]);
+
+    await useWorkspaceStore.getState().navigateToTopic('orders');
+
+    expect(useWorkspaceStore.getState().selectedTopic).toEqual(orders);
   });
 });

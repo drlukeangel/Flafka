@@ -1,18 +1,23 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { TreeNavigator } from './components/TreeNavigator';
 import { EditorCell } from './components/EditorCell';
 import { HistoryPanel } from './components/HistoryPanel';
 import { HelpPanel } from './components/HelpPanel/HelpPanel';
-import { Dropdown } from './components/Dropdown';
 import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
-import { FiDatabase, FiPlay, FiPlus, FiCpu, FiMoon, FiSun, FiEdit2 } from 'react-icons/fi';
+import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown } from 'react-icons/fi';
+import { ComputePoolDashboard } from './components/ComputePoolDashboard/ComputePoolDashboard';
 import { NavRail } from './components/NavRail/NavRail';
 import SchemaPanel from './components/SchemaPanel/SchemaPanel';
 import TopicPanel from './components/TopicPanel/TopicPanel';
+import { SnippetsPanel } from './components/SnippetsPanel/SnippetsPanel';
+import ArtifactsPanel from './components/ArtifactsPanel/ArtifactsPanel';
+import { ExamplesPanel } from './components/ExamplesPanel/ExamplesPanel';
+import { StreamsPanel } from './components/StreamsPanel/StreamsPanel';
+import { JobsPage } from './components/JobsPage/JobsPage';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import './App.css';
 
@@ -26,10 +31,13 @@ function getPoolDotClass(phase: string | null): string {
 }
 
 // Helper: format display text for compute pool status
-function getPoolStatusText(phase: string | null, cfu: number | null): string {
+function getPoolStatusText(phase: string | null, cfu: number | null, maxCfu: number | null): string {
   if (!phase) return 'Loading...';
   if (phase === 'UNKNOWN') return 'Unknown';
-  const cfuSuffix = cfu !== null && cfu > 0 ? ` · ${cfu} CFU` : '';
+  if (cfu !== null && cfu > 0 && maxCfu !== null && maxCfu > 0) {
+    return `${phase} \u00b7 ${cfu}/${maxCfu} CFU`;
+  }
+  const cfuSuffix = cfu !== null && cfu > 0 ? ` \u00b7 ${cfu} CFU` : '';
   return `${phase}${cfuSuffix}`;
 }
 
@@ -50,8 +58,11 @@ function App() {
     setActiveNavItem,
     computePoolPhase,
     computePoolCfu,
+    computePoolMaxCfu,
+    computePoolDashboardOpen,
+    toggleComputePoolDashboard,
+    loadStatementTelemetry,
     theme,
-    workspaceName,
     hasSeenOnboardingHint,
     sessionProperties,
     setSessionProperty,
@@ -63,14 +74,14 @@ function App() {
     loadDatabases,
     addStatement,
     runAllStatements,
-    toggleTheme,
     loadComputePoolStatus,
     loadStatementHistory,
-    setWorkspaceName,
     dismissOnboardingHint,
     importWorkspace,
     addToast,
     selectedSchemaSubject,
+    streamsPanelOpen,
+    toggleStreamsPanel,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
@@ -82,8 +93,6 @@ function App() {
   const [helpPanelOpen, setHelpPanelOpen] = useState(false);
   const [helpTopicId, setHelpTopicId] = useState<string | undefined>(undefined);
 
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [editTitleValue, setEditTitleValue] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importConfirmation, setImportConfirmation] = useState<{
@@ -92,6 +101,69 @@ function App() {
   } | null>(null);
 
   const totalRowsCached = statements.reduce((sum, s) => sum + (s.results?.length ?? 0), 0);
+
+  // ── Side-panel resize (drag handle) ────────────────────────────────────────
+  const [sidePanelWidth, setSidePanelWidth] = useState<number | null>(null);
+  const isDragging = useRef<'side' | 'stream' | false>(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
+  const sidePanelRef = useRef<HTMLElement>(null);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = 'side';
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = sidePanelRef.current?.offsetWidth ?? 300;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  // ── Streams-panel resize (drag handle) ──────────────────────────────────────
+  const [streamsPanelWidth, setStreamsPanelWidth] = useState<number | null>(null);
+  const streamsPanelRef = useRef<HTMLElement>(null);
+
+  const handleStreamsResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDragging.current = 'stream';
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = streamsPanelRef.current?.offsetWidth ?? 420;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const delta = e.clientX - dragStartX.current;
+      if (isDragging.current === 'side') {
+        const newWidth = Math.min(Math.max(dragStartWidth.current + delta, 200), 800);
+        setSidePanelWidth(newWidth);
+      } else if (isDragging.current === 'stream') {
+        // Streams panel is on right — dragging left makes it wider (invert delta)
+        const newWidth = Math.min(Math.max(dragStartWidth.current - delta, 280), 900);
+        setStreamsPanelWidth(newWidth);
+      }
+    };
+    const handleMouseUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  // Reset custom width when switching nav panels
+  useEffect(() => {
+    setSidePanelWidth(null);
+  }, [activeNavItem]);
+
+  // Width preserved across open/close since panel stays mounted
 
   useEffect(() => {
     // Sync theme to DOM attribute on mount and whenever it changes
@@ -112,6 +184,16 @@ function App() {
     }, 30000);
     return () => clearInterval(interval);
   }, []);
+
+  // Poll telemetry while dashboard is open (every 60s)
+  useEffect(() => {
+    if (!computePoolDashboardOpen) return;
+    loadStatementTelemetry();
+    const interval = setInterval(() => {
+      loadStatementTelemetry();
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [computePoolDashboardOpen]);
 
   // Keyboard listener for help panel
   useEffect(() => {
@@ -144,36 +226,6 @@ function App() {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [helpPanelOpen, activeNavItem, setActiveNavItem]);
-
-  const handleTitleClick = () => {
-    setEditTitleValue(workspaceName);
-    setIsEditingTitle(true);
-  };
-
-  const handleTitleSave = () => {
-    const trimmed = editTitleValue.trim();
-    if (trimmed) {
-      setWorkspaceName(trimmed);
-    }
-    setIsEditingTitle(false);
-  };
-
-  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      setIsEditingTitle(false);
-      const trimmed = editTitleValue.trim();
-      if (trimmed) {
-        setWorkspaceName(trimmed);
-      }
-    } else if (e.key === 'Escape') {
-      setIsEditingTitle(false);
-    }
-  };
-
-  const handleTitleBlur = () => {
-    if (!isEditingTitle) return;
-    handleTitleSave();
-  };
 
   const handleExportWorkspace = () => {
     const state = useWorkspaceStore.getState();
@@ -255,69 +307,82 @@ function App() {
       <header className="app-header">
         <div className="header-left">
           <div className="logo">
-            <FiDatabase size={24} />
-            <div className="logo-title-group" onClick={!isEditingTitle ? handleTitleClick : undefined}>
-              {isEditingTitle ? (
-                <input
-                  className="logo-editable-input"
-                  value={editTitleValue}
-                  onChange={(e) => setEditTitleValue(e.target.value)}
-                  onKeyDown={handleTitleKeyDown}
-                  onBlur={handleTitleBlur}
-                  autoFocus
-                  maxLength={60}
-                />
-              ) : (
-                <>
-                  <span className="logo-text">{workspaceName}</span>
-                  <FiEdit2 className="logo-edit-icon" size={14} />
-                </>
-              )}
+            <img src="/src/img/fob-logo-sm.png" alt="F.o.B" className="logo-icon" />
+            <div className="logo-title-group">
+              <span className="logo-text">F.o.B</span>
             </div>
           </div>
         </div>
         <div className="header-center">
-          <div className="environment-info compute-pool-status">
+          <button
+            id="compute-pool-badge"
+            className={`environment-info compute-pool-status compute-pool-status--clickable${computePoolDashboardOpen ? ' compute-pool-status--active' : ''}`}
+            onClick={toggleComputePoolDashboard}
+            role="button"
+            tabIndex={0}
+            aria-expanded={computePoolDashboardOpen}
+            aria-controls="compute-pool-panel"
+            aria-label={`Compute pool status: ${computePoolPhase || 'loading'}, ${computePoolCfu ?? 0} of ${computePoolMaxCfu ?? 0} CFU. Click to view running statements`}
+          >
             <FiCpu size={14} />
             <span
               className={`pool-status-dot ${getPoolDotClass(computePoolPhase)}`}
               title={`Compute Pool: ${env.computePoolId}`}
             />
-            <span>{getPoolStatusText(computePoolPhase, computePoolCfu)}</span>
-          </div>
-        </div>
-        <div className="header-right">
-          <button
-            className="header-btn"
-            onClick={toggleTheme}
-            title="Toggle dark/light theme"
-            aria-label="Toggle dark/light theme"
-          >
-            {theme === 'light' ? <FiMoon size={18} /> : <FiSun size={18} />}
+            <span>{getPoolStatusText(computePoolPhase, computePoolCfu, computePoolMaxCfu)}</span>
+            <FiChevronDown size={14} className={`pool-chevron${computePoolDashboardOpen ? ' pool-chevron--open' : ''}`} />
           </button>
         </div>
+        <div className="header-right">
+          {activeNavItem === 'workspace' && (
+            <>
+              <button
+                className="run-all-btn"
+                onClick={() => {
+                  dismissOnboardingHint();
+                  runAllStatements();
+                }}
+                disabled={!hasRunnableStatements}
+                title="Run all idle/errored statements sequentially"
+              >
+                <FiPlay size={16} />
+                <span>Run All</span>
+              </button>
+              <button
+                className="add-cell-btn"
+                onClick={() => {
+                  addStatement();
+                  dismissOnboardingHint();
+                }}
+              >
+                <FiPlus size={16} />
+                <span>Add Statement</span>
+              </button>
+            </>
+          )}
+        </div>
       </header>
+
+      {/* Compute Pool Dashboard — push-down panel */}
+      <ComputePoolDashboard isOpen={computePoolDashboardOpen} />
 
       <div className="app-content">
         {/* Navigation Rail */}
         <NavRail />
 
         {/* Side Panel - conditionally rendered based on active nav item */}
-        {activeNavItem !== 'workspace' && (
+        {activeNavItem !== 'workspace' && activeNavItem !== 'jobs' && (
           <aside
+            ref={sidePanelRef}
             className="side-panel"
-            style={
-              activeNavItem === 'schemas'
-                ? {
-                    width: selectedSchemaSubject
-                      ? 'var(--schema-panel-width)'
-                      : 'var(--side-panel-width)',
-                    minWidth: selectedSchemaSubject
-                      ? 'var(--schema-panel-width)'
-                      : 'var(--side-panel-width)',
-                  }
-                : undefined
-            }
+            style={{
+              width: sidePanelWidth
+                ? sidePanelWidth
+                : activeNavItem === 'schemas' && selectedSchemaSubject
+                  ? 'var(--schema-panel-width)'
+                  : 'var(--side-panel-width)',
+              minWidth: 200,
+            }}
           >
             <div className="side-panel-content">
               {activeNavItem === 'tree' && <TreeNavigator />}
@@ -342,6 +407,34 @@ function App() {
                 <div className="settings-side-panel">
                   <div className="settings-section">
                     <span className="settings-section-title">Environment</span>
+                    <div className="settings-row">
+                      <span className="settings-label">Catalog</span>
+                      <span className="settings-value">
+                        <select
+                          className="settings-select"
+                          value={catalog}
+                          onChange={(e) => setCatalog(e.target.value)}
+                        >
+                          {catalogs.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </span>
+                    </div>
+                    <div className="settings-row">
+                      <span className="settings-label">Database</span>
+                      <span className="settings-value">
+                        <select
+                          className="settings-select"
+                          value={database}
+                          onChange={(e) => setDatabase(e.target.value)}
+                        >
+                          {databases.map((d) => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      </span>
+                    </div>
                     <div className="settings-row">
                       <span className="settings-label">Cloud Provider</span>
                       <span className="settings-value">{env.cloudProvider.toUpperCase() || '\u2014'}</span>
@@ -442,69 +535,66 @@ function App() {
               )}
               {activeNavItem === 'topics' && <TopicPanel />}
               {activeNavItem === 'schemas' && <SchemaPanel />}
+              {activeNavItem === 'artifacts' && <ArtifactsPanel />}
+              {activeNavItem === 'snippets' && <SnippetsPanel />}
+              {activeNavItem === 'examples' && <ExamplesPanel />}
             </div>
+            {/* Drag handle for resizing */}
+            <div
+              className="side-panel-resize-handle"
+              onMouseDown={handleResizeStart}
+            />
           </aside>
         )}
 
-        {/* Main Content - Editor Area */}
+        {/* Main Content */}
         <main className="main-content">
-          {/* Toolbar with Catalog/Database selectors */}
-          <div className="editor-toolbar">
-            <div className="toolbar-selectors">
-              <Dropdown
-                label="Catalog"
-                value={catalog}
-                options={catalogs}
-                onChange={setCatalog}
-              />
-              <Dropdown
-                label="Database"
-                value={database}
-                options={databases}
-                onChange={setDatabase}
-              />
-            </div>
-            <div className="toolbar-actions">
-              <button
-                className="run-all-btn"
-                onClick={() => {
-                  dismissOnboardingHint();
-                  runAllStatements();
-                }}
-                disabled={!hasRunnableStatements}
-                title="Run all idle/errored statements sequentially"
-              >
-                <FiPlay size={16} />
-                <span>Run All</span>
-              </button>
-              <button
-                className="add-cell-btn"
-                onClick={() => {
-                  addStatement();
-                  dismissOnboardingHint();
-                }}
-              >
-                <FiPlus size={16} />
-                <span>Add Statement</span>
-              </button>
-            </div>
-          </div>
+          {activeNavItem === 'jobs' ? (
+            <JobsPage />
+          ) : (
+            <>
+              {/* Editor Cells */}
+              <div className="editor-cells">
+                {statements.map((statement, index) => (
+                  <EditorCell
+                    key={statement.id}
+                    statement={statement}
+                    index={index}
+                  />
+                ))}
+                {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
+              </div>
 
-          {/* Editor Cells */}
-          <div className="editor-cells">
-            {statements.map((statement, index) => (
-              <EditorCell
-                key={statement.id}
-                statement={statement}
-                index={index}
-              />
-            ))}
-            {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
-          </div>
+              {/* Footer Status */}
+              <FooterStatus />
+            </>
+          )}
 
-          {/* Footer Status */}
-          <FooterStatus />
+          {/* Floating handle to toggle streams panel */}
+          <button
+            className="stream-panel-handle"
+            onClick={() => toggleStreamsPanel()}
+            aria-label={streamsPanelOpen ? 'Close streams panel' : 'Open streams panel'}
+            title="Streams"
+          >
+            <FiActivity size={16} />
+          </button>
         </main>
+
+        {/* Streams Panel (right side) — always mounted for persistence */}
+        <aside
+          ref={streamsPanelRef}
+          className={`stream-panel-aside${streamsPanelOpen ? '' : ' stream-panel-aside--hidden'}`}
+          role="complementary"
+          aria-label="Streams panel"
+          style={streamsPanelOpen && streamsPanelWidth ? { width: streamsPanelWidth } : undefined}
+        >
+          <div
+            className="stream-panel-resize-handle"
+            onMouseDown={handleStreamsResizeStart}
+          />
+          <StreamsPanel />
+        </aside>
       </div>
 
       {/* Hidden file input */}

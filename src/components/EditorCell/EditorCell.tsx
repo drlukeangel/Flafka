@@ -4,6 +4,7 @@ import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { editorRegistry } from './editorRegistry';
 import { formatSQL } from '../../utils/sqlFormatter';
+import { formatBytes, formatNumber } from '../../utils/format';
 import type { SQLStatement, TreeNode, Column } from '../../types';
 import {
   FiPlay,
@@ -19,8 +20,11 @@ import {
   FiRefreshCw,
   FiMoreVertical,
   FiAlignLeft,
+  FiBookmark,
+  FiCheck,
 } from 'react-icons/fi';
 import ResultsTable from '../ResultsTable/ResultsTable';
+import { ScanModePanel } from '../ScanModePanel/ScanModePanel';
 
 // ---------------------------------------------------------------------------
 // SQL Autocomplete - module-level disposable (prevents duplicate providers on HMR)
@@ -123,9 +127,14 @@ interface EditorCellProps {
   index: number;
 }
 
+const ensureDate = (d: Date | string | undefined): Date | undefined =>
+  d ? (d instanceof Date ? d : new Date(d)) : undefined;
+
 const formatDuration = (startedAt?: Date, lastExecutedAt?: Date): string => {
   if (!startedAt || !lastExecutedAt) return '';
-  const ms = Math.max(0, lastExecutedAt.getTime() - startedAt.getTime());
+  const start = ensureDate(startedAt)!;
+  const end = ensureDate(lastExecutedAt)!;
+  const ms = Math.max(0, end.getTime() - start.getTime());
   const seconds = ms / 1000;
   if (seconds < 60) return `${seconds.toFixed(1)}s`;
   const minutes = Math.floor(seconds / 60);
@@ -152,14 +161,18 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     toggleStatementCollapse,
     executeStatement,
     cancelStatement,
+    refreshStatementStatus,
     addStatement,
     reorderStatements,
     dismissOnboardingHint,
     updateStatementLabel,
     addToast,
+    addSnippet,
   } = useWorkspaceStore();
 
   const theme = useWorkspaceStore((s) => s.theme);
+  const statementTelemetry = useWorkspaceStore((s) => s.statementTelemetry);
+  const loadStatementTelemetry = useWorkspaceStore((s) => s.loadStatementTelemetry);
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const cellRef = useRef<HTMLDivElement>(null);
@@ -171,6 +184,46 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editLabelValue, setEditLabelValue] = useState(statement.label ?? '');
   const labelCancelledRef = useRef(false);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const [resultsHeight, setResultsHeight] = useState<number | null>(null);
+
+  const hasJobName = !!statement.label?.trim();
+
+  const handleResultsResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = resultsRef.current?.offsetHeight ?? 250;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientY - startY;
+      const newHeight = Math.max(100, Math.min(startHeight + delta, window.innerHeight - 100));
+      setResultsHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  // Auto-enter label edit mode for new (unlabeled) cells
+  useEffect(() => {
+    if (!statement.label?.trim() && statement.status === 'IDLE' && !statement.lastExecutedCode) {
+      setIsEditingLabel(true);
+    }
+  }, []); // Only on mount
+
+  // Sync Monaco readOnly option when job name changes
+  useEffect(() => {
+    editorRef.current?.updateOptions({ readOnly: !hasJobName });
+  }, [hasJobName]);
 
   // Auto-close error details panel when status changes away from error
   useEffect(() => {
@@ -467,6 +520,11 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const isModified = statement.lastExecutedCode != null &&
     statement.code.trim() !== statement.lastExecutedCode.trim();
 
+  // Match telemetry data for this statement (if running)
+  const telemetry = statement.statementName
+    ? statementTelemetry.find(t => t.statementName === statement.statementName)
+    : undefined;
+
   const getStatusBadge = (clickable: boolean = false) => {
     const badge = (() => {
       switch (statement.status) {
@@ -538,6 +596,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     <div
       ref={cellRef}
       className={cellClassName}
+      data-statement-name={statement.statementName || undefined}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -561,24 +620,45 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             <FiPlus size={16} />
           </button>
           <span className="cell-number">#{index + 1}</span>
-          <div className="cell-label-group" onClick={!isEditingLabel ? handleLabelClick : undefined}>
+          <div className={`cell-label-group${isEditingLabel ? ' cell-label-group--editing' : ''}`} onClick={!isEditingLabel ? handleLabelClick : undefined}>
             {isEditingLabel ? (
-              <input
-                className="cell-label-input"
-                value={editLabelValue}
-                onChange={(e) => setEditLabelValue(e.target.value)}
-                onKeyDown={handleLabelKeyDown}
-                onBlur={handleLabelBlur}
-                autoFocus
-                maxLength={50}
-                placeholder="Add label..."
-              />
+              <div className="cell-label-edit-wrapper">
+                <input
+                  className={`cell-label-input${editLabelValue && !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(editLabelValue) ? ' cell-label-input--invalid' : ''}`}
+                  value={editLabelValue}
+                  onChange={(e) => {
+                    // Auto-lowercase, strip invalid chars except hyphens
+                    const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+                    setEditLabelValue(val);
+                  }}
+                  onKeyDown={handleLabelKeyDown}
+                  onBlur={handleLabelBlur}
+                  autoFocus
+                  maxLength={72}
+                  placeholder="wobbling-narwhal-472"
+                  title="Lowercase letters, numbers, hyphens only (max 72 chars)"
+                />
+                <button
+                  className="cell-label-save-btn"
+                  onMouseDown={(e) => {
+                    e.preventDefault(); // Prevent blur before save
+                    handleLabelSave();
+                  }}
+                  title="Save name"
+                  aria-label="Save job name"
+                >
+                  <FiCheck size={14} />
+                </button>
+                <div className="cell-label-hint">
+                  Lowercase letters, numbers, hyphens &middot; max 72 chars &middot; e.g. <code>wobbling-narwhal-472</code>
+                </div>
+              </div>
             ) : (
               <>
                 {statement.label ? (
                   <span className="cell-label">{statement.label}</span>
                 ) : (
-                  <span className="cell-label-placeholder">Add label...</span>
+                  <span className={`cell-label-placeholder${!hasJobName ? ' cell-label-placeholder--required' : ''}`}>Job name...</span>
                 )}
               </>
             )}
@@ -604,6 +684,19 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
 
         <div className="cell-header-right">
           <div className="cell-actions">
+            {statement.statementName && (
+              <button
+                className="icon-btn"
+                onClick={() => {
+                  refreshStatementStatus(statement.id);
+                  loadStatementTelemetry();
+                }}
+                title="Refresh status + metrics"
+                aria-label="Refresh statement status"
+              >
+                <FiRefreshCw size={14} />
+              </button>
+            )}
             <button
               className="icon-btn"
               onClick={() => {
@@ -627,6 +720,28 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             </button>
             <button
               className="icon-btn"
+              onClick={() => {
+                const sql = statement.code?.trim();
+                if (!sql) {
+                  addToast({ type: 'warning', message: 'Cannot save an empty statement as a snippet.' });
+                  return;
+                }
+                const label = statement.label?.trim() || `Statement #${index + 1}`;
+                const result = addSnippet(label, sql);
+                if (result.success) {
+                  addToast({ type: 'success', message: `Snippet "${label}" saved.`, duration: 3000 });
+                } else {
+                  addToast({ type: 'error', message: result.error ?? 'Failed to save snippet.' });
+                }
+              }}
+              title="Save as snippet"
+              disabled={!statement.code?.trim()}
+              aria-label="Save as snippet"
+            >
+              <FiBookmark size={14} />
+            </button>
+            <button
+              className="icon-btn"
               onClick={handleDuplicate}
               title="Duplicate statement"
             >
@@ -647,15 +762,22 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               </button>
             )}
           </div>
+          <ScanModePanel statementId={statement.id} />
           <button
             className={`run-btn ${isRunning ? 'running' : ''}`}
             onClick={handleRun}
-            disabled={statement.status === 'PENDING'}
+            disabled={statement.status === 'PENDING' || !hasJobName}
+            title={!hasJobName ? 'Enter a job name first' : undefined}
           >
             {isRunning ? (
               <>
                 <FiSquare size={14} />
                 <span>Stop</span>
+              </>
+            ) : statement.lastExecutedCode != null ? (
+              <>
+                <FiRefreshCw size={14} />
+                <span>Restart</span>
               </>
             ) : (
               <>
@@ -679,7 +801,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
       </div>
 
       <div className={`cell-content-wrapper ${statement.isCollapsed ? 'collapsed' : ''}`}>
-        <div className="cell-editor">
+        <div className={`cell-editor${!hasJobName ? ' cell-editor--locked' : ''}`}>
           <Editor
             height={`${editorHeight}px`}
             defaultLanguage="sql"
@@ -699,6 +821,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               lineDecorationsWidth: 0,
               lineNumbersMinChars: 3,
               renderLineHighlight: 'line',
+              readOnly: !hasJobName,
               scrollbar: {
                 vertical: 'visible',
                 horizontal: 'auto',
@@ -707,25 +830,30 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               },
             }}
           />
+          {!hasJobName && (
+            <div className="cell-editor-locked-overlay" onClick={handleLabelClick}>
+              Enter a job name to start editing
+            </div>
+          )}
         </div>
 
         {statement.startedAt && (
           <div className="statement-status-bar">
             <div className="status-bar-item">
               <span className="status-bar-label">START TIME:</span>
-              <span>{statement.startedAt.toLocaleTimeString()}</span>
+              <span>{ensureDate(statement.startedAt)!.toLocaleTimeString()}</span>
             </div>
 
             {statement.lastExecutedAt && ['COMPLETED', 'ERROR', 'CANCELLED'].includes(statement.status) && (
               <>
                 <div className="status-bar-item">
                   <span className="status-bar-label">FINISH TIME:</span>
-                  <span>{statement.lastExecutedAt.toLocaleTimeString()}</span>
+                  <span>{ensureDate(statement.lastExecutedAt)!.toLocaleTimeString()}</span>
                 </div>
                 {statement.startedAt && (
                   <div className="status-bar-item">
                     <span className="status-bar-label">DURATION:</span>
-                    <span>{formatDuration(statement.startedAt as Date, statement.lastExecutedAt as Date)}</span>
+                    <span>{formatDuration(ensureDate(statement.startedAt), ensureDate(statement.lastExecutedAt))}</span>
                   </div>
                 )}
               </>
@@ -740,7 +868,45 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               <div className="status-bar-item">
                 <span className="status-bar-label">STATEMENT:</span>
                 <span className="statement-name">{statement.statementName}</span>
+                <button
+                  className="status-refresh-btn"
+                  onClick={() => {
+                    refreshStatementStatus(statement.id);
+                    loadStatementTelemetry();
+                  }}
+                  title="Refresh status + metrics from server"
+                  aria-label="Refresh statement status and metrics"
+                >
+                  <FiRefreshCw size={11} />
+                </button>
               </div>
+            )}
+
+            {isRunning && telemetry && (
+              <>
+                <div className="status-bar-item">
+                  <span className="status-bar-label">CFU:</span>
+                  <span className="status-bar-metric">{telemetry.cfus !== null ? telemetry.cfus : '\u2014'}</span>
+                </div>
+                <div className="status-bar-item">
+                  <span className="status-bar-label">IN:</span>
+                  <span className="status-bar-metric">{formatNumber(telemetry.recordsIn)}</span>
+                </div>
+                <div className="status-bar-item">
+                  <span className="status-bar-label">OUT:</span>
+                  <span className="status-bar-metric">{formatNumber(telemetry.recordsOut)}</span>
+                </div>
+                {telemetry.pendingRecords !== null && telemetry.pendingRecords > 0 && (
+                  <div className="status-bar-item">
+                    <span className="status-bar-label">PENDING:</span>
+                    <span className="status-bar-metric status-bar-warning">{formatNumber(telemetry.pendingRecords)}</span>
+                  </div>
+                )}
+                <div className="status-bar-item">
+                  <span className="status-bar-label">STATE:</span>
+                  <span className="status-bar-metric">{formatBytes(telemetry.stateSizeBytes)}</span>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -767,6 +933,17 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
                 )}
                 <div className="error-details-message">
                   <pre>{statement.error}</pre>
+                  <button
+                    className="error-copy-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(statement.error || '');
+                      addToast({ type: 'success', message: 'Error copied to clipboard', duration: 2000 });
+                    }}
+                    title="Copy error message"
+                    aria-label="Copy error to clipboard"
+                  >
+                    <FiCopy size={12} />
+                  </button>
                 </div>
                 <button className="retry-btn" onClick={() => executeStatement(statement.id)}>
                   ↻ Retry
@@ -791,13 +968,23 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
         )}
 
         {hasResults && (
-          <div className="cell-results">
-            <ResultsTable
-              data={statement.results || []}
-              columns={statement.columns || []}
-              totalRowsReceived={statement.totalRowsReceived}
-              statementIndex={index}
-              statementName={statement.statementName}
+          <div className="cell-results-wrapper">
+            <div
+              className="cell-results"
+              ref={resultsRef}
+              style={resultsHeight ? { maxHeight: resultsHeight, height: resultsHeight } : undefined}
+            >
+              <ResultsTable
+                data={statement.results || []}
+                columns={statement.columns || []}
+                totalRowsReceived={statement.totalRowsReceived}
+                statementIndex={index}
+                statementName={statement.statementName}
+              />
+            </div>
+            <div
+              className="cell-results-resize-handle"
+              onMouseDown={handleResultsResizeStart}
             />
           </div>
         )}

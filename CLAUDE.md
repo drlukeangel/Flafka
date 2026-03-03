@@ -195,7 +195,7 @@ All agent definitions live in `docs/agents/`. Each file contains: role, responsi
 | **Test Completion** | Haiku | [TEST-COMPLETION.md](docs/agents/TEST-COMPLETION.md) | 4C | Post-ship test finisher, Tier 2 implementation, coverage completion |
 | **Interview Analyst** | Sonnet | [INTERVIEW-ANALYST.md](docs/agents/INTERVIEW-ANALYST.md) | 4D | Customer voice, user interviews, roadmap input gathering |
 | **Agent Definition Optimizer** | Sonnet | [AGENT-DEFINITION-OPTIMIZER.md](docs/agents/AGENT-DEFINITION-OPTIMIZER.md) | 4E | Self-improving agent profiles, convergence detection, continuous refinement |
-| **Workflow Manager** | Sonnet | [WORKFLOW-MANAGER.md](docs/agents/WORKFLOW-MANAGER.md) | Continuous | Workflow orchestrator, gate enforcer, status file maintainer |
+| **Workflow Manager** | Opus | [WORKFLOW-MANAGER.md](docs/agents/WORKFLOW-MANAGER.md) | Continuous | Workflow orchestrator, gate enforcer, status file maintainer |
 | **Feature Organizer & Ranker** | Sonnet | [FEATURE-ORGANIZER-RANKER.md](docs/agents/FEATURE-ORGANIZER-RANKER.md) | Continuous | Feedback grouping, story pointing, release batching, roadmap auto-update |
 
 ---

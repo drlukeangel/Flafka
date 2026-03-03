@@ -113,6 +113,7 @@ describe('[@store] [@execute] executeStatement - polling loop', () => {
           code: 'SELECT a, b, c FROM my_table',
           status: 'IDLE',
           createdAt: new Date(),
+          label: 'test-job',
         },
       ],
       toasts: [],

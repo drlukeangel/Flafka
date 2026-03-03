@@ -6,9 +6,15 @@ export async function listSubjects(): Promise<string[]> {
   return response.data;
 }
 
-export async function getSchemaDetail(subject: string, version: number | 'latest' = 'latest'): Promise<SchemaSubject> {
+// Phase 12.6 F5: optional signal for AbortController support (diff fetch cancellation)
+export async function getSchemaDetail(
+  subject: string,
+  version: number | 'latest' = 'latest',
+  options?: { signal?: AbortSignal }
+): Promise<SchemaSubject> {
   const response = await schemaRegistryClient.get<SchemaSubject>(
-    `/subjects/${encodeURIComponent(subject)}/versions/${version}`
+    `/subjects/${encodeURIComponent(subject)}/versions/${version}`,
+    options?.signal ? { signal: options.signal } : undefined
   );
   const data = response.data;
   // Confluent SR API omits schemaType for AVRO schemas (AVRO is the default)
@@ -88,6 +94,17 @@ export async function setCompatibilityMode(subject: string, level: Compatibility
   const response = await schemaRegistryClient.put<{ compatibility: string }>(
     `/config/${encodeURIComponent(subject)}`,
     { compatibility: level }
+  );
+  return response.data;
+}
+
+export async function getSubjectsForSchemaId(
+  id: number,
+  options?: { signal?: AbortSignal }
+): Promise<string[]> {
+  const response = await schemaRegistryClient.get<string[]>(
+    `/schemas/ids/${id}/subjects`,
+    options?.signal ? { signal: options.signal } : undefined
   );
   return response.data;
 }

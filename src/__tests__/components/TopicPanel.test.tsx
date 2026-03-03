@@ -85,6 +85,10 @@ vi.mock('../../store/workspaceStore', () => ({
       // LOW-2: focus restore
       lastFocusedTopicName: mockLastFocusedTopicName,
       setLastFocusedTopicName: mockSetLastFocusedTopicName,
+      // Phase 12.6 F1: config audit log
+      configAuditLog: [],
+      addConfigAuditEntry: vi.fn(),
+      getConfigAuditLogForTopic: vi.fn().mockReturnValue([]),
     }
     return typeof selector === 'function' ? selector(state) : state
   },
@@ -103,6 +107,7 @@ vi.mock('../../api/topic-api', () => ({
   alterTopicConfig: vi.fn().mockResolvedValue(undefined),
   getTopicPartitions: vi.fn().mockResolvedValue([]),
   getPartitionOffsets: vi.fn().mockResolvedValue({ beginning_offset: 0, end_offset: 100 }),
+  produceRecord: vi.fn(),
 }))
 
 // ---------------------------------------------------------------------------
@@ -1432,16 +1437,22 @@ describe('[@topic-detail] health indicator badge', () => {
   it('shows green health dot when partitions_count >= 2', () => {
     mockSelectedTopic = makeTopic({ partitions_count: 6 })
     render(<TopicDetail />)
-    // F6: green = all checks pass
+    // Phase 12.6 AC-8.1: green (healthy) topics show NO dot — zero visual noise.
+    // Verify the topic detail renders but no health dot is present.
     const healthSpan = document.querySelector('[aria-label*="Health: green"]')
-    expect(healthSpan).toBeInTheDocument()
+    expect(healthSpan).not.toBeInTheDocument()
+    // Topic should still render (name visible)
+    expect(screen.getByText('orders-v1')).toBeInTheDocument()
   })
 
   it('shows green health dot when partitions_count === 2', () => {
     mockSelectedTopic = makeTopic({ partitions_count: 2 })
     render(<TopicDetail />)
+    // Phase 12.6 AC-8.1: green (healthy) topics show NO dot — zero visual noise.
     const healthSpan = document.querySelector('[aria-label*="Health: green"]')
-    expect(healthSpan).toBeInTheDocument()
+    expect(healthSpan).not.toBeInTheDocument()
+    // Topic should still render (name visible)
+    expect(screen.getByText('orders-v1')).toBeInTheDocument()
   })
 })
 
