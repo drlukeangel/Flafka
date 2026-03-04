@@ -29,7 +29,7 @@ function formatDate(dateStr?: string): string {
 }
 
 const ArtifactList: React.FC = () => {
-  const artifactList = useWorkspaceStore((s) => s.artifactList);
+  const artifactList = useWorkspaceStore((s) => s.artifactList ?? []);
   const artifactLoading = useWorkspaceStore((s) => s.artifactLoading);
   const artifactUploading = useWorkspaceStore((s) => s.artifactUploading);
   const artifactError = useWorkspaceStore((s) => s.artifactError);

@@ -31,7 +31,7 @@ export function ExamplesPanel() {
   const addStatement = useWorkspaceStore((s) => s.addStatement);
   const addToast = useWorkspaceStore((s) => s.addToast);
   const setActiveNavItem = useWorkspaceStore((s) => s.setActiveNavItem);
-  const artifactList = useWorkspaceStore((s) => s.artifactList);
+  const artifactList = useWorkspaceStore((s) => s.artifactList ?? []);
   const loadArtifacts = useWorkspaceStore((s) => s.loadArtifacts);
   const saveCurrentWorkspace = useWorkspaceStore((s) => s.saveCurrentWorkspace);
   const setWorkspaceName = useWorkspaceStore((s) => s.setWorkspaceName);
