@@ -2344,8 +2344,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ...(keepRunning ? { statementName: s.statementName, startedAt: s.startedAt } : {}),
           };
         }),
-        catalog: state.catalog,
-        database: state.database,
         lastSavedAt: state.lastSavedAt,
         theme: state.theme,
         workspaceName: state.workspaceName,
@@ -2367,6 +2365,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         if (!state?.savedWorkspaces) {
           state.savedWorkspaces = [];
         }
+        // Migration: always use env catalog/database (don't persist stale values)
+        if (env.flinkCatalog) state.catalog = env.flinkCatalog;
+        if (env.flinkDatabase) state.database = env.flinkDatabase;
         // Migration: rename legacy default workspace names
         if (state?.workspaceName === 'SQL Workspace' || state?.workspaceName === 'Flafka') {
           state.workspaceName = 'Workspace';
