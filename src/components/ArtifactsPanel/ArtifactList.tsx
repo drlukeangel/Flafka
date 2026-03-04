@@ -15,6 +15,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { FiPackage, FiSearch, FiUpload, FiLoader, FiAlertCircle } from 'react-icons/fi';
 import UploadArtifact from './UploadArtifact';
 
+const EMPTY_ARTIFACTS: never[] = [];
+
 function formatDate(dateStr?: string): string {
   if (!dateStr) return '\u2014';
   try {
@@ -29,7 +31,7 @@ function formatDate(dateStr?: string): string {
 }
 
 const ArtifactList: React.FC = () => {
-  const artifactList = useWorkspaceStore((s) => s.artifactList ?? []);
+  const artifactList = useWorkspaceStore((s) => s.artifactList) ?? EMPTY_ARTIFACTS;
   const artifactLoading = useWorkspaceStore((s) => s.artifactLoading);
   const artifactUploading = useWorkspaceStore((s) => s.artifactUploading);
   const artifactError = useWorkspaceStore((s) => s.artifactError);

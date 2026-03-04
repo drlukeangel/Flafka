@@ -10,6 +10,8 @@
  */
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
+
+const EMPTY_ARTIFACTS: never[] = [];
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { getExampleCards } from '../../data/exampleCards';
 import { generateFunName } from '../../utils/names';
@@ -31,7 +33,7 @@ export function ExamplesPanel() {
   const addStatement = useWorkspaceStore((s) => s.addStatement);
   const addToast = useWorkspaceStore((s) => s.addToast);
   const setActiveNavItem = useWorkspaceStore((s) => s.setActiveNavItem);
-  const artifactList = useWorkspaceStore((s) => s.artifactList ?? []);
+  const artifactList = useWorkspaceStore((s) => s.artifactList) ?? EMPTY_ARTIFACTS;
   const loadArtifacts = useWorkspaceStore((s) => s.loadArtifacts);
   const saveCurrentWorkspace = useWorkspaceStore((s) => s.saveCurrentWorkspace);
   const setWorkspaceName = useWorkspaceStore((s) => s.setWorkspaceName);
