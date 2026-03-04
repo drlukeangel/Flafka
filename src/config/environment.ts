@@ -27,6 +27,8 @@ export const getEnv = (): EnvironmentConfig => {
     'VITE_COMPUTE_POOL_ID',
     'VITE_FLINK_API_KEY',
     'VITE_FLINK_API_SECRET',
+    'VITE_FLINK_CATALOG',
+    'VITE_FLINK_DATABASE',
   ];
 
   const missing = requiredVars.filter(key => !import.meta.env[key]);
@@ -46,10 +48,10 @@ export const getEnv = (): EnvironmentConfig => {
     flinkApiSecret: import.meta.env.VITE_FLINK_API_SECRET || '',
     metricsKey: import.meta.env.VITE_METRICS_KEY || '',
     metricsSecret: import.meta.env.VITE_METRICS_SECRET || '',
-    flinkCatalog: import.meta.env.VITE_FLINK_CATALOG || 'default',
-    flinkDatabase: import.meta.env.VITE_FLINK_DATABASE || 'public',
-    cloudProvider: import.meta.env.VITE_CLOUD_PROVIDER || 'aws',
-    cloudRegion: import.meta.env.VITE_CLOUD_REGION || 'us-east-1',
+    flinkCatalog: import.meta.env.VITE_FLINK_CATALOG || '',
+    flinkDatabase: import.meta.env.VITE_FLINK_DATABASE || '',
+    cloudProvider: import.meta.env.VITE_CLOUD_PROVIDER || '',
+    cloudRegion: import.meta.env.VITE_CLOUD_REGION || '',
     schemaRegistryUrl: import.meta.env.VITE_SCHEMA_REGISTRY_URL || '',
     schemaRegistryKey: import.meta.env.VITE_SCHEMA_REGISTRY_KEY || '',
     schemaRegistrySecret: import.meta.env.VITE_SCHEMA_REGISTRY_SECRET || '',
@@ -57,7 +59,7 @@ export const getEnv = (): EnvironmentConfig => {
     kafkaRestEndpoint: import.meta.env.VITE_KAFKA_REST_ENDPOINT || '',
     kafkaApiKey: import.meta.env.VITE_KAFKA_API_KEY || '',
     kafkaApiSecret: import.meta.env.VITE_KAFKA_API_SECRET || '',
-    employeeId: import.meta.env.VITE_EMPLOYEE_ID || 'f696969',
+    employeeId: import.meta.env.VITE_EMPLOYEE_ID || '',
   };
 };
 

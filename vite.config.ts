@@ -134,7 +134,7 @@ export default defineConfig(({ mode }) => {
           }
         },
         '/api/schema-registry': {
-          target: env.VITE_SCHEMA_REGISTRY_URL || 'https://psrc-placeholder.us-east-1.aws.confluent.cloud',
+          target: env.VITE_SCHEMA_REGISTRY_URL || 'http://localhost',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/schema-registry/, ''),
           configure: (proxy) => {
@@ -158,7 +158,7 @@ export default defineConfig(({ mode }) => {
           }
         },
         '/api/kafka': {
-          target: env.VITE_KAFKA_REST_ENDPOINT || 'https://pkc-placeholder.us-east-1.aws.confluent.cloud',
+          target: env.VITE_KAFKA_REST_ENDPOINT || 'http://localhost',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/kafka/, ''),
           configure: (proxy) => {
