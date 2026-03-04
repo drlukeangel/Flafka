@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => {
 
   const cloudRegion = env.VITE_CLOUD_REGION || 'us-east-1'
   const cloudProvider = env.VITE_CLOUD_PROVIDER || 'aws'
-  const flinkApiUrl = `https://flink.${cloudRegion}.${cloudProvider}.confluent.cloud`
+  const flinkApiUrl = env.VITE_FLINK_API_URL || `https://flink.${cloudRegion}.${cloudProvider}.confluent.cloud`
 
   return {
     plugins: [
@@ -121,7 +121,7 @@ export default defineConfig(({ mode }) => {
           }
         },
         '/api/fcpm': {
-          target: 'https://api.confluent.cloud',
+          target: env.VITE_CONFLUENT_API_URL || 'https://api.confluent.cloud',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/fcpm/, '/fcpm'),
           configure: (proxy) => {
@@ -146,7 +146,7 @@ export default defineConfig(({ mode }) => {
           }
         },
         '/api/artifact': {
-          target: 'https://api.confluent.cloud',
+          target: env.VITE_CONFLUENT_API_URL || 'https://api.confluent.cloud',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/artifact/, '/artifact'),
           configure: (proxy) => {
@@ -170,7 +170,7 @@ export default defineConfig(({ mode }) => {
           }
         },
         '/api/telemetry': {
-          target: 'https://api.telemetry.confluent.cloud',
+          target: env.VITE_TELEMETRY_API_URL || 'https://api.telemetry.confluent.cloud',
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/telemetry/, ''),
           configure: (proxy) => {
