@@ -10,11 +10,11 @@
  *   2. Query execution (INSERT INTO ... SELECT)
  */
 
-import { executeSQL, pollForResults } from '../api/flink-api';
 import * as artifactApi from '../api/artifact-api';
 import { env } from '../config/environment';
 import { generateLoanApplicationDataset } from '../data/loan-sample-generator';
 import { generateFunName } from '../utils/names';
+import { createTable } from './example-helpers';
 import type { FlinkArtifact, NavItem } from '../types';
 
 // ---- Base names (prefixed with unique ID at runtime) ----
@@ -23,7 +23,9 @@ const BASE_INPUT_TOPIC = 'LOAN-APPLICATIONS';
 const BASE_SCALAR_OUTPUT_TOPIC = 'LOAN-DETAILS';
 const BASE_EXPLODE_OUTPUT_TOPIC = 'LOAN-TRADELINES';
 const JAVA_UDF_CLASS = 'com.fm.flink.udf.LoanDetailExtractor';
+const JAVA_EXPLODE_CLASS = 'com.fm.flink.udf.LoanDetailExploder';
 const BASE_JAVA_FN = 'LoanDetailExtract';
+const BASE_JAVA_EXPLODE_FN = 'LoanDetailExplode';
 const PYTHON_EXTRACT_CLASS = 'loan_detail_udf.extractor.loan_detail_extract';
 const PYTHON_EXPLODE_CLASS = 'loan_detail_udf.exploder.loan_detail_explode';
 const BASE_PYTHON_EXTRACT_FN = 'loan_detail_extract';
@@ -44,6 +46,8 @@ interface StoreSlice {
   artifactList: FlinkArtifact[];
   loadArtifacts: () => Promise<void>;
   statements: Array<{ id: string }>;
+  addStreamCard: (topicName: string, initialMode?: 'consume' | 'produce-consume', preselectedDatasetId?: string, datasetTemplate?: { type: string; count: number }) => void;
+  setStreamsPanelOpen: (open: boolean) => void;
 }
 
 // ---- Unique ID generator ----
@@ -55,16 +59,6 @@ function generateRunId(): string {
 }
 
 // ---- Helpers ----
-
-async function createTable(
-  tableName: string,
-  ddl: string,
-  onProgress: (s: string) => void,
-): Promise<void> {
-  onProgress(`Creating table ${tableName}...`);
-  const stmt = await executeSQL(ddl);
-  await pollForResults(stmt.name);
-}
 
 async function uploadArtifact(
   store: StoreSlice,
@@ -165,7 +159,11 @@ function explodeOutputDDL(topicName: string): string {
 )`;
 }
 
-function createFunctionSQL(fnName: string, entryClass: string, artifactId: string, version: string): string {
+function createFunctionSQL(fnName: string, entryClass: string, artifactId: string, version: string, language?: 'PYTHON'): string {
+  if (language === 'PYTHON') {
+    // Python UDFs: LANGUAGE PYTHON before USING JAR, no version suffix
+    return `CREATE FUNCTION \`${fnName}\` AS '${entryClass}' LANGUAGE PYTHON USING JAR 'confluent-artifact://${artifactId}'`;
+  }
   return `CREATE FUNCTION \`${fnName}\` AS '${entryClass}' USING JAR 'confluent-artifact://${artifactId}/${version}'`;
 }
 
@@ -181,9 +179,26 @@ SELECT
   \`${fnName}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') AS credit_score,
   \`${fnName}\`(json_payload, 'underwriting.risk_assessment.risk_level') AS risk_level,
   \`${fnName}\`(json_payload, 'underwriting.risk_assessment.dti_ratio') AS dti_ratio,
-  \`${fnName}\`(json_payload, 'collateral.items[0].valuation.appraised_value') AS appraised_value,
+  \`${fnName}\`(json_payload, 'application.collateral.appraised_value') AS appraised_value,
   \`${fnName}\`(json_payload, 'underwriting.fraud_check.result') AS fraud_result
 FROM \`${inputTopic}\``;
+}
+
+function tableExplodeJavaSQL(
+  extractFn: string, explodeFn: string, inputTopic: string, outputTopic: string,
+): string {
+  return `INSERT INTO \`${outputTopic}\`
+SELECT
+  CAST(CONCAT(loan_id, '-', CAST(t.array_index AS STRING)) AS BYTES) AS \`key\`,
+  loan_id,
+  t.array_index AS tradeline_index,
+  \`${extractFn}\`(t.element_json, 'account_type') AS account_type,
+  \`${extractFn}\`(t.element_json, 'lender') AS lender,
+  \`${extractFn}\`(t.element_json, 'balance') AS balance,
+  \`${extractFn}\`(t.element_json, 'limit') AS credit_limit,
+  \`${extractFn}\`(t.element_json, 'status') AS status
+FROM \`${inputTopic}\`,
+  LATERAL TABLE(\`${explodeFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.tradelines')) AS t`;
 }
 
 function tableExplodeSQL(
@@ -210,13 +225,13 @@ FROM \`${inputTopic}\`,
 export async function setupScalarExtractExample(
   store: StoreSlice,
   onProgress: (step: string) => void,
-): Promise<void> {
+): Promise<{ runId: string }> {
   const rid = generateRunId();
   const fnName = `${rid}_${BASE_JAVA_FN}`;
-  const inputTopic = `${rid}-${BASE_INPUT_TOPIC}`;
-  const outputTopic = `${rid}-${BASE_SCALAR_OUTPUT_TOPIC}`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const outputTopic = `${BASE_SCALAR_OUTPUT_TOPIC}-${rid}`;
   const datasetSubject = `${inputTopic}-value`;
-  const datasetName = `Loan Applications (${rid})`;
+  const datasetName = `${BASE_INPUT_TOPIC}-${rid}`;
 
   // Step 1: Upload artifact (reuses existing by class if available)
   const artifact = await uploadArtifact(
@@ -232,8 +247,9 @@ export async function setupScalarExtractExample(
   onProgress('Generating test data...');
   const records = generateLoanApplicationDataset(200);
   const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
   store.addSchemaDataset({
-    id: crypto.randomUUID(),
+    id: datasetId,
     name: datasetName,
     schemaSubject: datasetSubject,
     records: records as unknown as Record<string, unknown>[],
@@ -247,12 +263,24 @@ export async function setupScalarExtractExample(
   const createFnSQL = createFunctionSQL(fnName, JAVA_UDF_CLASS, artifact.id, version);
 
   onProgress('Adding queries to workspace...');
-  store.addStatement(createFnSQL, undefined, `${rid}-function-creation`);
+  store.addStatement(createFnSQL, undefined, `function-creation-${rid}`);
   store.addStatement(
     scalarExtractSQL(fnName, inputTopic, outputTopic),
     undefined,
-    `${rid}-exec-udf`,
+    `exec-udf-${rid}`,
   );
+  // Cell 3: view output topic results as they flow in
+  store.addStatement(
+    `SELECT * FROM \`${outputTopic}\` LIMIT 50`,
+    undefined,
+    `view-output-${rid}`,
+  );
+
+  // Open stream panel with input topic card in Produce mode, dataset pre-selected
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
 }
 
 // ===========================================================================
@@ -262,14 +290,14 @@ export async function setupScalarExtractExample(
 export async function setupTableExplodeExample(
   store: StoreSlice,
   onProgress: (step: string) => void,
-): Promise<void> {
+): Promise<{ runId: string }> {
   const rid = generateRunId();
   const extractFn = `${rid}_${BASE_PYTHON_EXTRACT_FN}`;
   const explodeFn = `${rid}_${BASE_PYTHON_EXPLODE_FN}`;
-  const inputTopic = `${rid}-${BASE_INPUT_TOPIC}`;
-  const outputTopic = `${rid}-${BASE_EXPLODE_OUTPUT_TOPIC}`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const outputTopic = `${BASE_EXPLODE_OUTPUT_TOPIC}-${rid}`;
   const datasetSubject = `${inputTopic}-value`;
-  const datasetName = `Loan Applications (${rid})`;
+  const datasetName = `${BASE_INPUT_TOPIC}-${rid}`;
 
   // Step 1: Upload artifact (reuses existing by class if available)
   const artifact = await uploadArtifact(
@@ -285,8 +313,9 @@ export async function setupTableExplodeExample(
   onProgress('Generating test data...');
   const records = generateLoanApplicationDataset(200);
   const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
   store.addSchemaDataset({
-    id: crypto.randomUUID(),
+    id: datasetId,
     name: datasetName,
     schemaSubject: datasetSubject,
     records: records as unknown as Record<string, unknown>[],
@@ -297,16 +326,81 @@ export async function setupTableExplodeExample(
   // Step 5: Add two workspace cells (user runs these)
   const version = artifact.versions?.[0]?.version;
   if (!version) throw new Error(`Artifact ${artifact.id} has no versions yet — try again in a moment`);
-  const createFnsSQL = [
-    createFunctionSQL(extractFn, PYTHON_EXTRACT_CLASS, artifact.id, version),
-    createFunctionSQL(explodeFn, PYTHON_EXPLODE_CLASS, artifact.id, version),
-  ].join(';\n');
-
   onProgress('Adding queries to workspace...');
-  store.addStatement(createFnsSQL, undefined, `${rid}-function-creation`);
+  // Two separate cells — Confluent API only accepts one statement at a time
+  store.addStatement(createFunctionSQL(extractFn, PYTHON_EXTRACT_CLASS, artifact.id, version, 'PYTHON'), undefined, `fn-extract-${rid}`);
+  store.addStatement(createFunctionSQL(explodeFn, PYTHON_EXPLODE_CLASS, artifact.id, version, 'PYTHON'), undefined, `fn-explode-${rid}`);
   store.addStatement(
     tableExplodeSQL(extractFn, explodeFn, inputTopic, outputTopic),
     undefined,
-    `${rid}-exec-udf`,
+    `exec-udf-${rid}`,
   );
+  // Cell 3: view output topic results as they flow in
+  store.addStatement(
+    `SELECT * FROM \`${outputTopic}\` LIMIT 50`,
+    undefined,
+    `view-output-${rid}`,
+  );
+
+  // Open stream panel with input topic card in Produce mode, dataset pre-selected
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
+}
+// ===========================================================================
+// Part C: Java Table Explode Setup
+// ===========================================================================
+
+export async function setupJavaTableExplodeExample(
+  store: StoreSlice,
+  onProgress: (step: string) => void,
+): Promise<{ runId: string }> {
+  const rid = generateRunId();
+  const extractFn = `${rid}_${BASE_JAVA_FN}`;
+  const explodeFn = `${rid}_${BASE_JAVA_EXPLODE_FN}`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const outputTopic = `${BASE_EXPLODE_OUTPUT_TOPIC}-${rid}`;
+  const datasetSubject = `${inputTopic}-value`;
+  const datasetName = `${BASE_INPUT_TOPIC}-${rid}`;
+
+  // Find existing JAR artifact by class — skips upload if already present
+  const artifact = await uploadArtifact(
+    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+
+  await createTable(inputTopic, inputTableDDL(inputTopic), onProgress);
+  await createTable(outputTopic, explodeOutputDDL(outputTopic), onProgress);
+
+  onProgress('Generating test data...');
+  const records = generateLoanApplicationDataset(200);
+  const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
+  store.addSchemaDataset({
+    id: datasetId,
+    name: datasetName,
+    schemaSubject: datasetSubject,
+    records: records as unknown as Record<string, unknown>[],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const version = artifact.versions?.[0]?.version;
+  if (!version) throw new Error(`Artifact ${artifact.id} has no versions yet — try again in a moment`);
+
+  onProgress('Adding queries to workspace...');
+  // Cell 1: Register scalar extract function
+  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, artifact.id, version), undefined, `fn-extract-${rid}`);
+  // Cell 2: Register table explode function (same artifact, different class)
+  store.addStatement(createFunctionSQL(explodeFn, JAVA_EXPLODE_CLASS, artifact.id, version), undefined, `fn-explode-${rid}`);
+  // Cell 3: LATERAL TABLE query
+  store.addStatement(tableExplodeJavaSQL(extractFn, explodeFn, inputTopic, outputTopic), undefined, `exec-udf-${rid}`);
+  // Cell 4: View output
+  store.addStatement(`SELECT * FROM \`${outputTopic}\` LIMIT 50`, undefined, `view-output-${rid}`);
+
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
 }

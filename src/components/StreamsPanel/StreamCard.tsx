@@ -31,11 +31,13 @@ function generateValueForType(type: string): unknown {
 interface StreamCardProps {
   cardId: string;
   topicName: string;
+  initialMode?: 'consume' | 'produce-consume';
+  initialDatasetId?: string;
   onRemove: () => void;
   onDuplicate: () => void;
 }
 
-export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamCardProps) {
+export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, onRemove, onDuplicate }: StreamCardProps) {
   const catalog = useWorkspaceStore((s) => s.catalog);
   const database = useWorkspaceStore((s) => s.database);
   const executeBackgroundStatement = useWorkspaceStore((s) => s.executeBackgroundStatement);
@@ -43,10 +45,11 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
   const backgroundStatements = useWorkspaceStore((s) => s.backgroundStatements);
   const schemaDatasets = useWorkspaceStore((s) => s.schemaDatasets);
   const navigateToSchemaDatasets = useWorkspaceStore((s) => s.navigateToSchemaDatasets);
+  const updateStreamCardConfig = useWorkspaceStore((s) => s.updateStreamCardConfig);
 
-  const [mode, setMode] = useState<'consume' | 'produce-consume'>('consume');
-  const [dataSource, setDataSource] = useState<'synthetic' | 'dataset'>('synthetic');
-  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  const [mode, setMode] = useState<'consume' | 'produce-consume'>(initialMode ?? 'consume');
+  const [dataSource, setDataSource] = useState<'synthetic' | 'dataset'>(initialDatasetId ? 'dataset' : 'synthetic');
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(initialDatasetId ?? null);
   const [burstMode, setBurstMode] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [datasetProgress, setDatasetProgress] = useState<{ sent: number; total: number } | null>(null);
@@ -57,6 +60,8 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(50);
   const [scanMode, setScanMode] = useState<'earliest-offset' | 'latest-offset'>('earliest-offset');
+  const [customSql, setCustomSql] = useState(() => `SELECT * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\` LIMIT 50`);
+  const [isSqlDirty, setIsSqlDirty] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -69,16 +74,23 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
     (s) => s.contextId === contextId
   );
 
-  // Build SQL query - simple SELECT * (partition filtering done client-side)
+  // Build default SQL query
   const buildFetchSQL = useCallback(() => {
     return `SELECT * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\` LIMIT ${limit}`;
   }, [catalog, database, topicName, limit]);
+
+  // Sync customSql when limit changes (only if not manually edited)
+  useEffect(() => {
+    if (!isSqlDirty) {
+      setCustomSql(buildFetchSQL());
+    }
+  }, [limit, buildFetchSQL, isSqlDirty]);
 
   // Fetch messages
   const handleFetch = async () => {
     setError(null);
     try {
-      await executeBackgroundStatement(contextId, buildFetchSQL(), scanMode);
+      await executeBackgroundStatement(contextId, customSql, scanMode, topicName);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch messages');
     }
@@ -238,13 +250,12 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
     if (!selectedDataset) return;
     setError(null);
 
-    // Look up schema for serialization
-    let schemaDetail;
+    // Try schema lookup first; DDL-created topics have no registered schema — fall back to raw JSON
+    let schemaDetail: { schema: string; schemaType: string; id: number } | null = null;
     try {
       schemaDetail = await schemaRegistryApi.getSchemaDetail(schemaSubject, 'latest');
     } catch {
-      setError(`No schema found for ${schemaSubject}. Check if the subject uses a different naming strategy.`);
-      return;
+      // No schema registered — will produce records as raw JSON
     }
 
     setIsProducing(true);
@@ -255,12 +266,14 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
       try {
         await Promise.all(
           selectedDataset.records.map(async (rec) => {
-            const binaryData = serializeToConfluentBinary(
-              rec,
-              schemaDetail.schema,
-              schemaDetail.schemaType,
-              schemaDetail.id
-            );
+            const binaryData = schemaDetail
+              ? serializeToConfluentBinary(
+                  rec,
+                  schemaDetail.schema,
+                  schemaDetail.schemaType,
+                  schemaDetail.id
+                )
+              : null;
             const record: ProduceRecord = {
               key: { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } },
               value: binaryData
@@ -298,12 +311,14 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
         }
         try {
           const rec = selectedDataset.records[idx];
-          const binaryData = serializeToConfluentBinary(
-            rec,
-            schemaDetail.schema,
-            schemaDetail.schemaType,
-            schemaDetail.id
-          );
+          const binaryData = schemaDetail
+            ? serializeToConfluentBinary(
+                rec,
+                schemaDetail.schema,
+                schemaDetail.schemaType,
+                schemaDetail.id
+              )
+            : null;
           const record: ProduceRecord = {
             key: { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } },
             value: binaryData
@@ -334,6 +349,7 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
     }
     setMode(newMode);
     setDatasetProgress(null);
+    updateStreamCardConfig(cardId, { mode: newMode });
   };
 
   // Navigate to schema datasets panel
@@ -406,12 +422,25 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
       {/* Produce controls section (only in produce-consume mode) */}
       {mode === 'produce-consume' && !isCollapsed && (
         <div className="stream-card-produce-controls">
-          {/* Source selector */}
+          {/* Source selector row — play button first */}
           <div className="stream-card-source-row">
+            <button
+              className={`stream-card-btn${isProducing ? ' stream-card-btn--active' : ''}`}
+              onClick={isProducing ? handleStopProduce : (dataSource === 'dataset' ? handleStartDatasetProduce : handleStartProduce)}
+              aria-label={isProducing ? 'Stop producer' : 'Start producer'}
+              title={isProducing ? 'Stop' : 'Start'}
+              disabled={dataSource === 'dataset' && !selectedDataset}
+            >
+              {isProducing ? <FiSquare size={14} /> : <FiPlay size={14} />}
+            </button>
             <select
               className="stream-card-select"
               value={dataSource}
-              onChange={(e) => setDataSource(e.target.value as 'synthetic' | 'dataset')}
+              onChange={(e) => {
+                const newSource = e.target.value as 'synthetic' | 'dataset';
+                setDataSource(newSource);
+                updateStreamCardConfig(cardId, { dataSource: newSource });
+              }}
               aria-label="Data source"
             >
               <option value="synthetic">Synthetic</option>
@@ -423,7 +452,11 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
                 <select
                   className="stream-card-select"
                   value={selectedDatasetId ?? ''}
-                  onChange={(e) => setSelectedDatasetId(e.target.value || null)}
+                  onChange={(e) => {
+                    const newId = e.target.value || null;
+                    setSelectedDatasetId(newId);
+                    updateStreamCardConfig(cardId, { selectedDatasetId: newId });
+                  }}
                   aria-label="Select dataset"
                   disabled={topicDatasets.length === 0}
                 >
@@ -474,26 +507,19 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
             </div>
           )}
 
-          {/* Play/Stop + progress */}
-          <div className="stream-card-produce-actions">
-            <button
-              className={`stream-card-btn${isProducing ? ' stream-card-btn--active' : ''}`}
-              onClick={isProducing ? handleStopProduce : (dataSource === 'dataset' ? handleStartDatasetProduce : handleStartProduce)}
-              aria-label={isProducing ? 'Stop producer' : 'Start producer'}
-              title={isProducing ? 'Stop' : 'Start'}
-              disabled={dataSource === 'dataset' && !selectedDataset}
-            >
-              {isProducing ? <FiSquare size={14} /> : <FiPlay size={14} />}
-            </button>
-            {isProducing && dataSource === 'synthetic' && (
-              <span className="stream-card-progress" aria-live="polite">{produceCount} sent</span>
-            )}
-            {datasetProgress && (
-              <span className="stream-card-progress" aria-live="polite">
-                {datasetProgress.sent}/{datasetProgress.total} {datasetProgress.sent === datasetProgress.total ? 'complete' : 'sent'}
-              </span>
-            )}
-          </div>
+          {/* Progress */}
+          {(isProducing || datasetProgress) && (
+            <div className="stream-card-produce-actions">
+              {isProducing && dataSource === 'synthetic' && (
+                <span className="stream-card-progress" aria-live="polite">{produceCount} sent</span>
+              )}
+              {datasetProgress && (
+                <span className="stream-card-progress" aria-live="polite">
+                  {datasetProgress.sent}/{datasetProgress.total} {datasetProgress.sent === datasetProgress.total ? 'complete' : 'sent'}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -501,10 +527,17 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
       {!isCollapsed && (
         <div className="stream-card-body">
           <div className="stream-card-controls">
+            <span className="stream-card-msg-count" aria-live="polite">
+              {resultCount} msgs
+            </span>
             {mode === 'consume' && (
               <select
                 value={scanMode}
-                onChange={(e) => setScanMode(e.target.value as 'earliest-offset' | 'latest-offset')}
+                onChange={(e) => {
+                  const newScanMode = e.target.value as 'earliest-offset' | 'latest-offset';
+                  setScanMode(newScanMode);
+                  updateStreamCardConfig(cardId, { scanMode: newScanMode });
+                }}
                 className="stream-card-select"
                 aria-label="Scan mode"
               >
@@ -512,9 +545,6 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
                 <option value="latest-offset">Latest</option>
               </select>
             )}
-            <span className="stream-card-msg-count" aria-live="polite">
-              {resultCount} msgs
-            </span>
             <select
               value={limit}
               onChange={(e) => setLimit(Number(e.target.value))}
@@ -546,6 +576,27 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
             </button>
           </div>
 
+          {/* SQL Editor */}
+          <div className="stream-card-sql-row">
+            <textarea
+              className="stream-card-sql-editor"
+              value={customSql}
+              onChange={(e) => { setCustomSql(e.target.value); setIsSqlDirty(true); }}
+              spellCheck={false}
+              rows={2}
+              aria-label="SQL query"
+            />
+            {isSqlDirty && (
+              <button
+                className="stream-card-sql-reset"
+                onClick={() => { setCustomSql(buildFetchSQL()); setIsSqlDirty(false); }}
+                title="Reset to default query"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
           {/* Results Table */}
           {resultRows.length > 0 && bgStatement?.columns && (
             <StreamCardTable
@@ -554,7 +605,11 @@ export function StreamCard({ cardId, topicName, onRemove, onDuplicate }: StreamC
             />
           )}
 
-          {bgStatement && resultRows.length === 0 && bgStatement.status !== 'PENDING' && bgStatement.status !== 'RUNNING' && (
+          {bgStatement && bgStatement.status === 'ERROR' && (
+            <div className="stream-card-error">{bgStatement.error || 'Query failed'}</div>
+          )}
+
+          {bgStatement && resultRows.length === 0 && bgStatement.status !== 'PENDING' && bgStatement.status !== 'RUNNING' && bgStatement.status !== 'ERROR' && (
             <div className="stream-card-no-data">No messages</div>
           )}
 

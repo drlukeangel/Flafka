@@ -161,7 +161,7 @@ export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
         </div>
       </div>
 
-      {!historyLoading && !historyError && statementHistory.length > 0 && (
+      {!historyError && statementHistory.length > 0 && (
         <div className="history-filter-strip">
           {FILTER_CATEGORIES.map(cat => (
             <button
@@ -176,7 +176,7 @@ export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
       )}
 
       <div className="history-list">
-        {historyLoading && (
+        {historyLoading && statementHistory.length === 0 && (
           <div className="history-loading">
             <span className="history-spinner" />
             <span>Loading history...</span>
@@ -196,13 +196,13 @@ export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
           <div className="history-empty-state">No statements found</div>
         )}
 
-        {!historyLoading && !historyError && statementHistory.length > 0 && filteredStatements.length === 0 && (
+        {!historyError && statementHistory.length > 0 && filteredStatements.length === 0 && (
           <div className="history-empty-state">
             No {FILTER_CATEGORIES.find(c => c.key === activeFilter)?.label?.toLowerCase()} statements
           </div>
         )}
 
-        {!historyLoading && !historyError && statementHistory.length > 0 && filteredStatements.length > 0 &&
+        {!historyError && statementHistory.length > 0 && filteredStatements.length > 0 &&
           filteredStatements.map((statement) => (
             <HistoryItem
               key={statement.name}
@@ -211,6 +211,12 @@ export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
             />
           ))
         }
+
+        {historyLoading && statementHistory.length > 0 && (
+          <div className="history-loading-more">
+            Loading more... ({statementHistory.length} loaded)
+          </div>
+        )}
       </div>
     </div>
   );

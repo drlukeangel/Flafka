@@ -48,6 +48,41 @@ export interface ResultsResponse {
   };
 }
 
+export interface StatementExceptionsResponse {
+  data?: Array<{
+    name?: string;
+    message?: string;
+    timestamp?: string;
+  }>;
+}
+
+/**
+ * Fetch exceptions/logs for a statement — returns richer error detail than status.detail.
+ * Endpoint: GET /statements/{name}/exceptions
+ */
+export const getStatementExceptions = async (statementName: string): Promise<string | null> => {
+  try {
+    const response = await confluentClient.get(`${buildStatementsUrl()}/${statementName}/exceptions`);
+    const data: StatementExceptionsResponse = response.data;
+    const exceptions = data?.data ?? [];
+    if (exceptions.length === 0) return null;
+    // Join all exception messages, newest last
+    return exceptions.map((e) => [e.name, e.message].filter(Boolean).join(': ')).join('\n\n');
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Get the best available error detail for a FAILED statement.
+ * Tries status.detail first, then falls back to the /exceptions endpoint for full logs.
+ */
+export const getStatementErrorDetail = async (statementName: string, detail?: string): Promise<string> => {
+  if (detail) return detail;
+  const exceptions = await getStatementExceptions(statementName);
+  return exceptions || 'Query failed';
+};
+
 // Generate a memorable statement name like "wobbling-penguin-a3f"
 import { generateStatementName } from '../utils/names';
 
@@ -209,7 +244,8 @@ export const getComputePoolStatus = async (): Promise<ComputePoolStatus> => {
  */
 export const listStatements = async (
   pageSize?: number,
-  onPage?: (accumulated: StatementResponse[]) => void
+  onPage?: (accumulated: StatementResponse[]) => void,
+  maxResults?: number
 ): Promise<StatementResponse[]> => {
   try {
     const size = pageSize ?? 100;
@@ -226,6 +262,11 @@ export const listStatements = async (
         onPage([...allStatements]);
       }
 
+      // Stop if we've reached the max results limit
+      if (maxResults && allStatements.length >= maxResults) {
+        break;
+      }
+
       // Follow next page if available
       const nextUrl = response.data.metadata?.next;
       if (nextUrl && page.length > 0) {
@@ -237,7 +278,7 @@ export const listStatements = async (
       }
     }
 
-    return allStatements;
+    return maxResults ? allStatements.slice(0, maxResults) : allStatements;
   } catch (error) {
     throw handleApiError(error);
   }

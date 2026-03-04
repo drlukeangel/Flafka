@@ -19,25 +19,46 @@ const mockLoadSchemaDetail = vi.fn()
 const mockClearSelectedSchema = vi.fn()
 const mockClearSchemaRegistryError = vi.fn()
 const mockAddToast = vi.fn()
+const mockLoadTopics = vi.fn()
+const mockClearSchemaInitialView = vi.fn()
 
-vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (s: unknown) => unknown) => {
-    const state = {
-      schemaRegistrySubjects: mockSubjects,
-      selectedSchemaSubject: mockSelectedSchemaSubject,
-      schemaRegistryLoading: mockSchemaRegistryLoading,
-      schemaRegistryError: mockSchemaRegistryError,
-      schemaTypeCache: mockSchemaTypeCache,
-      loadSchemaRegistrySubjects: mockLoadSchemaRegistrySubjects,
-      loadSchemaDetail: mockLoadSchemaDetail,
-      clearSelectedSchema: mockClearSelectedSchema,
-      clearSchemaRegistryError: mockClearSchemaRegistryError,
-      addToast: mockAddToast,
-      navigateToTopic: vi.fn(),
-    }
-    return typeof selector === 'function' ? selector(state) : state
-  },
-}))
+function buildMockState() {
+  return {
+    schemaRegistrySubjects: mockSubjects,
+    selectedSchemaSubject: mockSelectedSchemaSubject,
+    schemaRegistryLoading: mockSchemaRegistryLoading,
+    schemaRegistryError: mockSchemaRegistryError,
+    schemaTypeCache: mockSchemaTypeCache,
+    schemaCompatCache: {},
+    loadSchemaRegistrySubjects: mockLoadSchemaRegistrySubjects,
+    loadSchemaDetail: mockLoadSchemaDetail,
+    clearSelectedSchema: mockClearSelectedSchema,
+    clearSchemaRegistryError: mockClearSchemaRegistryError,
+    addToast: mockAddToast,
+    navigateToTopic: vi.fn(),
+    topicList: [],
+    loadTopics: mockLoadTopics,
+    schemaInitialView: null,
+    clearSchemaInitialView: mockClearSchemaInitialView,
+    schemaDatasets: [],
+    deleteSchemaDataset: vi.fn(),
+  }
+}
+
+// useWorkspaceStore is both a selector hook AND has a .getState() method used
+// by SchemaDetail in handleDeleteConfirm.
+//
+// vi.mock() factories are hoisted to the top of the file by Vitest before any
+// module-level `const`/`let` variable is initialized (temporal dead zone),
+// so we cannot reference outer `const` variables (like mockUseWorkspaceStore)
+// inside the factory. Use vi.fn() + mockImplementation set in beforeEach instead.
+vi.mock('../../store/workspaceStore', () => {
+  const fn = vi.fn()
+  // Attach getState as a property on the function itself so that
+  // useWorkspaceStore.getState() works in SchemaDetail.handleDeleteConfirm
+  ;(fn as unknown as { getState: () => unknown }).getState = vi.fn()
+  return { useWorkspaceStore: fn }
+})
 
 // Mock the env module so isConfigured is always true in tests
 vi.mock('../../config/environment', () => ({
@@ -50,8 +71,8 @@ vi.mock('../../config/environment', () => ({
     computePoolId: '',
     flinkApiKey: '',
     flinkApiSecret: '',
-    cloudApiKey: '',
-    cloudApiSecret: '',
+    metricsKey: '',
+    metricsSecret: '',
     flinkCatalog: 'default',
     flinkDatabase: 'public',
     cloudProvider: 'aws',
@@ -79,12 +100,32 @@ vi.mock('../../api/schema-registry-api', () => ({
   getSubjectsForSchemaId: vi.fn().mockResolvedValue([]),
 }))
 
-// Import components AFTER mocks are registered.
+// Import components and mocked module AFTER mocks are registered.
 import SchemaPanel from '../../components/SchemaPanel/SchemaPanel'
 import SchemaList from '../../components/SchemaPanel/SchemaList'
 import SchemaTreeView from '../../components/SchemaPanel/SchemaTreeView'
 import SchemaDetail from '../../components/SchemaPanel/SchemaDetail'
 import CreateSchema from '../../components/SchemaPanel/CreateSchema'
+import * as workspaceStoreModule from '../../store/workspaceStore'
+
+// Wire up the mock implementation to use buildMockState() at call time.
+// This runs after module initialization, so all module-level variables are
+// available here. The global beforeEach re-applies it in case vi.clearAllMocks()
+// resets mockImplementation.
+function setupStoreMock() {
+  const mockedStore = vi.mocked(workspaceStoreModule.useWorkspaceStore) as unknown as {
+    (selector?: unknown): unknown
+    getState: () => unknown
+    mockImplementation: (fn: (s: unknown) => unknown) => void
+  }
+  mockedStore.mockImplementation((selector: unknown) => {
+    const state = buildMockState()
+    return typeof selector === 'function' ? (selector as (s: unknown) => unknown)(state) : state
+  })
+  const getStateMock = mockedStore.getState as unknown as { mockImplementation: (fn: () => unknown) => void }
+  getStateMock.mockImplementation(() => buildMockState())
+}
+setupStoreMock()
 
 // ---------------------------------------------------------------------------
 // Shared AVRO schema fixture used across SchemaTreeView tests
@@ -115,6 +156,20 @@ function makeSchemaSubject(overrides: Partial<SchemaSubject> = {}): SchemaSubjec
     schema: AVRO_LOAN_SCHEMA,
     ...overrides,
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: expand the collapsible "schema controls" section in SchemaDetail.
+// The section containing Version selector, Compat mode, and Evolve button is
+// collapsed by default (schemaOpen = false). Click the toggle to reveal them.
+// ---------------------------------------------------------------------------
+async function openSchemaControls() {
+  const toggle = screen.getByRole('button', { name: /toggle schema controls/i })
+  fireEvent.click(toggle)
+  // Wait for the version selector (always present when controls are open) to appear
+  await waitFor(() => {
+    expect(screen.getByRole('combobox', { name: /select schema version/i })).toBeInTheDocument()
+  })
 }
 
 // ===========================================================================
@@ -1322,14 +1377,14 @@ describe('[@schema-detail] rendering', () => {
 
   it('shows version selector with "Latest" option', async () => {
     render(<SchemaDetail />)
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /select schema version/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
+    expect(screen.getByRole('combobox', { name: /select schema version/i })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Latest' })).toBeInTheDocument()
   })
 
   it('shows compatibility mode label after loading', async () => {
     render(<SchemaDetail />)
+    await openSchemaControls()
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toBeInTheDocument()
     })
@@ -1347,10 +1402,13 @@ describe('[@schema-detail] rendering', () => {
 
   it('shows Evolve and Delete buttons in read mode', async () => {
     render(<SchemaDetail />)
+    // Delete button is always visible in the header
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
     })
-    expect(screen.getByRole('button', { name: /delete subject/i })).toBeInTheDocument()
+    // Evolve button is inside the collapsible schema controls section
+    await openSchemaControls()
+    expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
   })
 })
 
@@ -1370,6 +1428,9 @@ describe('[@schema-detail] version switching', () => {
     vi.mocked(schemaRegistryApi.getSchemaVersions).mockResolvedValue([1, 2])
     render(<SchemaDetail />)
 
+    // Open schema controls to reveal the version selector
+    await openSchemaControls()
+
     // Wait for version options to load
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'v1' })).toBeInTheDocument()
@@ -1384,9 +1445,8 @@ describe('[@schema-detail] version switching', () => {
     const user = userEvent.setup()
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Open schema controls to reveal Evolve button and version selector
+    await openSchemaControls()
 
     await user.click(screen.getByRole('button', { name: /evolve schema/i }))
 
@@ -1484,9 +1544,8 @@ describe('[@schema-detail] evolve mode', () => {
     const user = userEvent.setup()
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Open schema controls to reveal Evolve button
+    await openSchemaControls()
 
     await user.click(screen.getByRole('button', { name: /evolve schema/i }))
 
@@ -1497,9 +1556,8 @@ describe('[@schema-detail] evolve mode', () => {
     const user = userEvent.setup()
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Open schema controls to reveal Evolve button
+    await openSchemaControls()
 
     await user.click(screen.getByRole('button', { name: /evolve schema/i }))
     expect(screen.getByRole('textbox', { name: /edit schema json/i })).toBeInTheDocument()
@@ -1516,9 +1574,8 @@ describe('[@schema-detail] evolve mode', () => {
     vi.mocked(schemaRegistryApi.validateCompatibility).mockResolvedValue({ is_compatible: true })
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Open schema controls to reveal Evolve button
+    await openSchemaControls()
 
     await user.click(screen.getByRole('button', { name: /evolve schema/i }))
 
@@ -1537,9 +1594,8 @@ describe('[@schema-detail] evolve mode', () => {
     const user = userEvent.setup()
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Open schema controls to reveal Evolve button
+    await openSchemaControls()
 
     await user.click(screen.getByRole('button', { name: /evolve schema/i }))
 
@@ -1630,10 +1686,8 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    // Enter edit mode
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Open schema controls and enter edit mode
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     // Validate first
@@ -1686,9 +1740,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -1803,6 +1855,9 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
+    // Open schema controls to reveal compatibility mode selector
+    await openSchemaControls()
+
     // Wait for compatibility selector to load with current value
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toHaveValue('BACKWARD')
@@ -1838,6 +1893,8 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
     )
 
     render(<SchemaDetail />)
+
+    await openSchemaControls()
 
     await waitFor(() => {
       expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toHaveValue('BACKWARD')
@@ -1878,6 +1935,9 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
     // Wait for version options
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'v1' })).toBeInTheDocument()
@@ -1905,9 +1965,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -1935,9 +1993,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -1967,9 +2023,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -1997,9 +2051,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -2022,9 +2074,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -2046,9 +2096,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     await act(async () => {
@@ -2087,10 +2135,8 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
   it('loading overlay is NOT shown when schemaRegistryLoading=true but in edit mode', async () => {
     render(<SchemaDetail />)
 
-    // Enter edit mode first
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
-    })
+    // Enter edit mode first (open controls, then click Evolve)
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     // Now set loading = true (simulate re-render with loading overlay suppressed)
@@ -3355,6 +3401,7 @@ describe('[@schema-r2-tab] Tab key inserts spaces in evolve textarea', () => {
   it('pressing Tab in evolve textarea triggers Tab keydown on the textarea element', async () => {
     render(<SchemaDetail />)
 
+    await openSchemaControls()
     const evolveBtn = screen.getByRole('button', { name: /evolve schema/i })
     fireEvent.click(evolveBtn)
 
@@ -3375,6 +3422,7 @@ describe('[@schema-r2-tab] Tab key inserts spaces in evolve textarea', () => {
 
   it('Tab key handler calls e.preventDefault to stop focus escape', async () => {
     render(<SchemaDetail />)
+    await openSchemaControls()
     fireEvent.click(screen.getByRole('button', { name: /evolve schema/i }))
 
     const textarea = screen.getByRole('textbox', { name: /edit schema json/i })
@@ -3405,6 +3453,9 @@ describe('[@schema-r2-diff-stale] Diff schema reloads on primary version change'
 
   it('getSchemaDetail is called again for diffVersion when selectedVersion changes while in diff mode', async () => {
     render(<SchemaDetail />)
+
+    // Open schema controls (Diff button is inside the collapsible schema controls section)
+    await openSchemaControls()
 
     // Enable diff mode (requires versions.length >= 2)
     await waitFor(() => {
@@ -3446,6 +3497,9 @@ describe('[@schema-r2-self-compare] Same version excluded from diff selector', (
 
   it('diff version selector options do not include the currently selected primary version', async () => {
     render(<SchemaDetail />)
+
+    // Open schema controls (Diff button is inside the collapsible section)
+    await openSchemaControls()
 
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
@@ -3523,11 +3577,9 @@ describe('[@schema-r2-delete-version-confirm] Version delete uses overlay instea
 
     render(<SchemaDetail />)
 
-    // Switch to non-latest version to show the delete version button
-    await waitFor(() => {
-      const select = screen.getByRole('combobox', { name: /select schema version/i })
-      expect(select).toBeInTheDocument()
-    })
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
     const versionSelect = screen.getByRole('combobox', { name: /select schema version/i })
     await act(async () => {
       fireEvent.change(versionSelect, { target: { value: '1' } })
@@ -3549,10 +3601,7 @@ describe('[@schema-r2-delete-version-confirm] Version delete uses overlay instea
   it('version delete overlay shows the subject name and version number', async () => {
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      const select = screen.getByRole('combobox', { name: /select schema version/i })
-      expect(select).toBeInTheDocument()
-    })
+    await openSchemaControls()
     const versionSelect = screen.getByRole('combobox', { name: /select schema version/i })
     await act(async () => {
       fireEvent.change(versionSelect, { target: { value: '1' } })
@@ -3572,10 +3621,7 @@ describe('[@schema-r2-delete-version-confirm] Version delete uses overlay instea
   it('cancelling the version delete overlay does NOT call deleteSchemaVersion', async () => {
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      const select = screen.getByRole('combobox', { name: /select schema version/i })
-      expect(select).toBeInTheDocument()
-    })
+    await openSchemaControls()
     const versionSelect = screen.getByRole('combobox', { name: /select schema version/i })
     await act(async () => {
       fireEvent.change(versionSelect, { target: { value: '1' } })
@@ -3726,9 +3772,8 @@ describe('[@schema-r2-global-compat] Global compat label renders when inherited 
     vi.mocked(schemaRegistryApiModule.getCompatibilityModeWithSource).mockResolvedValue({ level: 'FULL', isGlobal: false })
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toBeInTheDocument()
-    })
+    // Open schema controls (waits for async data load), then verify Global badge is absent
+    await openSchemaControls()
     expect(screen.queryByText('Global')).not.toBeInTheDocument()
   })
 })
@@ -3886,9 +3931,7 @@ describe('[@schema-r2-compat-toast] Compat mode change triggers toast', () => {
   it('changing compat mode select calls addToast with success', async () => {
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: /compatibility mode/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
 
     const compatSelect = screen.getByRole('combobox', { name: /compatibility mode/i })
     await act(async () => {
@@ -3972,6 +4015,9 @@ describe('[@schema-r2-per-version-delete] Per-version delete button renders for 
   it('delete version button appears when a specific version is selected', async () => {
     render(<SchemaDetail />)
 
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
     // Wait for versions to load (async getSchemaVersions call)
     await waitFor(() => {
       const select = screen.getByRole('combobox', { name: /select schema version/i })
@@ -3989,9 +4035,11 @@ describe('[@schema-r2-per-version-delete] Per-version delete button renders for 
     })
   })
 
-  it('delete version button does NOT appear when "Latest" is selected', () => {
+  it('delete version button does NOT appear when "Latest" is selected', async () => {
     render(<SchemaDetail />)
 
+    // Open schema controls to verify version selector shows 'Latest' selected
+    await openSchemaControls()
     expect(screen.queryByRole('button', { name: /delete version/i })).not.toBeInTheDocument()
   })
 })
@@ -4081,17 +4129,14 @@ describe('[@schema-r2-diff-view] Schema diff view renders side-by-side compariso
 
   it('Diff button appears when there are 2+ versions', async () => {
     render(<SchemaDetail />)
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
+    expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
   })
 
   it('entering diff mode shows a compare-against selector', async () => {
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    await openSchemaControls()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /toggle diff view/i }))
@@ -4106,12 +4151,10 @@ describe('[@schema-r2-diff-view] Schema diff view renders side-by-side compariso
     vi.mocked(schemaRegistryApiModule.getSchemaVersions).mockResolvedValue([1])
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      // Version selector loads
-      const versionSelect = screen.getByRole('combobox', { name: /select schema version/i })
-      expect(versionSelect).toBeInTheDocument()
-    })
+    await openSchemaControls()
 
+    // Version selector loads, but no Diff button for single version
+    expect(screen.getByRole('combobox', { name: /select schema version/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /toggle diff view/i })).not.toBeInTheDocument()
   })
 })
@@ -4295,10 +4338,11 @@ describe('[@phase-12.5-diff-stale] Diff pane reloads when primary version change
   it('changing primary version while in diff mode triggers another getSchemaDetail call for the diff pane', async () => {
     render(<SchemaDetail />)
 
-    // Wait for versions to load
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    // Open schema controls (Diff button is inside collapsible section)
+    await openSchemaControls()
+
+    // Wait for diff button to be visible (versions loaded)
+    expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
 
     // Enable diff mode
     await act(async () => {
@@ -4329,9 +4373,10 @@ describe('[@phase-12.5-diff-stale] Diff pane reloads when primary version change
     // must re-fetch the diff schema for the current diffVersion
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    // Open schema controls (Diff button is inside collapsible section)
+    await openSchemaControls()
+
+    expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
 
     // Enable diff mode — this calls handleDiffVersionChange to load the default diff version
     await act(async () => {
@@ -4372,9 +4417,10 @@ describe('[@phase-12.5-diff-guard] Diff version selector excludes primary versio
   it('diff version options exclude the currently selected primary version (no self-compare)', async () => {
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    // Open schema controls (Diff button is inside collapsible section)
+    await openSchemaControls()
+
+    expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
 
     // Enter diff mode
     await act(async () => {
@@ -4403,9 +4449,10 @@ describe('[@phase-12.5-diff-guard] Diff version selector excludes primary versio
   it('diff version selector includes versions other than the primary version', async () => {
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    // Open schema controls (Diff button is inside collapsible section)
+    await openSchemaControls()
+
+    expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /toggle diff view/i }))
@@ -4431,9 +4478,10 @@ describe('[@phase-12.5-diff-guard] Diff version selector excludes primary versio
     // R2-3: handleDiffVersionChange skips the fetch if same as selectedVersion
     render(<SchemaDetail />)
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
-    })
+    // Open schema controls (Diff button and version selector are inside collapsible section)
+    await openSchemaControls()
+
+    expect(screen.getByRole('button', { name: /toggle diff view/i })).toBeInTheDocument()
 
     // Switch primary to v2 first
     const versionSelect = screen.getByRole('combobox', { name: /select schema version/i })
@@ -4482,10 +4530,12 @@ describe('[@phase-12.5-version-delete-confirm] Schema version delete uses inline
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<SchemaDetail />)
 
-    // Wait for the version list to load (versions [1, 2] from beforeEach mock)
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
+    // Wait for version options to load
     await waitFor(() => {
       const select = screen.getByRole('combobox', { name: /select schema version/i })
-      // versions loaded when v1 and v2 options are in the select
       const options = Array.from(select.querySelectorAll('option'))
       expect(options.some((o) => (o as HTMLOptionElement).value === '1')).toBe(true)
     })
@@ -4514,7 +4564,10 @@ describe('[@phase-12.5-version-delete-confirm] Schema version delete uses inline
   it('version delete overlay displays the version number and subject name', async () => {
     render(<SchemaDetail />)
 
-    // Wait for the version list to load
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
+    // Wait for version options to load
     await waitFor(() => {
       const select = screen.getByRole('combobox', { name: /select schema version/i })
       const options = Array.from(select.querySelectorAll('option'))
@@ -4544,7 +4597,10 @@ describe('[@phase-12.5-version-delete-confirm] Schema version delete uses inline
   it('cancelling version delete overlay closes it without calling deleteSchemaVersion', async () => {
     render(<SchemaDetail />)
 
-    // Wait for the version list to load
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
+    // Wait for version options to load
     await waitFor(() => {
       const select = screen.getByRole('combobox', { name: /select schema version/i })
       const options = Array.from(select.querySelectorAll('option'))
@@ -4576,7 +4632,10 @@ describe('[@phase-12.5-version-delete-confirm] Schema version delete uses inline
     // Keep versions [1, 2] from beforeEach (do not remock to [2])
     render(<SchemaDetail />)
 
-    // Wait for the version list to load
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
+    // Wait for version options to load
     await waitFor(() => {
       const select = screen.getByRole('combobox', { name: /select schema version/i })
       const options = Array.from(select.querySelectorAll('option'))
@@ -4614,7 +4673,10 @@ describe('[@phase-12.5-version-delete-confirm] Schema version delete uses inline
   it('Escape key closes the version delete overlay without deleting', async () => {
     render(<SchemaDetail />)
 
-    // Wait for the version list to load
+    // Open schema controls to reveal version selector
+    await openSchemaControls()
+
+    // Wait for version options to load
     await waitFor(() => {
       const select = screen.getByRole('combobox', { name: /select schema version/i })
       const options = Array.from(select.querySelectorAll('option'))

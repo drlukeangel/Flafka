@@ -8,9 +8,9 @@ const createAuthHeader = (): string => {
   return `Basic ${encoded}`;
 };
 
-// Create Basic Auth header for Cloud management API (FCPM)
-const createCloudAuthHeader = (): string => {
-  const credentials = `${env.cloudApiKey}:${env.cloudApiSecret}`;
+// Create Basic Auth header for Telemetry / Metrics API (SA-scoped Cloud API key)
+const createMetricsAuthHeader = (): string => {
+  const credentials = `${env.metricsKey}:${env.metricsSecret}`;
   const encoded = btoa(credentials);
   return `Basic ${encoded}`;
 };
@@ -28,12 +28,12 @@ export const confluentClient: AxiosInstance = axios.create({
   },
 });
 
-// Separate client for FCPM API (different base path and credentials)
+// Separate client for FCPM API (Cloud management — uses SA-scoped Cloud API key)
 export const fcpmClient: AxiosInstance = axios.create({
   baseURL: FCPM_API_BASE,
   timeout: 15000,
   headers: {
-    'Authorization': createCloudAuthHeader(),
+    'Authorization': createMetricsAuthHeader(),
     'Content-Type': 'application/json',
   },
 });
@@ -45,7 +45,7 @@ export const telemetryClient: AxiosInstance = axios.create({
   baseURL: TELEMETRY_API_BASE,
   timeout: 15000,
   headers: {
-    'Authorization': createCloudAuthHeader(),
+    'Authorization': createMetricsAuthHeader(),
     'Content-Type': 'application/json',
   },
 });

@@ -4,8 +4,8 @@ export interface EnvironmentConfig {
   computePoolId: string;
   flinkApiKey: string;
   flinkApiSecret: string;
-  cloudApiKey: string;
-  cloudApiSecret: string;
+  metricsKey: string;
+  metricsSecret: string;
   flinkCatalog: string;
   flinkDatabase: string;
   cloudProvider: string;
@@ -17,6 +17,7 @@ export interface EnvironmentConfig {
   kafkaRestEndpoint: string;
   kafkaApiKey: string;
   kafkaApiSecret: string;
+  employeeId: string;
 }
 
 export const getEnv = (): EnvironmentConfig => {
@@ -26,8 +27,6 @@ export const getEnv = (): EnvironmentConfig => {
     'VITE_COMPUTE_POOL_ID',
     'VITE_FLINK_API_KEY',
     'VITE_FLINK_API_SECRET',
-    'VITE_CLOUD_API_KEY',
-    'VITE_CLOUD_API_SECRET',
   ];
 
   const missing = requiredVars.filter(key => !import.meta.env[key]);
@@ -45,8 +44,8 @@ export const getEnv = (): EnvironmentConfig => {
     computePoolId: import.meta.env.VITE_COMPUTE_POOL_ID || '',
     flinkApiKey: import.meta.env.VITE_FLINK_API_KEY || '',
     flinkApiSecret: import.meta.env.VITE_FLINK_API_SECRET || '',
-    cloudApiKey: import.meta.env.VITE_CLOUD_API_KEY || '',
-    cloudApiSecret: import.meta.env.VITE_CLOUD_API_SECRET || '',
+    metricsKey: import.meta.env.VITE_METRICS_KEY || '',
+    metricsSecret: import.meta.env.VITE_METRICS_SECRET || '',
     flinkCatalog: import.meta.env.VITE_FLINK_CATALOG || 'default',
     flinkDatabase: import.meta.env.VITE_FLINK_DATABASE || 'public',
     cloudProvider: import.meta.env.VITE_CLOUD_PROVIDER || 'aws',
@@ -58,6 +57,7 @@ export const getEnv = (): EnvironmentConfig => {
     kafkaRestEndpoint: import.meta.env.VITE_KAFKA_REST_ENDPOINT || '',
     kafkaApiKey: import.meta.env.VITE_KAFKA_API_KEY || '',
     kafkaApiSecret: import.meta.env.VITE_KAFKA_API_SECRET || '',
+    employeeId: import.meta.env.VITE_EMPLOYEE_ID || 'f696969',
   };
 };
 

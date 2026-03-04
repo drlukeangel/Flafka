@@ -22,8 +22,10 @@ vi.mock('../../config/environment', () => ({
     cloudProvider: 'aws',
     cloudRegion: 'us-east-1',
     environmentId: 'env-test123',
-    cloudApiKey: 'test-key',
-    cloudApiSecret: 'test-secret',
+    flinkApiKey: 'test-key',
+    flinkApiSecret: 'test-secret',
+    metricsKey: 'test-metrics-key',
+    metricsSecret: 'test-metrics-secret',
   },
 }));
 

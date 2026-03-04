@@ -54,6 +54,12 @@
   --color-highlight-text: #78350F;
   --color-bg-hover: #E9ECEF;
 
+  /* Aliases — convenience vars used by ExamplesPanel, workspace notes, history filter, etc. */
+  --color-hover: var(--color-bg-hover);
+  --color-input-bg: var(--color-surface-secondary);
+  --color-accent: var(--color-primary);
+  --color-bg-secondary: var(--color-surface-secondary);
+
   /* Icon colors */
   --color-table: #22C55E;
   --color-view: #8B5CF6;
@@ -78,7 +84,7 @@
 
   /* Navigation Rail */
   --nav-rail-width: 48px;
-  --nav-rail-expanded-width: 220px;
+  --nav-rail-expanded-width: 205px;
   --nav-rail-transition: 200ms ease-in-out;
   --side-panel-width: 300px;
   --schema-panel-width: 480px;
@@ -136,6 +142,12 @@
   --color-highlight-bg: #2D2D1A;
   --color-highlight-text: #FCD34D;
   --color-bg-hover: #3F3F46;
+
+  /* Aliases — convenience vars used by ExamplesPanel, workspace notes, history filter, etc. */
+  --color-hover: var(--color-bg-hover);
+  --color-input-bg: var(--color-surface-secondary);
+  --color-accent: var(--color-primary);
+  --color-bg-secondary: var(--color-surface-secondary);
 
   /* Icon colors */
   --color-table: #34D399;
@@ -350,6 +362,12 @@ body {
   color: var(--color-text-primary);
 }
 
+.help-panel-close-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* Help Panel Tabs */
 .help-panel-tabs {
   display: flex;
@@ -423,7 +441,7 @@ body {
 .help-code-copy-btn {
   float: right;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-button-danger-text);
   border: none;
   padding: 4px 8px;
   border-radius: 2px;
@@ -516,7 +534,7 @@ body {
 
 .snippets-save-btn:hover:not(:disabled) {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-button-danger-text);
 }
 
 .snippets-save-btn:disabled {
@@ -745,6 +763,11 @@ body {
   color: var(--color-text-primary);
 }
 
+.snippets-dialog-close:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .snippets-dialog-body {
   padding: 16px 20px;
   display: flex;
@@ -826,7 +849,7 @@ body {
 
 .snippets-dialog-btn--save {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-button-danger-text);
 }
 
 .snippets-dialog-btn--save:hover:not(:disabled) {

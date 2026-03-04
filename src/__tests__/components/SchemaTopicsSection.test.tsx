@@ -18,6 +18,8 @@ const mockLoadSchemaDetail = vi.fn();
 const mockNavigateToTopic = vi.fn();
 const mockLoadSchemaRegistrySubjects = vi.fn();
 const mockLoadTopics = vi.fn();
+const mockClearSchemaInitialView = vi.fn();
+const mockDeleteSchemaDataset = vi.fn();
 
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) => {
@@ -32,10 +34,46 @@ vi.mock('../../store/workspaceStore', () => ({
       navigateToTopic: mockNavigateToTopic,
       loadSchemaRegistrySubjects: mockLoadSchemaRegistrySubjects,
       loadTopics: mockLoadTopics,
+      schemaInitialView: null,
+      clearSchemaInitialView: mockClearSchemaInitialView,
+      schemaDatasets: [],
+      deleteSchemaDataset: mockDeleteSchemaDataset,
     };
     return typeof selector === 'function' ? selector(state) : state;
   },
+  // getState is used inside handleDeleteConfirm for schemaDatasets cleanup
+  useWorkspaceStore_getState: () => ({
+    schemaDatasets: [],
+    deleteSchemaDataset: mockDeleteSchemaDataset,
+  }),
 }));
+
+// Patch the static getState call used inside handleDeleteConfirm
+vi.mock('../../store/workspaceStore', async (importOriginal) => {
+  const actual = await importOriginal() as Record<string, unknown>;
+  return {
+    ...actual,
+    useWorkspaceStore: (selector: (s: unknown) => unknown) => {
+      const state = {
+        selectedSchemaSubject: mockSelectedSchemaSubject,
+        schemaRegistryLoading: mockSchemaRegistryLoading,
+        schemaRegistrySubjects: mockSchemaRegistrySubjects,
+        topicList: mockTopicList,
+        addToast: mockAddToast,
+        clearSelectedSchema: mockClearSelectedSchema,
+        loadSchemaDetail: mockLoadSchemaDetail,
+        navigateToTopic: mockNavigateToTopic,
+        loadSchemaRegistrySubjects: mockLoadSchemaRegistrySubjects,
+        loadTopics: mockLoadTopics,
+        schemaInitialView: null,
+        clearSchemaInitialView: mockClearSchemaInitialView,
+        schemaDatasets: [],
+        deleteSchemaDataset: mockDeleteSchemaDataset,
+      };
+      return typeof selector === 'function' ? selector(state) : state;
+    },
+  };
+});
 
 vi.mock('../../config/environment', () => ({
   env: {
@@ -47,8 +85,8 @@ vi.mock('../../config/environment', () => ({
     computePoolId: '',
     flinkApiKey: '',
     flinkApiSecret: '',
-    cloudApiKey: '',
-    cloudApiSecret: '',
+    metricsKey: '',
+    metricsSecret: '',
     flinkCatalog: 'default',
     flinkDatabase: 'public',
     cloudProvider: 'aws',
@@ -98,6 +136,27 @@ function makeSubject(subject: string, overrides: Partial<SchemaSubject> = {}): S
   };
 }
 
+/**
+ * Renders the component and opens the Topics section by clicking the header.
+ * The Topics section starts collapsed (topicsOpen = false), so most tests
+ * need to expand it before asserting on topic content.
+ */
+async function renderAndOpenTopics(): Promise<void> {
+  await act(async () => { render(<SchemaDetail />); });
+  const topicsHeader = screen.getByText('Topics');
+  await act(async () => { fireEvent.click(topicsHeader); });
+}
+
+/**
+ * Opens the Schema controls section (collapsed by default, schemaOpen = false).
+ * The Evolve button lives inside the Schema controls collapsible area, so tests
+ * that need to click Evolve must call this first.
+ */
+async function openSchemaControls(): Promise<void> {
+  const toggleBtn = screen.getByLabelText('Toggle schema controls');
+  await act(async () => { fireEvent.click(toggleBtn); });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -117,32 +176,42 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     vi.mocked(schemaRegistryApi.getCompatibilityModeWithSource).mockResolvedValue({ level: 'BACKWARD', isGlobal: false });
   });
 
-  // 1a: Topics section renders for selected subject with id
+  // 1a: Topics section header renders for selected subject with id
   it('1a. Topics section renders for selected subject with id', async () => {
     mockSelectedSchemaSubject = makeSubject('orders-value', { id: 100 });
     mockGetSubjectsForSchemaId.mockResolvedValueOnce(['orders-value', 'orders-key']);
 
     await act(async () => { render(<SchemaDetail />); });
 
+    // The Topics header is always visible (collapsed or expanded)
     expect(screen.getByText('Topics')).toBeTruthy();
-    expect(screen.getByText('(TopicNameStrategy)')).toBeTruthy();
   });
 
-  // 1b: Topics section does NOT render in edit mode (shows collapsed stub)
+  // 1b: Topics section shows collapsed stub in edit mode when opened
   it('1b. Topics section shows collapsed stub in edit mode', async () => {
     mockSelectedSchemaSubject = makeSubject('orders-value', { id: 100 });
     mockGetSubjectsForSchemaId.mockResolvedValue(['orders-value']);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
+
+    // Wait for the associated topics to load so they are visible
+    await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
+
+    // Open schema controls (collapsed by default) to access the Evolve button
+    await openSchemaControls();
 
     // Click Evolve to enter edit mode
     const evolveBtn = screen.getByLabelText('Evolve schema');
     await act(async () => { fireEvent.click(evolveBtn); });
 
-    // Should show collapsed stub
-    expect(screen.getByText(/TOPICS.*— unavailable while editing/)).toBeTruthy();
-    // Should NOT show the full Topics label
-    expect(screen.queryByText('(TopicNameStrategy)')).toBeNull();
+    // Should show collapsed stub — visible because topicsOpen is still true
+    await waitFor(() => {
+      expect(screen.getByText(/Topics.*— unavailable while editing/)).toBeTruthy();
+    });
+    // The individual topic names should not be shown in the rows
+    // (the stub replaces them in edit mode)
+    const ordersBtns = screen.queryAllByRole('button', { name: /Go to topic orders/ });
+    expect(ordersBtns.length).toBe(0);
   });
 
   // 2a: renders topic names from -value subjects
@@ -150,7 +219,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     mockSelectedSchemaSubject = makeSubject('orders-value', { id: 100 });
     mockGetSubjectsForSchemaId.mockResolvedValueOnce(['orders-value', 'payments-value']);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     await waitFor(() => {
       expect(screen.getByText('orders')).toBeTruthy();
@@ -163,7 +232,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     mockSelectedSchemaSubject = makeSubject('orders-value', { id: 100 });
     mockGetSubjectsForSchemaId.mockResolvedValueOnce(['payments-key']);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     await waitFor(() => {
       expect(screen.getByText('payments')).toBeTruthy();
@@ -175,11 +244,11 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     mockSelectedSchemaSubject = makeSubject('orders-value', { id: 100 });
     mockGetSubjectsForSchemaId.mockResolvedValueOnce(['orders-value', 'orders-key']);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     await waitFor(() => {
-      // Should only show 'orders' once, not twice
-      const matches = screen.getAllByText('orders');
+      // Should only show 'orders' once as a topic button, not twice
+      const matches = screen.getAllByRole('button', { name: /Go to topic orders/ });
       expect(matches.length).toBe(1);
     });
   });
@@ -189,7 +258,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     mockSelectedSchemaSubject = makeSubject('orders-value', { id: 100 });
     mockGetSubjectsForSchemaId.mockResolvedValueOnce(['orders-value', 'raw-events']);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     await waitFor(() => {
       expect(screen.getByText('orders')).toBeTruthy();
@@ -205,7 +274,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       .mockResolvedValueOnce(['orders-value'])
       .mockResolvedValueOnce([]);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
     await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
 
     const removeBtn = screen.getByLabelText('Remove topic orders');
@@ -221,7 +290,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       .mockResolvedValueOnce(['orders-value', 'orders-key'])
       .mockResolvedValueOnce([]);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
     await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
 
     const removeBtn = screen.getByLabelText('Remove topic orders');
@@ -239,7 +308,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       .mockResolvedValueOnce(['orders-value'])
       .mockResolvedValueOnce([]);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
     await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
 
     const removeBtn = screen.getByLabelText('Remove topic orders');
@@ -258,7 +327,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       .mockResolvedValueOnce(['orders-value'])
       .mockResolvedValueOnce([]);
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
     await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
 
     const removeBtn = screen.getByLabelText('Remove topic orders');
@@ -279,7 +348,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       { topic_name: 'loans', is_internal: false, replication_factor: 3, partitions_count: 6 },
     ];
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     const searchInput = screen.getByPlaceholderText('Associate with a topic...');
     await act(async () => { fireEvent.change(searchInput, { target: { value: 'loan' } }); });
@@ -297,7 +366,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       { topic_name: 'payments', is_internal: false, replication_factor: 3, partitions_count: 6 },
     ];
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
     await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
 
     const searchInput = screen.getByPlaceholderText('Associate with a topic...');
@@ -315,7 +384,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     ];
     mockSchemaRegistrySubjects = []; // no subjects at all
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     const searchInput = screen.getByPlaceholderText('Associate with a topic...');
     await act(async () => { fireEvent.change(searchInput, { target: { value: 'my' } }); });
@@ -331,7 +400,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       { topic_name: 'orders', is_internal: false, replication_factor: 3, partitions_count: 6 },
     ];
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     const searchInput = screen.getByPlaceholderText('Associate with a topic...');
     await act(async () => { fireEvent.change(searchInput, { target: { value: 'order' } }); });
@@ -350,7 +419,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
       { topic_name: 'loans', is_internal: false, replication_factor: 3, partitions_count: 6 },
     ];
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     const searchInput = screen.getByPlaceholderText('Associate with a topic...');
     await act(async () => { fireEvent.change(searchInput, { target: { value: 'loan' } }); });
@@ -374,7 +443,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     ];
     mockRegisterSchema.mockRejectedValueOnce(new Error('409 Conflict'));
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
 
     const searchInput = screen.getByPlaceholderText('Associate with a topic...');
     await act(async () => { fireEvent.change(searchInput, { target: { value: 'loan' } }); });
@@ -393,7 +462,7 @@ describe('[@schema-topics] Topics section in SchemaDetail', () => {
     mockGetSubjectsForSchemaId.mockResolvedValue(['orders-value']);
     mockDeleteSubject.mockRejectedValueOnce(new Error('500 Server Error'));
 
-    await act(async () => { render(<SchemaDetail />); });
+    await renderAndOpenTopics();
     await waitFor(() => expect(screen.getByText('orders')).toBeTruthy());
 
     const removeBtn = screen.getByLabelText('Remove topic orders');

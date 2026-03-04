@@ -2,7 +2,7 @@
  * @artifacts-panel
  * ArtifactsPanel — Root container for the Flink Artifacts panel.
  *
- * - Env guard on cloudApiKey: shows warning if not configured
+ * - Env guard on flinkApiKey: shows warning if not configured
  * - Loads artifacts on mount
  * - Toggles between ArtifactList and ArtifactDetail based on selectedArtifact
  */
@@ -21,7 +21,7 @@ const ArtifactsPanel: React.FC = () => {
   const clearSelectedArtifact = useWorkspaceStore((s) => s.clearSelectedArtifact);
   const setArtifactError = useWorkspaceStore((s) => s.setArtifactError);
 
-  const isConfigured = Boolean(env.cloudApiKey && env.cloudApiSecret);
+  const isConfigured = Boolean(env.metricsKey && env.metricsSecret);
 
   useEffect(() => {
     if (isConfigured) {
@@ -156,8 +156,8 @@ const ArtifactsPanel: React.FC = () => {
               Cloud API keys not configured
             </p>
             <p style={{ fontSize: 12 }}>
-              Set <code>VITE_CLOUD_API_KEY</code> and{' '}
-              <code>VITE_CLOUD_API_SECRET</code> in your <code>.env</code> file
+              Set <code>VITE_METRICS_KEY</code> and{' '}
+              <code>VITE_METRICS_SECRET</code> in your <code>.env</code> file
               to browse and manage Flink artifacts.
             </p>
           </div>

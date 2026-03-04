@@ -56,8 +56,8 @@ vi.mock('../../config/environment', () => ({
     computePoolId: '',
     flinkApiKey: '',
     flinkApiSecret: '',
-    cloudApiKey: '',
-    cloudApiSecret: '',
+    metricsKey: '',
+    metricsSecret: '',
     flinkCatalog: 'default',
     flinkDatabase: 'public',
     cloudProvider: 'aws',
@@ -134,9 +134,11 @@ describe('[@schema-detail-layout] Schema/Datasets toggle and header layout', () 
       expect(screen.getByText('Datasets')).toBeTruthy();
     });
 
-    it('defaults to Schema mode — shows VERSION and COMPAT', () => {
+    it('defaults to Schema mode — shows VERSION and COMPAT', async () => {
       mockSelectedSchemaSubject = makeSubject('orders-value');
-      render(<SchemaDetail />);
+      await act(async () => { render(<SchemaDetail />); });
+      // Schema controls are in a collapsible panel — expand it first
+      fireEvent.click(screen.getByLabelText('Toggle schema controls'));
       expect(screen.getByText('Version')).toBeTruthy();
       expect(screen.getByText('Compat')).toBeTruthy();
     });
@@ -148,17 +150,20 @@ describe('[@schema-detail-layout] Schema/Datasets toggle and header layout', () 
       expect(screen.getByText('Tree')).toBeTruthy();
     });
 
-    it('switching to Datasets mode hides VERSION and COMPAT', () => {
+    it('switching to Datasets mode hides VERSION and COMPAT', async () => {
       mockSelectedSchemaSubject = makeSubject('orders-value');
-      render(<SchemaDetail />);
+      await act(async () => { render(<SchemaDetail />); });
+      // Expand schema controls first, then switch to Datasets to confirm they disappear
+      fireEvent.click(screen.getByLabelText('Toggle schema controls'));
+      expect(screen.getByText('Version')).toBeTruthy();
       fireEvent.click(screen.getByText('Datasets'));
       expect(screen.queryByText('Version')).toBeNull();
       expect(screen.queryByText('Compat')).toBeNull();
     });
 
-    it('switching to Datasets mode hides Code/Tree toggle', () => {
+    it('switching to Datasets mode hides Code/Tree toggle', async () => {
       mockSelectedSchemaSubject = makeSubject('orders-value');
-      render(<SchemaDetail />);
+      await act(async () => { render(<SchemaDetail />); });
       fireEvent.click(screen.getByText('Datasets'));
       expect(screen.queryByText('Code')).toBeNull();
       expect(screen.queryByText('Tree')).toBeNull();
@@ -186,9 +191,11 @@ describe('[@schema-detail-layout] Schema/Datasets toggle and header layout', () 
       expect(screen.getByText('Test Datasets')).toBeTruthy();
     });
 
-    it('switching back to Schema mode restores schema controls', () => {
+    it('switching back to Schema mode restores schema controls', async () => {
       mockSelectedSchemaSubject = makeSubject('orders-value');
-      render(<SchemaDetail />);
+      await act(async () => { render(<SchemaDetail />); });
+      // Expand schema controls, switch away, switch back — controls panel state persists
+      fireEvent.click(screen.getByLabelText('Toggle schema controls'));
       fireEvent.click(screen.getByText('Datasets'));
       fireEvent.click(screen.getByText('Schema'));
       expect(screen.getByText('Version')).toBeTruthy();
@@ -231,9 +238,9 @@ describe('[@schema-detail-layout] Schema/Datasets toggle and header layout', () 
       expect(screen.getByLabelText('Delete subject')).toBeTruthy();
     });
 
-    it('delete button is in header — not in toolbar', () => {
+    it('delete button is in header — not in toolbar', async () => {
       mockSelectedSchemaSubject = makeSubject('orders-value');
-      render(<SchemaDetail />);
+      await act(async () => { render(<SchemaDetail />); });
       // Old "Delete" text button should not exist
       const deleteButtons = screen.getAllByLabelText('Delete subject');
       expect(deleteButtons.length).toBe(1);

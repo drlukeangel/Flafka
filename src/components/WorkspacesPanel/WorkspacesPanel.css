@@ -1,0 +1,425 @@
+/* Saved Workspaces Panel */
+.workspaces-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  color: var(--color-text-primary);
+}
+
+.workspaces-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  flex-shrink: 0;
+}
+
+.workspaces-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.workspaces-count-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  background: var(--color-bg-hover);
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.workspaces-save-btn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-primary);
+  background: transparent;
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.workspaces-save-btn:hover:not(:disabled) {
+  background: var(--color-primary);
+  color: var(--color-button-danger-text);
+}
+
+.workspaces-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Search */
+.workspaces-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.workspaces-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.workspaces-search-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.workspaces-search-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.workspaces-search-clear:hover {
+  color: var(--color-text-primary);
+}
+
+/* List */
+.workspaces-list-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.workspaces-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.workspaces-empty-title {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 6px;
+  color: var(--color-text-secondary);
+}
+
+.workspaces-empty-hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.workspaces-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+}
+
+.workspace-item {
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.15s;
+}
+
+.workspace-item:hover {
+  border-color: var(--color-primary);
+}
+
+.workspace-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workspace-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.workspace-rename-input {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-primary);
+  border-radius: 3px;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.workspace-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.workspace-action-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.workspace-action-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.workspace-action-btn--danger:hover {
+  color: var(--color-error);
+  background: var(--color-error-badge-bg);
+}
+
+.workspace-action-btn--confirm {
+  color: var(--color-success);
+}
+
+.workspace-action-btn--confirm:hover {
+  color: var(--color-success);
+  background: var(--color-success-badge-bg);
+}
+
+.workspace-action-btn--open:hover {
+  color: var(--color-primary);
+}
+
+/* Template provenance badge */
+.workspace-template-badge {
+  display: inline-block;
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-top: 2px;
+}
+
+/* Metadata row */
+.workspace-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+.workspace-meta-counts {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.workspace-meta-time {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* Open confirmation row */
+.workspace-open-confirm {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--color-surface-secondary);
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.workspace-open-confirm-msg {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.workspace-open-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.workspace-confirm-btn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  transition: all 0.15s;
+}
+
+.workspace-confirm-btn--cancel {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.workspace-confirm-btn--cancel:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-confirm-btn--open {
+  background: var(--color-primary);
+  color: var(--color-button-danger-text);
+  border-color: var(--color-primary);
+}
+
+.workspace-confirm-btn--open:hover {
+  opacity: 0.9;
+}
+
+/* Save Dialog */
+.workspaces-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.workspaces-dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: 340px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+
+.workspaces-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workspaces-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.workspaces-dialog-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.workspaces-dialog-close:hover {
+  color: var(--color-text-primary);
+}
+
+.workspaces-dialog-body {
+  padding: 16px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workspaces-dialog-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.workspaces-dialog-input {
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 7px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.workspaces-dialog-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus-ring);
+  outline: none;
+}
+
+.workspaces-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.workspaces-dialog-btn {
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 6px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+
+.workspaces-dialog-btn--cancel {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+
+.workspaces-dialog-btn--cancel:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspaces-dialog-btn--save {
+  background: var(--color-primary);
+  color: var(--color-button-danger-text);
+  border-color: var(--color-primary);
+}
+
+.workspaces-dialog-btn--save:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.workspaces-dialog-btn--save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

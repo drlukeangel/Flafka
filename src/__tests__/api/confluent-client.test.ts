@@ -301,8 +301,8 @@ describe('[@api] [@core] handleApiError', () => {
 // ---------------------------------------------------------------------------
 
 describe('[@api] [@core] Client creation and interceptors', () => {
-  it('creates two axios client instances (confluentClient + fcpmClient)', () => {
-    expect(createdClients).toHaveLength(2)
+  it('creates three axios client instances (confluentClient + fcpmClient + telemetryClient)', () => {
+    expect(createdClients).toHaveLength(3)
   })
 
   it('registers interceptors on confluentClient', () => {

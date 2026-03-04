@@ -36,6 +36,7 @@ const Toast: React.FC = () => {
           <button
             className="toast-close"
             onClick={() => removeToast(toast.id)}
+            aria-label="Dismiss notification"
           >
             <FiX size={14} />
           </button>

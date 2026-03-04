@@ -30,16 +30,25 @@
   overflow: hidden;
 }
 
-/* Header */
+/* Header — always dark regardless of theme */
 .app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: 56px;
   padding: 0 16px;
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  background-color: #242427;
+  border-bottom: 1px solid #3F3F46;
   flex-shrink: 0;
+  /* Override CSS vars so all child elements inherit dark palette */
+  --color-surface: #242427;
+  --color-surface-secondary: #2D2D31;
+  --color-border: #3F3F46;
+  --color-text-primary: #F5F5F7;
+  --color-text-secondary: #A1A1A6;
+  --color-text-tertiary: #696969;
+  --color-bg-hover: #3F3F46;
+  --color-input-bg: #2D2D31;
 }
 
 .header-left {
@@ -52,9 +61,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-primary);
+}
+
+.logo-text {
+  font-family: 'Inter', 'DM Sans', system-ui, sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #A1A1A6;
 }
 
 .logo-icon {
@@ -68,11 +82,129 @@
   gap: 6px;
 }
 
-.logo-text {
-  max-width: 300px;
+
+/* Workspace name in header */
+.header-workspace-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border);
+  margin: 0 -4px;
+  flex-shrink: 0;
+}
+
+.header-workspace-name {
+  font-size: 15px;
+  font-weight: 400;
+  color: #A1A1A6;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Shared ghost icon button used in header (save, notes toggle) */
+.header-icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #696969;
+  font-size: 14px;
+  padding: 3px 4px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.header-icon-btn:hover {
+  color: #A1A1A6;
+}
+.header-icon-btn--active,
+.header-icon-btn--active:hover {
+  color: var(--color-primary);
+}
+
+
+/* Workspace Notes push-down panel — mirrors .compute-pool-dashboard pattern */
+.workspace-notes-panel {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+.workspace-notes-panel--open {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.workspace-notes-header {
+  padding: 6px 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.workspace-notes-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.workspace-notes-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-primary);
+  padding: 0;
+  line-height: 1;
+}
+.workspace-notes-close:hover {
+  opacity: 0.75;
+}
+.workspace-notes-textarea {
+  display: block;
+  width: 100%;
+  min-height: 100px;
+  max-height: 220px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.workspace-notes-textarea:focus {
+  color: var(--color-text-primary);
+  background: var(--color-surface-secondary);
+}
+
+/* Save workspace button */
+.save-workspace-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.save-workspace-btn:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .header-center {
@@ -262,7 +394,7 @@
 .settings-select:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  box-shadow: var(--shadow-focus-ring);
 }
 
 /* History Panel */
@@ -334,6 +466,13 @@
   color: var(--color-text-secondary);
 }
 
+.history-loading-more {
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
 .history-spinner {
   display: inline-block;
   width: 14px;
@@ -377,7 +516,102 @@
 
 .history-retry-btn:hover {
   background-color: var(--color-error);
-  color: white;
+  color: var(--color-button-danger-text);
+}
+
+.workspace-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  user-select: none;
+}
+
+.workspace-empty-logo {
+  width: 96px;
+  height: 96px;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+.workspace-empty-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.workspace-empty-joke {
+  font-size: 13px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-secondary);
+  padding: 10px 20px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  white-space: pre-line;
+  text-align: left;
+  max-width: 460px;
+  line-height: 1.6;
+}
+
+.workspace-empty-code-block {
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 14px 22px;
+  text-align: left;
+  width: fit-content;
+  max-width: 75%;
+}
+
+.workspace-empty-sql {
+  font-size: 16px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  white-space: nowrap;
+}
+
+.workspace-empty-query-result {
+  font-size: 16px;
+  font-family: 'Fira Code', 'Cascadia Code', monospace;
+  color: var(--color-text-tertiary);
+  font-style: normal;
+  margin: 0;
+  padding: 0;
+  white-space: pre-line;
+}
+
+.workspace-empty-hint {
+  font-size: 16px;
+  color: var(--color-text-secondary);
+  margin: 4px 0 0;
+}
+
+.workspace-empty-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 16px;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+
+.workspace-empty-link:hover {
+  opacity: 0.8;
 }
 
 .history-empty-state {
@@ -490,8 +724,9 @@
 
 .history-filter-strip {
   display: flex;
-  gap: 4px;
-  padding: 8px 12px;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
@@ -500,11 +735,12 @@
   background: none;
   border: 1px solid var(--color-border);
   border-radius: 12px;
-  padding: 2px 10px;
-  font-size: 0.7rem;
+  padding: 2px 6px;
+  font-size: 0.6rem;
   color: var(--color-text-secondary);
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
 }
 
 .history-filter-btn:hover {
@@ -512,9 +748,9 @@
 }
 
 .history-filter-btn.active {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: white;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-button-danger-text);
 }
 
 .history-item-time {
@@ -1042,6 +1278,39 @@
   overflow: hidden;
 }
 
+/* Nav rail wrapper — provides relative context for floating expand handle */
+.nav-rail-wrapper {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+/* Floating handle — positioned at right edge of nav rail, mirrors stream-panel-handle */
+.nav-rail-handle {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  width: 20px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  box-shadow: 2px 0 6px rgba(0,0,0,0.08);
+}
+.nav-rail-handle:hover {
+  color: var(--color-primary);
+  background: var(--color-surface-hover);
+}
+
 /* Floating handle — positioned at right edge of <main> */
 .stream-panel-handle {
   position: absolute;
@@ -1107,6 +1376,42 @@
 
 .add-cell-btn:hover {
   background-color: var(--color-primary-dark);
+}
+
+.stop-all-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background-color: transparent;
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.stop-all-btn:hover {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.stop-all-btn--delete {
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+
+.stop-all-btn--delete:hover:not(:disabled) {
+  background-color: var(--color-error);
+  color: white;
+  border-color: var(--color-error);
+}
+
+.stop-all-btn--delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .run-all-btn {
@@ -1885,7 +2190,7 @@
 
 .property-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 24px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 24px;
   gap: 4px;
   align-items: center;
 }
@@ -2332,6 +2637,18 @@
 
 .status-dot.cancelled {
   background-color: var(--color-error);
+}
+
+.status-dot.failed {
+  background-color: var(--color-error);
+}
+
+.status-dot.stopped {
+  background-color: var(--color-text-tertiary);
+}
+
+.status-dot.unknown {
+  background-color: var(--color-text-tertiary);
 }
 
 .statement-name {

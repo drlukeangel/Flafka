@@ -19,7 +19,9 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 // ---------------------------------------------------------------------------
 const {
   mockAddStatement, mockAddToast, mockSetActiveNavItem, mockLoadArtifacts,
-  mockSetupScalar, mockSetupExplode, mockArtifactListRef,
+  mockSetupScalar, mockSetupExplode, mockRunKickstarter, mockArtifactListRef,
+  mockSaveCurrentWorkspace, mockSetWorkspaceName, mockSetWorkspaceNotes,
+  mockClearWorkspace, mockStatementsRef,
 } = vi.hoisted(() => ({
   mockAddStatement: vi.fn(),
   mockAddToast: vi.fn(),
@@ -27,7 +29,13 @@ const {
   mockLoadArtifacts: vi.fn(),
   mockSetupScalar: vi.fn().mockResolvedValue(undefined),
   mockSetupExplode: vi.fn().mockResolvedValue(undefined),
+  mockRunKickstarter: vi.fn().mockResolvedValue({ runId: 'test-run-123' }),
   mockArtifactListRef: { current: [] as unknown[] },
+  mockSaveCurrentWorkspace: vi.fn(),
+  mockSetWorkspaceName: vi.fn(),
+  mockSetWorkspaceNotes: vi.fn(),
+  mockClearWorkspace: vi.fn(),
+  mockStatementsRef: { current: [] as unknown[] },
 }));
 
 vi.mock('../../store/workspaceStore', () => {
@@ -36,7 +44,12 @@ vi.mock('../../store/workspaceStore', () => {
     addToast: mockAddToast,
     setActiveNavItem: mockSetActiveNavItem,
     get artifactList() { return mockArtifactListRef.current; },
+    get statements() { return mockStatementsRef.current; },
     loadArtifacts: mockLoadArtifacts,
+    saveCurrentWorkspace: mockSaveCurrentWorkspace,
+    setWorkspaceName: mockSetWorkspaceName,
+    setWorkspaceNotes: mockSetWorkspaceNotes,
+    clearWorkspace: mockClearWorkspace,
   };
   const hook = (selector: (s: unknown) => unknown) =>
     typeof selector === 'function' ? selector(store) : store;
@@ -47,6 +60,11 @@ vi.mock('../../store/workspaceStore', () => {
 vi.mock('../../services/example-setup', () => ({
   setupScalarExtractExample: (...args: unknown[]) => mockSetupScalar(...args),
   setupTableExplodeExample: (...args: unknown[]) => mockSetupExplode(...args),
+  setupJavaTableExplodeExample: (...args: unknown[]) => mockSetupExplode(...args),
+}));
+
+vi.mock('../../services/example-runner', () => ({
+  runKickstarterExample: (...args: unknown[]) => mockRunKickstarter(...args),
 }));
 
 import { ExamplesPanel } from '../../components/ExamplesPanel/ExamplesPanel';
@@ -60,69 +78,86 @@ describe('[@examples-panel] ExamplesPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockArtifactListRef.current = [] as unknown[];
+    mockStatementsRef.current = [] as unknown[]; // empty workspace by default
     mockSetupScalar.mockResolvedValue(undefined);
     mockSetupExplode.mockResolvedValue(undefined);
+    mockRunKickstarter.mockResolvedValue({ runId: 'test-run-123' });
   });
 
-  it('renders all example cards', () => {
+  it('renders kickstart cards on default tab', () => {
     render(<ExamplesPanel />);
     const cards = getExampleCards([]);
-    // Header shows count
-    expect(screen.getByText(`Examples (${cards.length})`)).toBeTruthy();
-    // Each card rendered
-    for (const card of cards) {
+    const kickCards = cards.filter((c) => c.category === 'kickstart');
+    for (const card of kickCards) {
       expect(screen.getByTestId(`example-card-${card.id}`)).toBeTruthy();
     }
+    // Snippet cards not visible on default tab
+    expect(screen.queryByTestId('example-card-hello-world')).toBeNull();
   });
 
-  it('renders card titles', () => {
+  it('renders snippet cards after switching to Snippets tab', () => {
     render(<ExamplesPanel />);
-    expect(screen.getByText('Hello World')).toBeTruthy();
+    fireEvent.click(screen.getByText('Snippets'));
+    const cards = getExampleCards([]);
+    const snippetCards = cards.filter((c) => c.category === 'snippet');
+    for (const card of snippetCards) {
+      expect(screen.getByTestId(`example-card-${card.id}`)).toBeTruthy();
+    }
+    // Kickstart cards not visible on Snippets tab
+    expect(screen.queryByTestId('example-card-hello-flink')).toBeNull();
+  });
+
+  it('renders kickstart card titles on default tab', () => {
+    render(<ExamplesPanel />);
+    expect(screen.getByText('Hello Flink')).toBeTruthy();
+    expect(screen.getByText('Good Jokes Filter')).toBeTruthy();
+  });
+
+  it('renders snippet card titles on Snippets tab', () => {
+    render(<ExamplesPanel />);
+    fireEvent.click(screen.getByText('Snippets'));
+    expect(screen.getAllByText('Hello World').length).toBeGreaterThan(0);
     expect(screen.getByText('Create Java UDF')).toBeTruthy();
     expect(screen.getByText('Create Python UDF')).toBeTruthy();
     expect(screen.getByText('Show Functions')).toBeTruthy();
-    expect(screen.getByText('Windowed Aggregation (TVF)')).toBeTruthy();
   });
 
-  it('renders card descriptions', () => {
+  it('renders card descriptions on Snippets tab', () => {
     render(<ExamplesPanel />);
+    fireEvent.click(screen.getByText('Snippets'));
     expect(screen.getByText(/Sanity check/)).toBeTruthy();
   });
 
-  it('renders SQL preview for each card', () => {
+  it('renders SQL preview for snippet cards', () => {
     render(<ExamplesPanel />);
-    // Hello World card should show SELECT 1
+    fireEvent.click(screen.getByText('Snippets'));
     expect(screen.getByText('SELECT 1;')).toBeTruthy();
-    // Show Functions card
     expect(screen.getByText('SHOW FUNCTIONS;')).toBeTruthy();
   });
 
-  it('renders tags for each card', () => {
+  it('renders tags on Snippets tab', () => {
     render(<ExamplesPanel />);
-    // Multiple Query tags across cards
-    const queryTags = screen.getAllByText('Query');
-    expect(queryTags.length).toBeGreaterThan(0);
-    // DDL tags
-    const ddlTags = screen.getAllByText('DDL');
-    expect(ddlTags.length).toBeGreaterThan(0);
-    // Java and Python tags
+    fireEvent.click(screen.getByText('Snippets'));
+    expect(screen.getAllByText('Query').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('DDL').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Java').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Python').length).toBeGreaterThan(0);
   });
 
   it('import button calls addStatement with valid job name and switches to workspace', async () => {
     render(<ExamplesPanel />);
-    // Click first Import button (Hello World card)
+    // Switch to Snippets tab to see Import buttons
+    fireEvent.click(screen.getByText('Snippets'));
     const importBtns = screen.getAllByText('Import');
     await act(async () => {
       fireEvent.click(importBtns[0]);
     });
 
-    // Title "Hello World" → job name "hello-world" (lowercase, hyphens)
+    // Title "Hello World" → job name "{rid}-hello-world" (rid prefix + lowercase, hyphens)
     expect(mockAddStatement).toHaveBeenCalledWith(
       'SELECT 1;',
       undefined,
-      'hello-world'
+      expect.stringMatching(/^hello-world-.+$/)
     );
     expect(mockAddToast).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'success', message: 'Imported "Hello World"' })
@@ -132,9 +167,11 @@ describe('[@examples-panel] ExamplesPanel', () => {
 
   it('copy button copies SQL to clipboard and shows feedback', async () => {
     render(<ExamplesPanel />);
-    const copyBtns = screen.getAllByText('Copy');
+    fireEvent.click(screen.getByText('Snippets'));
+    const helloWorldCard = screen.getByTestId('example-card-hello-world');
+    const copyBtn = helloWorldCard.querySelector('button')!;
     await act(async () => {
-      fireEvent.click(copyBtns[0]);
+      fireEvent.click(copyBtn);
     });
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('SELECT 1;');
     // Should show "Copied" feedback
@@ -146,13 +183,16 @@ describe('[@examples-panel] ExamplesPanel', () => {
     expect(screen.getByLabelText('Examples panel')).toBeTruthy();
   });
 
-  it('shows 10 cards total (8 standard + 2 Quick Start)', () => {
+  it('shows correct button counts per tab', () => {
     render(<ExamplesPanel />);
-    // 8 standard cards have "Import" button, 2 Quick Start cards have "Set Up" button
-    const importBtns = screen.getAllByText('Import');
-    const setupBtns = screen.getAllByText('Set Up');
-    expect(importBtns).toHaveLength(8);
-    expect(setupBtns).toHaveLength(2);
+    // Kickstart tab (default): 8 Set Up + 1 Coming Soon (Python), no Import
+    expect(screen.getAllByText('Set Up')).toHaveLength(8);
+    expect(screen.getAllByText('Coming Soon')).toHaveLength(1);
+    expect(screen.queryByText('Import')).toBeNull();
+    // Switch to Snippets tab: 4 Import, no Set Up
+    fireEvent.click(screen.getByText('Snippets'));
+    expect(screen.getAllByText('Import')).toHaveLength(4);
+    expect(screen.queryByText('Set Up')).toBeNull();
   });
 
   it('resolves artifact IDs when artifacts are available', () => {
@@ -167,7 +207,7 @@ describe('[@examples-panel] ExamplesPanel', () => {
       },
     ];
     render(<ExamplesPanel />);
-    // The Java UDF card should contain the real artifact ID and version
+    fireEvent.click(screen.getByText('Snippets'));
     const javaCard = screen.getByTestId('example-card-create-java-udf');
     expect(javaCard.textContent).toContain('cfa-real123');
     expect(javaCard.textContent).toContain('ver-abc');
@@ -178,6 +218,7 @@ describe('[@examples-panel] ExamplesPanel', () => {
   it('shows placeholder IDs when no artifacts available', () => {
     mockArtifactListRef.current = [] as unknown[];
     render(<ExamplesPanel />);
+    fireEvent.click(screen.getByText('Snippets'));
     const javaCard = screen.getByTestId('example-card-create-java-udf');
     expect(javaCard.textContent).toContain('<artifact-id>');
     expect(javaCard.textContent).toContain('<version-id>');
@@ -195,6 +236,7 @@ describe('[@examples-panel] ExamplesPanel', () => {
       },
     ];
     render(<ExamplesPanel />);
+    fireEvent.click(screen.getByText('Snippets'));
     const javaCard = screen.getByTestId('example-card-create-java-udf');
     // Should NOT use ugly display_name derivation
     expect(javaCard.textContent).not.toContain('some_long_ugly');
@@ -206,7 +248,8 @@ describe('[@examples-panel] ExamplesPanel', () => {
 
   it('card hover changes border color', () => {
     render(<ExamplesPanel />);
-    const card = screen.getByTestId('example-card-hello-world');
+    // Use a kickstart card (visible on default tab)
+    const card = screen.getByTestId('example-card-hello-flink');
     fireEvent.mouseEnter(card);
     // Hover state is visual only — verify no error
     fireEvent.mouseLeave(card);
@@ -229,23 +272,117 @@ describe('[@examples-panel] ExamplesPanel', () => {
 
   it('"Quick Start" tag rendered with primary background', () => {
     render(<ExamplesPanel />);
+    // Kickstart tab (default): all 9 kickstart cards visible, each has "Quick Start" tag
     const quickStartTags = screen.getAllByText('Quick Start');
-    expect(quickStartTags.length).toBe(2);
+    expect(quickStartTags.length).toBe(9);
     expect(quickStartTags[0].style.background).toContain('var(--color-primary)');
   });
 
   it('Set Up button calls onImport and shows success toast', async () => {
     render(<ExamplesPanel />);
+    // loan-filter is the first Set Up card now (kickstarter cards are first)
     const setupBtns = screen.getAllByText('Set Up');
     await act(async () => {
       fireEvent.click(setupBtns[0]);
     });
 
-    expect(mockSetupScalar).toHaveBeenCalled();
+    // First "Set Up" card is now loan-filter (uses runKickstarterExample)
+    expect(mockRunKickstarter).toHaveBeenCalled();
     await waitFor(() => {
       expect(mockAddToast).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'success' })
       );
     });
+  });
+
+  // --- comingSoon gate tests ---
+
+  it('loan-tradeline-java renders a "Set Up" button', () => {
+    render(<ExamplesPanel />);
+    const javaCard = screen.getByTestId('example-card-loan-tradeline-java');
+    expect(javaCard.textContent).toContain('Set Up');
+    expect(javaCard.textContent).not.toContain('Coming Soon');
+  });
+
+  it('loan-table-explode renders a disabled "Coming Soon" button (not "Set Up")', () => {
+    render(<ExamplesPanel />);
+    const explodeCard = screen.getByTestId('example-card-loan-table-explode');
+    expect(explodeCard.textContent).toContain('Coming Soon');
+    expect(explodeCard.textContent).not.toContain('Set Up');
+  });
+
+  it('"Coming Soon" button is aria-disabled="true"', () => {
+    render(<ExamplesPanel />);
+    const comingSoonBtns = screen.getAllByText('Coming Soon');
+    expect(comingSoonBtns).toHaveLength(1);
+    expect(comingSoonBtns[0].closest('button')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('comingSoon message text is visible on the card', () => {
+    render(<ExamplesPanel />);
+    expect(
+      screen.getByText(/Python UDFs require Confluent Early Access enrollment/)
+    ).toBeTruthy();
+  });
+
+  it('loan-table-explode does NOT have a clickable "Set Up" button', () => {
+    render(<ExamplesPanel />);
+    const explodeCard = screen.getByTestId('example-card-loan-table-explode');
+    const buttons = Array.from(explodeCard.querySelectorAll('button'));
+    const setupBtns = buttons.filter((b) => b.textContent?.includes('Set Up'));
+    expect(setupBtns).toHaveLength(0);
+  });
+
+  it('kickstart card titles present on default tab', () => {
+    render(<ExamplesPanel />);
+    expect(screen.getByText('Loan Filter')).toBeTruthy();
+    expect(screen.getByText('Loan Aggregate')).toBeTruthy();
+    expect(screen.getByText('Loan Fraud Monitor')).toBeTruthy();
+    expect(screen.getByText('Loan Enrichment')).toBeTruthy();
+  });
+
+  // --- Workspace isolation: confirmation when workspace is non-empty ---
+
+  it('shows inline confirmation when workspace has existing statements', async () => {
+    mockStatementsRef.current = [{ id: '1' }]; // non-empty workspace
+    render(<ExamplesPanel />);
+    const setupBtns = screen.getAllByText('Set Up');
+    await act(async () => {
+      fireEvent.click(setupBtns[0]);
+    });
+    // Should show confirmation, not run immediately
+    expect(mockRunKickstarter).not.toHaveBeenCalled();
+    expect(screen.getByText(/Your current workspace will be cleared/)).toBeTruthy();
+  });
+
+  it('"Clear & Set Up" clears workspace then runs setup', async () => {
+    mockStatementsRef.current = [{ id: '1' }];
+    render(<ExamplesPanel />);
+    const setupBtns = screen.getAllByText('Set Up');
+    await act(async () => { fireEvent.click(setupBtns[0]); });
+    const clearBtn = screen.getByText('Clear & Set Up');
+    await act(async () => { fireEvent.click(clearBtn); });
+    expect(mockClearWorkspace).toHaveBeenCalledTimes(1);
+    expect(mockRunKickstarter).toHaveBeenCalled();
+  });
+
+  it('"Cancel" dismisses confirmation without running setup', async () => {
+    mockStatementsRef.current = [{ id: '1' }];
+    render(<ExamplesPanel />);
+    const setupBtns = screen.getAllByText('Set Up');
+    await act(async () => { fireEvent.click(setupBtns[0]); });
+    const cancelBtn = screen.getByText('Cancel');
+    await act(async () => { fireEvent.click(cancelBtn); });
+    expect(mockRunKickstarter).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Your current workspace will be cleared/)).toBeNull();
+  });
+
+  it('empty workspace runs setup immediately without confirmation', async () => {
+    // mockStatementsRef.current is [] by default in beforeEach
+    render(<ExamplesPanel />);
+    const setupBtns = screen.getAllByText('Set Up');
+    await act(async () => { fireEvent.click(setupBtns[0]); });
+    expect(screen.queryByText(/Your current workspace will be cleared/)).toBeNull();
+    await waitFor(() => expect(mockRunKickstarter).toHaveBeenCalled());
   });
 });

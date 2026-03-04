@@ -7,6 +7,7 @@
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
+  padding-top: 6px;
   transition: width var(--nav-rail-transition, 200ms ease-in-out),
               min-width var(--nav-rail-transition, 200ms ease-in-out);
   overflow: hidden;
@@ -19,37 +20,12 @@
   min-width: var(--nav-rail-expanded-width, 220px);
 }
 
-/* Expand/Collapse Toggle */
-.nav-rail-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 40px;
-  min-height: 40px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  transition: color var(--transition-fast), background-color var(--transition-fast);
-  padding: 0 12px;
-}
-
-.nav-rail-toggle:hover {
-  background-color: var(--color-surface-secondary);
-  color: var(--color-text-primary);
-}
-
-.nav-rail--expanded .nav-rail-toggle {
-  justify-content: flex-end;
-  padding-right: 14px;
-}
-
 /* Section */
 .nav-rail-section {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px 6px;
+  gap: 1px;
+  padding: 2px 6px;
 }
 
 .nav-rail-section-header {
@@ -70,7 +46,7 @@
 .nav-rail--expanded .nav-rail-section-header {
   opacity: 1;
   height: auto;
-  padding: 8px 8px 4px;
+  padding: 6px 8px 2px;
 }
 
 /* Nav Item */
@@ -78,8 +54,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 36px;
-  min-height: 36px;
+  height: 30px;
+  min-height: 30px;
   padding: 0 12px;
   border: none;
   background: transparent;
@@ -98,6 +74,11 @@
 .nav-rail-item:hover {
   background-color: var(--color-surface-secondary);
   color: var(--color-text-primary);
+}
+
+.nav-rail-item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 .nav-rail-item--active {
@@ -140,5 +121,5 @@
 .nav-rail-divider {
   height: 1px;
   background-color: var(--color-border);
-  margin: 4px 10px;
+  margin: 3px 10px;
 }

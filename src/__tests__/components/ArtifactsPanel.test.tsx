@@ -3,7 +3,7 @@
  * ArtifactsPanel — Root container tests
  *
  * Covers:
- *   - Env guard: shows warning when cloudApiKey is missing
+ *   - Env guard: shows warning when flinkApiKey is missing
  *   - List/detail toggle based on selectedArtifact
  *   - Loading state display
  *   - Refresh button triggers loadArtifacts
@@ -18,8 +18,10 @@ import type { FlinkArtifact } from '../../types';
 // ---------------------------------------------------------------------------
 let mockSelectedArtifact: FlinkArtifact | null = null;
 let mockArtifactLoading = false;
-let mockCloudApiKey = 'key';
-let mockCloudApiSecret = 'secret';
+let mockFlinkApiKey = 'key';
+let mockFlinkApiSecret = 'secret';
+let mockMetricsKey = 'metrics-key';
+let mockMetricsSecret = 'metrics-secret';
 const mockLoadArtifacts = vi.fn();
 const mockClearSelectedArtifact = vi.fn();
 const mockSetArtifactError = vi.fn();
@@ -27,8 +29,10 @@ const mockSetArtifactError = vi.fn();
 vi.mock('../../config/environment', () => ({
   env: new Proxy({}, {
     get(_target, prop) {
-      if (prop === 'cloudApiKey') return mockCloudApiKey;
-      if (prop === 'cloudApiSecret') return mockCloudApiSecret;
+      if (prop === 'flinkApiKey') return mockFlinkApiKey;
+      if (prop === 'flinkApiSecret') return mockFlinkApiSecret;
+      if (prop === 'metricsKey') return mockMetricsKey;
+      if (prop === 'metricsSecret') return mockMetricsSecret;
       if (prop === 'cloudProvider') return 'aws';
       if (prop === 'cloudRegion') return 'us-east-1';
       if (prop === 'environmentId') return 'env-test';
@@ -87,13 +91,15 @@ describe('[@artifacts-panel] ArtifactsPanel', () => {
     vi.clearAllMocks();
     mockSelectedArtifact = null;
     mockArtifactLoading = false;
-    mockCloudApiKey = 'key';
-    mockCloudApiSecret = 'secret';
+    mockFlinkApiKey = 'key';
+    mockFlinkApiSecret = 'secret';
+    mockMetricsKey = 'metrics-key';
+    mockMetricsSecret = 'metrics-secret';
   });
 
-  it('shows config warning when cloud API key is not set', () => {
-    mockCloudApiKey = '';
-    mockCloudApiSecret = '';
+  it('shows config warning when Cloud API key is not set', () => {
+    mockMetricsKey = '';
+    mockMetricsSecret = '';
     render(<ArtifactsPanel />);
     expect(screen.getByText('Cloud API keys not configured')).toBeTruthy();
   });

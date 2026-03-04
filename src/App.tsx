@@ -8,17 +8,20 @@ import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import FooterStatus from './components/FooterStatus';
 import { env } from './config/environment';
-import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown } from 'react-icons/fi';
+import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown, FiSquare, FiTrash2, FiSave, FiEdit3, FiChevronsRight, FiChevronsLeft } from 'react-icons/fi';
 import { ComputePoolDashboard } from './components/ComputePoolDashboard/ComputePoolDashboard';
 import { NavRail } from './components/NavRail/NavRail';
 import SchemaPanel from './components/SchemaPanel/SchemaPanel';
 import TopicPanel from './components/TopicPanel/TopicPanel';
 import { SnippetsPanel } from './components/SnippetsPanel/SnippetsPanel';
+import { WorkspacesPanel } from './components/WorkspacesPanel/WorkspacesPanel';
 import ArtifactsPanel from './components/ArtifactsPanel/ArtifactsPanel';
 import { ExamplesPanel } from './components/ExamplesPanel/ExamplesPanel';
 import { StreamsPanel } from './components/StreamsPanel/StreamsPanel';
 import { JobsPage } from './components/JobsPage/JobsPage';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
+import { generateFunName } from './utils/names';
+import { randomStarterJoke } from './store/workspaceStore';
 import './App.css';
 
 // Helper: map compute pool phase to dot CSS class
@@ -47,6 +50,7 @@ function maskId(id: string): string {
   return id.length > 16 ? `${id.slice(0, 12)}\u2026` : id;
 }
 
+
 function App() {
   const {
     catalog,
@@ -74,6 +78,8 @@ function App() {
     loadDatabases,
     addStatement,
     runAllStatements,
+    stopAllStatements,
+    clearWorkspace,
     loadComputePoolStatus,
     loadStatementHistory,
     dismissOnboardingHint,
@@ -82,17 +88,56 @@ function App() {
     selectedSchemaSubject,
     streamsPanelOpen,
     toggleStreamsPanel,
+    navExpanded,
+    toggleNavExpanded,
+    workspaceName,
+    saveCurrentWorkspace,
+    setWorkspaceName,
+    workspaceNotes,
+    workspaceNotesOpen,
+    toggleWorkspaceNotes,
+    setWorkspaceNotes,
+    savedWorkspaces,
+    updateSavedWorkspaceNotes,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
     (s) => s.status === 'IDLE' || s.status === 'ERROR' || s.status === 'CANCELLED'
   );
 
+  const hasActiveStatements = statements.some(
+    (s) => s.status === 'RUNNING' || s.status === 'PENDING'
+  );
+
+  const hasAnyStatements = statements.length > 0;
+
   const showOnboardingHint = !hasSeenOnboardingHint && statements.length === 1 && statements[0].status === 'IDLE';
+
+  const parseJoke = (joke: string) => {
+    const nl = joke.indexOf('\n');
+    return {
+      sql: (nl >= 0 ? joke.slice(0, nl) : joke).replace(/^--\s*/, ''),
+      result: nl >= 0 ? joke.slice(nl + 1) : null,
+    };
+  };
+  const [emptyJoke, setEmptyJoke] = useState(() => parseJoke(randomStarterJoke()));
+  useEffect(() => {
+    if (statements.length === 0) setEmptyJoke(parseJoke(randomStarterJoke()));
+  }, [statements.length]);
 
   const [helpPanelOpen, setHelpPanelOpen] = useState(false);
   const [helpTopicId, setHelpTopicId] = useState<string | undefined>(undefined);
 
+  // Local notes state — synced from store (e.g., when workspace opened or Quick Start completes)
+  const [localNotes, setLocalNotes] = useState<string>(workspaceNotes ?? '');
+  useEffect(() => {
+    setLocalNotes(workspaceNotes ?? '');
+  }, [workspaceNotes]);
+
+  // Save workspace dialog state
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveNameValue, setSaveNameValue] = useState('');
+  const saveWorkspaceInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importConfirmation, setImportConfirmation] = useState<{
@@ -307,11 +352,38 @@ function App() {
       <header className="app-header">
         <div className="header-left">
           <div className="logo">
-            <img src="/src/img/fob-logo-sm.png" alt="F.o.B" className="logo-icon" />
+            <img src="/src/img/fob-logo-sm.png" alt="Flafka" className="logo-icon" />
             <div className="logo-title-group">
-              <span className="logo-text">F.o.B</span>
+              <span className="logo-text">Flafka</span>
             </div>
           </div>
+          {workspaceName && workspaceName !== 'Flafka' && (
+            <>
+              <span className="header-workspace-sep" aria-hidden="true" />
+              <span className="header-workspace-name" title={workspaceName}>{workspaceName}</span>
+              <button
+                className="header-icon-btn"
+                onClick={() => {
+                  setSaveNameValue(workspaceName && workspaceName !== 'Flafka' ? workspaceName : generateFunName());
+                  setSaveDialogOpen(true);
+                  requestAnimationFrame(() => { saveWorkspaceInputRef.current?.select(); });
+                }}
+                title="Save workspace"
+                aria-label="Save workspace"
+              >
+                <FiSave size={13} />
+              </button>
+              <button
+                className={`header-icon-btn${workspaceNotesOpen ? ' header-icon-btn--active' : ''}`}
+                onClick={toggleWorkspaceNotes}
+                aria-label={workspaceNotesOpen ? 'Hide notes' : 'Show notes'}
+                title={workspaceNotesOpen ? 'Hide notes' : 'Show notes'}
+                aria-expanded={workspaceNotesOpen}
+              >
+                <FiEdit3 size={13} />
+              </button>
+            </>
+          )}
         </div>
         <div className="header-center">
           <button
@@ -336,6 +408,26 @@ function App() {
         <div className="header-right">
           {activeNavItem === 'workspace' && (
             <>
+              {hasActiveStatements ? (
+                <button
+                  className="stop-all-btn"
+                  onClick={stopAllStatements}
+                  title="Stop all running statements"
+                >
+                  <FiSquare size={14} />
+                  <span>Stop All</span>
+                </button>
+              ) : (
+                <button
+                  className="stop-all-btn stop-all-btn--delete"
+                  onClick={clearWorkspace}
+                  disabled={!hasAnyStatements}
+                  title="Delete all statements and stream cards"
+                >
+                  <FiTrash2 size={14} />
+                  <span>Delete All</span>
+                </button>
+              )}
               <button
                 className="run-all-btn"
                 onClick={() => {
@@ -367,8 +459,19 @@ function App() {
       <ComputePoolDashboard isOpen={computePoolDashboardOpen} />
 
       <div className="app-content">
-        {/* Navigation Rail */}
-        <NavRail />
+        {/* Navigation Rail + floating expand/collapse handle */}
+        <div className="nav-rail-wrapper">
+          <NavRail />
+          <button
+            className="nav-rail-handle"
+            onClick={toggleNavExpanded}
+            title={navExpanded ? 'Collapse navigation' : 'Expand navigation'}
+            aria-label={navExpanded ? 'Collapse navigation' : 'Expand navigation'}
+            aria-expanded={navExpanded}
+          >
+            {navExpanded ? <FiChevronsLeft size={13} /> : <FiChevronsRight size={13} />}
+          </button>
+        </div>
 
         {/* Side Panel - conditionally rendered based on active nav item */}
         {activeNavItem !== 'workspace' && activeNavItem !== 'jobs' && (
@@ -537,6 +640,7 @@ function App() {
               {activeNavItem === 'schemas' && <SchemaPanel />}
               {activeNavItem === 'artifacts' && <ArtifactsPanel />}
               {activeNavItem === 'snippets' && <SnippetsPanel />}
+              {activeNavItem === 'workspaces' && <WorkspacesPanel />}
               {activeNavItem === 'examples' && <ExamplesPanel />}
             </div>
             {/* Drag handle for resizing */}
@@ -553,17 +657,65 @@ function App() {
             <JobsPage />
           ) : (
             <>
-              {/* Editor Cells */}
-              <div className="editor-cells">
-                {statements.map((statement, index) => (
-                  <EditorCell
-                    key={statement.id}
-                    statement={statement}
-                    index={index}
-                  />
-                ))}
-                {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
+              {/* Workspace Notes Panel — push-down above cells */}
+              <div
+                className={`workspace-notes-panel${workspaceNotesOpen ? ' workspace-notes-panel--open' : ''}`}
+                role="region"
+                aria-label="Workspace Notes"
+              >
+                <div className="workspace-notes-header">
+                  <span className="workspace-notes-label">Workspace Notes</span>
+                  <button
+                    className="workspace-notes-close"
+                    onClick={toggleWorkspaceNotes}
+                    aria-label="Close notes"
+                  >
+                    Close Notes
+                  </button>
+                </div>
+                <textarea
+                  className="workspace-notes-textarea"
+                  value={localNotes}
+                  onChange={(e) => setLocalNotes(e.target.value)}
+                  onBlur={() => {
+                    setWorkspaceNotes(localNotes || null);
+                    const savedId = savedWorkspaces.find((w) => w.name === workspaceName)?.id;
+                    if (savedId) updateSavedWorkspaceNotes(savedId, localNotes);
+                  }}
+                  placeholder="Add notes about this workspace..."
+                  aria-label="Workspace notes"
+                />
               </div>
+
+              {/* Editor Cells or Empty State */}
+              {statements.length === 0 ? (
+                <div className="workspace-empty-state">
+                  <img src="/src/img/fob-logo-sm.png" alt="Flafka squirrel" className="workspace-empty-logo" />
+                  <p className="workspace-empty-title">Flafka</p>
+                  <div className="workspace-empty-code-block">
+                    <p className="workspace-empty-sql">{emptyJoke.sql}</p>
+                    {emptyJoke.result && <p className="workspace-empty-query-result">{emptyJoke.result}</p>}
+                  </div>
+                  <button
+                    className="add-cell-btn"
+                    onClick={() => { addStatement(); dismissOnboardingHint(); }}
+                  >
+                    <FiPlus size={16} />
+                    <span>Add Statement</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="editor-cells">
+                  {statements.map((statement, index) => (
+                    <EditorCell
+                      key={statement.id}
+                      statement={statement}
+                      index={index}
+                    />
+                  ))}
+                  {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
+                </div>
+              )}
 
               {/* Footer Status */}
               <FooterStatus />
@@ -605,6 +757,68 @@ function App() {
         onChange={handleFileSelected}
         style={{ display: 'none' }}
       />
+
+      {/* Save Workspace Dialog */}
+      {saveDialogOpen && (
+        <div
+          className="import-confirm-overlay"
+          onClick={() => setSaveDialogOpen(false)}
+        >
+          <div
+            className="import-confirm-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="save-workspace-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setSaveDialogOpen(false);
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const name = saveNameValue.trim();
+                if (name) {
+                  saveCurrentWorkspace(name);
+                  setWorkspaceName(name);
+                  setSaveDialogOpen(false);
+                }
+              }
+            }}
+          >
+            <h3 id="save-workspace-dialog-title" className="import-confirm-title">Save Workspace</h3>
+            <div className="import-confirm-details">
+              <div className="import-confirm-row">
+                <label className="import-confirm-label" htmlFor="save-workspace-name">Name</label>
+                <input
+                  id="save-workspace-name"
+                  ref={saveWorkspaceInputRef}
+                  type="text"
+                  value={saveNameValue}
+                  onChange={(e) => setSaveNameValue(e.target.value)}
+                  className="settings-select"
+                  maxLength={80}
+                  autoFocus
+                  style={{ flex: 1, fontSize: 13 }}
+                />
+              </div>
+            </div>
+            <div className="import-confirm-actions">
+              <button className="import-confirm-btn import-confirm-btn--cancel" onClick={() => setSaveDialogOpen(false)}>Cancel</button>
+              <button
+                className="import-confirm-btn import-confirm-btn--confirm"
+                disabled={!saveNameValue.trim()}
+                onClick={() => {
+                  const name = saveNameValue.trim();
+                  if (!name) return;
+                  saveCurrentWorkspace(name);
+                  setWorkspaceName(name);
+                  setSaveDialogOpen(false);
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Import Confirmation Dialog */}
       {importConfirmation && (

@@ -231,7 +231,7 @@
 
 .compute-dashboard-stop-btn:hover {
   background: var(--color-error);
-  color: white;
+  color: var(--color-button-danger-text);
 }
 
 .compute-dashboard-stop-btn:focus-visible {

@@ -8,7 +8,14 @@
  */
 
 import type { ExampleCard, FlinkArtifact } from '../types';
-import { setupScalarExtractExample, setupTableExplodeExample } from '../services/example-setup';
+import { setupScalarExtractExample, setupJavaTableExplodeExample } from '../services/example-setup';
+import { runKickstarterExample } from '../services/example-runner';
+import { helloFlinkDef } from './examples/hello-flink';
+import { goodJokesDef } from './examples/good-jokes';
+import { loanFilterDef } from './examples/loan-filter';
+import { loanAggregateDef } from './examples/loan-aggregate';
+import { loanJoinDef } from './examples/loan-join';
+import { loanTemporalJoinDef } from './examples/loan-temporal-join';
 import { useWorkspaceStore } from '../store/workspaceStore';
 
 /** True when the class value is missing or a default placeholder that Flink would reject. */
@@ -61,8 +68,98 @@ export function getExampleCards(artifacts: FlinkArtifact[]): ExampleCard[] {
   const hasZip = !!zipArtifact;
 
   return [
+    // --- Hello World Quick Start examples ---
+    {
+      id: 'hello-flink',
+      category: 'kickstart' as const,
+      title: 'Hello Flink',
+      description: 'Your first Flink job — streams 20 jokes into a topic and reads them back. No setup required.',
+      sql: 'SELECT * FROM `{rid}-JOKES` LIMIT 20',
+      tags: ['Quick Start', 'Hello World', 'Streaming'],
+      completionModal: helloFlinkDef.completionModal,
+      onImport: (onProgress) =>
+        runKickstarterExample(helloFlinkDef, useWorkspaceStore.getState(), onProgress),
+    },
+    {
+      id: 'good-jokes',
+      category: 'kickstart' as const,
+      title: 'Good Jokes Filter',
+      description: "Filter a jokes stream — LOL, ROFL, and DEAD ratings flow to GOOD-JOKES. GROAN and MEH get dropped.",
+      sql: "INSERT INTO `{rid}-GOOD-JOKES`\nSELECT * FROM `{rid}-JOKES`\nWHERE rating IN ('LOL', 'ROFL', 'DEAD')",
+      tags: ['Quick Start', 'Filter', 'Streaming'],
+      completionModal: goodJokesDef.completionModal,
+      onImport: (onProgress) =>
+        runKickstarterExample(goodJokesDef, useWorkspaceStore.getState(), onProgress),
+    },
+
+    // --- Quick Start examples (template engine) ---
+    {
+      id: 'loan-filter',
+      category: 'kickstart' as const,
+      title: 'Loan Filter',
+      description:
+        'One-click setup: creates LOANS and LOANS-FILTERED tables, loads 200 records. Filters streaming loans WHERE status = APPROVED.',
+      sql: `INSERT INTO \`{rid}-LOANS-FILTERED\`
+SELECT CAST(loan_id AS BYTES) AS \`key\`, loan_id, amount, status, created_at, txn_id, customer_id
+FROM \`{rid}-LOANS\`
+WHERE status = 'APPROVED'`,
+      tags: ['Quick Start', 'Filter', 'Streaming'],
+      completionModal: loanFilterDef.completionModal,
+      onImport: (onProgress) =>
+        runKickstarterExample(loanFilterDef, useWorkspaceStore.getState(), onProgress),
+    },
+    {
+      id: 'loan-aggregate',
+      title: 'Loan Aggregate',
+      description:
+        'One-click setup: creates LOANS and LOANS-STATS tables, loads 200 records. Tumbling window aggregation by status — 20-second windows.',
+      sql: `INSERT INTO \`{rid}-LOANS-STATS\`
+SELECT status, COUNT(*) AS loan_count, SUM(amount) AS total_amount
+FROM TABLE(TUMBLE(TABLE \`{rid}-LOANS\`, DESCRIPTOR($rowtime), INTERVAL '20' SECOND))
+GROUP BY window_start, window_end, status`,
+      category: 'kickstart' as const,
+      tags: ['Quick Start', 'Aggregation', 'Window'],
+      completionModal: loanAggregateDef.completionModal,
+      onImport: (onProgress) =>
+        runKickstarterExample(loanAggregateDef, useWorkspaceStore.getState(), onProgress),
+    },
+    {
+      id: 'loan-join',
+      title: 'Loan Fraud Monitor',
+      description:
+        'One-click setup: creates LOANS, CUSTOMERS, and FRAUD-ALERTS tables, loads 210 records, opens 2 stream cards. Streaming join flags high-risk loans.',
+      sql: `INSERT INTO \`{rid}-FRAUD-ALERTS\`
+SELECT l.loan_id, c.name AS customer_name, c.risk_level,
+  CASE WHEN c.risk_level = 'CRITICAL' THEN 'CRITICAL_RISK_CUSTOMER' ELSE 'LOW_RISK' END AS alert_reason
+FROM \`{rid}-LOANS\` l
+JOIN \`{rid}-CUSTOMERS\` c ON l.customer_id = c.customer_id`,
+      category: 'kickstart' as const,
+      tags: ['Quick Start', 'Join', 'Streaming'],
+      completionModal: loanJoinDef.completionModal,
+      onImport: (onProgress) =>
+        runKickstarterExample(loanJoinDef, useWorkspaceStore.getState(), onProgress),
+    },
+    {
+      id: 'loan-temporal-join',
+      title: 'Loan Enrichment',
+      description:
+        'One-click setup: creates LOANS, CUSTOMERS (versioned), and LOANS-ENRICHED tables, loads 220 records, opens 2 stream cards. Temporal join enriches loans with credit score at arrival time.',
+      sql: `INSERT INTO \`{rid}-LOANS-ENRICHED\`
+SELECT l.loan_id, c.name AS customer_name, c.credit_score, c.state
+FROM \`{rid}-LOANS\` l
+JOIN \`{rid}-CUSTOMERS\` FOR SYSTEM_TIME AS OF l.\`$rowtime\` AS c
+  ON l.customer_id = c.customer_id`,
+      category: 'kickstart' as const,
+      tags: ['Quick Start', 'Temporal Join', 'Streaming'],
+      completionModal: loanTemporalJoinDef.completionModal,
+      onImport: (onProgress) =>
+        runKickstarterExample(loanTemporalJoinDef, useWorkspaceStore.getState(), onProgress),
+    },
+
+    // --- Standard snippet examples ---
     {
       id: 'hello-world',
+      category: 'snippet' as const,
       title: 'Hello World',
       description: 'Sanity check — confirm the compute pool is running.',
       sql: 'SELECT 1;',
@@ -70,6 +167,7 @@ export function getExampleCards(artifacts: FlinkArtifact[]): ExampleCard[] {
     },
     {
       id: 'show-functions',
+      category: 'snippet' as const,
       title: 'Show Functions',
       description: 'List all registered functions including UDFs.',
       sql: 'SHOW FUNCTIONS;',
@@ -77,6 +175,7 @@ export function getExampleCards(artifacts: FlinkArtifact[]): ExampleCard[] {
     },
     {
       id: 'create-java-udf',
+      category: 'snippet' as const,
       title: 'Create Java UDF',
       description: hasJar
         ? `Register UDF from ${jarArtifact!.display_name}.${isUnresolvedClass(jarArtifact!.class) ? ' Replace <entry-class> with your fully-qualified class name (e.g. com.example.MyUdf).' : ''}`
@@ -88,6 +187,7 @@ export function getExampleCards(artifacts: FlinkArtifact[]): ExampleCard[] {
     },
     {
       id: 'create-python-udf',
+      category: 'snippet' as const,
       title: 'Create Python UDF',
       description: hasZip
         ? `Register UDF from ${zipArtifact!.display_name}.${isUnresolvedClass(zipArtifact!.class) ? ' Replace <entry-class> with your fully-qualified class name.' : ''}`
@@ -97,56 +197,6 @@ CREATE FUNCTION ${zipFnName}
   AS '${zipClass}'
   USING JAR 'confluent-artifact://${zipId}/${zipVer}';`,
       tags: ['Python', 'UDF', 'DDL'],
-    },
-    {
-      id: 'create-example-table',
-      title: 'Create Example Table',
-      description: 'DDL for a Kafka-backed user events table with watermark.',
-      sql: `CREATE TABLE example_user_events (
-  user_id STRING,
-  email STRING,
-  comment STRING,
-  event_type STRING,
-  ts TIMESTAMP(3),
-  WATERMARK FOR ts AS ts - INTERVAL '5' SECOND
-) WITH (
-  'connector' = 'kafka',
-  'topic' = 'example-user-events',
-  'format' = 'avro',
-  'scan.startup.mode' = 'earliest-offset'
-);`,
-      tags: ['DDL'],
-    },
-    {
-      id: 'query-java-udf',
-      title: 'Query with Java UDF',
-      description: `Use the ${jarFnName} UDF. Requires Create Example Table + Create Java UDF first.`,
-      sql: `SELECT user_id, ${jarFnName}(email) AS result, event_type
-FROM example_user_events
-LIMIT 20;`,
-      tags: ['Java', 'UDF', 'Query'],
-    },
-    {
-      id: 'query-python-udf',
-      title: 'Query with Python UDF',
-      description: `Use the ${zipFnName} UDF. Requires Create Example Table + Create Python UDF first.`,
-      sql: `SELECT user_id, comment, ${zipFnName}(comment) AS result
-FROM example_user_events
-WHERE comment IS NOT NULL
-LIMIT 20;`,
-      tags: ['Python', 'UDF', 'Query'],
-    },
-    {
-      id: 'windowed-aggregation',
-      title: 'Windowed Aggregation (TVF)',
-      description:
-        '1-minute tumbling window aggregation using TVF syntax. Requires Create Example Table first.',
-      sql: `SELECT window_start, window_end, event_type, COUNT(*) AS cnt
-FROM TABLE(
-  TUMBLE(TABLE example_user_events, DESCRIPTOR(ts), INTERVAL '1' MINUTE)
-)
-GROUP BY window_start, window_end, event_type;`,
-      tags: ['Query', 'Window'],
     },
     {
       id: 'loan-scalar-extract',
@@ -160,9 +210,45 @@ SELECT loan_id,
   LoanDetailExtract(json_payload, 'application.loan.type') AS loan_type,
   ...
 FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\``,
+      category: 'kickstart' as const,
       tags: ['Quick Start', 'Java', 'UDF', 'Loan Example'],
+      completionModal: {
+        subtitle: 'Your workspace is ready. Follow these steps to run the example:',
+        steps: [
+          { label: 'Produce test data', detail: 'Click the green ▶ button on the LOAN-APPLICATIONS stream card to start sending 200 loan records.' },
+          { label: 'Register the UDF', detail: 'Run the CREATE FUNCTION cell to register the Java scalar extractor. Wait for it to show Completed before continuing.' },
+          { label: 'Start the INSERT INTO job', detail: 'Once CREATE FUNCTION shows Completed, run the INSERT INTO cell to begin extracting loan fields into the output topic.' },
+          { label: 'View output', detail: 'Run the SELECT * LIMIT 50 cell to see extracted rows flowing in from the output topic.' },
+        ],
+      },
       onImport: (onProgress) =>
         setupScalarExtractExample(useWorkspaceStore.getState(), onProgress),
+    },
+    {
+      id: 'loan-tradeline-java',
+      title: 'Loan Tradeline Explode (Java UDF)',
+      description:
+        'One-click setup: finds existing Java UDF artifact, creates tables + topics, loads 200 test records. Explodes tradeline array into individual rows using LATERAL TABLE.',
+      sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-LOAN-TRADELINES\`
+SELECT
+  CAST(CONCAT(loan_id, '-', CAST(t.array_index AS STRING)) AS BYTES) AS \`key\`,
+  loan_id, t.array_index AS tradeline_index,
+  LoanDetailExtract(t.element_json, 'account_type') AS account_type, ...
+FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\`,
+  LATERAL TABLE(LoanDetailExplode(json_payload, '...')) AS t`,
+      category: 'kickstart' as const,
+      tags: ['Quick Start', 'Java', 'UDF', 'Loan Example'],
+      completionModal: {
+        subtitle: 'Your workspace is ready. Follow these steps to run the example:',
+        steps: [
+          { label: 'Produce test data', detail: 'Click the green ▶ button on the LOAN-APPLICATIONS stream card to send 200 loan records.' },
+          { label: 'Register the UDFs', detail: 'Run the two CREATE FUNCTION cells in order. Wait for each to show Completed before continuing.' },
+          { label: 'Start the LATERAL TABLE job', detail: 'Run the INSERT INTO cell to begin exploding tradeline arrays into individual rows.' },
+          { label: 'View output', detail: 'Run the SELECT * LIMIT 50 cell to see one row per tradeline flowing into the output topic.' },
+        ],
+      },
+      onImport: (onProgress) =>
+        setupJavaTableExplodeExample(useWorkspaceStore.getState(), onProgress),
     },
     {
       id: 'loan-table-explode',
@@ -176,9 +262,9 @@ SELECT loan_id,
   ...
 FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\`,
   LATERAL TABLE(LoanDetailExplode(json_payload, '...')) AS t`,
+      category: 'kickstart' as const,
       tags: ['Quick Start', 'Python', 'UDF', 'Loan Example'],
-      onImport: (onProgress) =>
-        setupTableExplodeExample(useWorkspaceStore.getState(), onProgress),
+      comingSoon: 'Python UDFs require Confluent Early Access enrollment. Contact your account team to enroll.',
     },
   ];
 }

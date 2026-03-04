@@ -4,12 +4,59 @@ import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
 import * as telemetryApi from '../api/telemetry-api';
 import { env } from '../config/environment';
-import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry } from '../types';
+import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace } from '../types';
 import * as artifactApi from '../api/artifact-api';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 import * as schemaRegistryApi from '../api/schema-registry-api';
 import * as topicApi from '../api/topic-api';
-import { generateFunName } from '../utils/names';
+import { generateFunName, generateTopicStatementName, generateStatementName } from '../utils/names';
+
+const STARTER_JOKES = [
+  "-- SELECT * FROM regrets WHERE action = 'DELETE ALL'\n-- Result: 1 row returned",
+  "-- ROLLBACK\n-- ERROR: no transaction in progress. it's too late.",
+  "-- SELECT meaning FROM empty_workspace\n-- ERROR: column \"meaning\" does not exist",
+  "-- SELECT COUNT(tears) FROM this_moment\n-- Result: 1",
+  "-- EXPLAIN DELETE FROM statements\n-- Plan: regret",
+  "-- SELECT last_words FROM statements ORDER BY deleted_at DESC LIMIT 1\n-- Result: NULL",
+  "-- SELECT * FROM genius_ideas WHERE committed = true\n-- 0 rows returned",
+  "-- SELECT COUNT(*) FROM hope\n-- Result: 0",
+  "-- ALTER TABLE workspace ADD COLUMN motivation VARCHAR\n-- ERROR: table 'workspace' is empty",
+  "-- SELECT * FROM flink.jobs WHERE status = 'RUNNING'\n-- 0 rows returned (they're all CANCELLED now)",
+  "-- SELECT undo FROM history WHERE feature = 'delete_all'\n-- ERROR: column \"undo\" does not exist",
+  "-- DROP TABLE statements CASCADE\n-- SUCCESS — no going back now",
+  "-- SELECT * FROM workspace WHERE hope IS NOT NULL\n-- 0 rows returned",
+  "-- INSERT INTO workspace SELECT * FROM your_ideas\n-- waiting for upstream...",
+  "-- WHERE did all the statements go?\n-- syntax error near \"WHERE\"",
+  "-- SELECT purpose FROM workspace WHERE statements IS NULL\n-- Result: NULL",
+  "-- CREATE STREAM thoughts FROM SOURCE your_brain\n-- waiting for upstream...",
+  "-- SELECT salary FROM engineers WHERE they_feel_valued = true\n-- 0 rows returned",
+  "-- SELECT * FROM production WHERE everything = 'fine'\n-- ERROR: table 'fine' does not exist",
+  "-- SELECT work_life_balance FROM engineers\n-- ERROR: division by zero",
+  "-- DESCRIBE TABLE legacy_code\n-- WARNING: schema unknown, author unknown, do not touch",
+  "-- SELECT estimated_finish FROM project WHERE deadline = 'tomorrow'\n-- Result: next_quarter",
+  "-- SELECT bugs FROM code WHERE i_wrote_it = true\n-- 0 rows returned (i checked twice)",
+  "-- DELETE FROM todo_list WHERE priority = 'low'\n-- 847 rows deleted",
+  "-- SELECT coffee_cups FROM today WHERE it_was_enough = true\n-- 0 rows returned",
+  "-- EXPLAIN SELECT * FROM my_future\n-- Plan: undefined. Cost: high. Rows: unknown.",
+  "-- SELECT * FROM meetings WHERE outcome IS NOT NULL\n-- 0 rows returned",
+  "-- ALTER TABLE deadlines ADD COLUMN realistic BOOLEAN\n-- ERROR: type 'realistic' not found",
+  "-- SELECT nap FROM schedule WHERE allowed = true\n-- 0 rows returned",
+  "-- COMMIT\n-- WARNING: are you sure? this cannot be undone. (unlike your life choices)",
+  "-- SELECT on_call FROM engineers WHERE it_is_friday = true\n-- 1 row returned (it me)",
+  "-- SELECT * FROM stack_overflow WHERE answer_accepted = true AND year > 2019\n-- 0 rows returned",
+  "-- DROP DATABASE production\n-- just kidding. or am i.",
+  "-- SELECT confidence FROM junior_devs\n-- Result: 9999\n-- SELECT confidence FROM seniors\n-- Result: 2",
+  "-- SELECT work FROM queue WHERE urgent = true AND also_important = true AND well_defined = true\n-- 0 rows returned",
+  "-- TRUNCATE TABLE assumptions\n-- 10,847 rows deleted. you're welcome.",
+  "-- SELECT * FROM documentation WHERE up_to_date = true\n-- 0 rows returned",
+  "-- SELECT sleep FROM last_week WHERE hours > 7\n-- 0 rows returned",
+  "-- INSERT INTO inbox SELECT * FROM slack\n-- ERROR: max_size exceeded. consider therapy.",
+  "-- SELECT estimated_time FROM ticket WHERE accurate = true\n-- 0 rows returned",
+];
+
+export function randomStarterJoke(): string {
+  return STARTER_JOKES[Math.floor(Math.random() * STARTER_JOKES.length)];
+}
 import type { SchemaSubject, KafkaTopic } from '../types';
 
 export interface WorkspaceState {
@@ -118,6 +165,8 @@ export interface WorkspaceState {
   resumeStatementPolling: (id: string) => Promise<void>;
   refreshStatementStatus: (id: string) => Promise<void>;
   cancelStatement: (id: string) => Promise<void>;
+  stopAllStatements: () => Promise<void>;
+  clearWorkspace: () => void;
   runAllStatements: () => Promise<void>;
 
   addToast: (toast: Omit<Toast, 'id'>) => void;
@@ -183,6 +232,21 @@ export interface WorkspaceState {
   deleteSnippet: (id: string) => void;
   renameSnippet: (id: string, newName: string) => void;
 
+  // Workspace Notes (runtime only, NOT persisted)
+  workspaceNotes: string | null;
+  workspaceNotesOpen: boolean;
+  setWorkspaceNotes: (notes: string | null) => void;
+  toggleWorkspaceNotes: () => void;
+  updateSavedWorkspaceNotes: (id: string, notes: string) => void;
+
+  // Saved Workspaces (persisted to localStorage)
+  savedWorkspaces: SavedWorkspace[];
+  saveCurrentWorkspace: (name: string, sourceTemplateId?: string, sourceTemplateName?: string, notes?: string) => void;
+  openSavedWorkspace: (id: string) => Promise<void>;
+  deleteSavedWorkspace: (id: string) => void;
+  renameSavedWorkspace: (id: string, name: string) => void;
+  updateStreamCardConfig: (id: string, updates: { mode?: 'consume' | 'produce-consume'; dataSource?: 'synthetic' | 'dataset'; selectedDatasetId?: string | null; scanMode?: 'earliest-offset' | 'latest-offset' }) => void;
+
   // Jobs Page (runtime only, NOT persisted)
   jobStatements: StatementResponse[];
   jobsLoading: boolean;
@@ -214,7 +278,19 @@ export interface WorkspaceState {
 
   // Phase 13.1 — Stream Panel (runtime only, NOT persisted)
   streamsPanelOpen: boolean;
-  streamCards: Array<{ id: string; topicName: string }>;
+  streamCards: Array<{
+    id: string;
+    topicName: string;
+    initialMode?: 'consume' | 'produce-consume';
+    preselectedDatasetId?: string;
+    // Mutable config — updated by updateStreamCardConfig on user events
+    mode?: 'consume' | 'produce-consume';
+    dataSource?: 'synthetic' | 'dataset';
+    selectedDatasetId?: string | null;
+    scanMode?: 'earliest-offset' | 'latest-offset';
+    // In-memory only — for saveCurrentWorkspace to capture template provenance
+    datasetTemplate?: { type: string; count: number };
+  }>;
   backgroundStatements: BackgroundStatement[];
 
   // Schema test datasets (persisted)
@@ -226,7 +302,7 @@ export interface WorkspaceState {
   // Stream Panel actions
   toggleStreamsPanel: () => void;
   setStreamsPanelOpen: (open: boolean) => void;
-  addStreamCard: (topicName: string) => void;
+  addStreamCard: (topicName: string, initialMode?: 'consume' | 'produce-consume', preselectedDatasetId?: string, datasetTemplate?: { type: string; count: number }) => void;
   removeStreamCard: (cardId: string) => void;
   removeStreamCardsByTopic: (topicName: string) => void;
 
@@ -239,7 +315,7 @@ export interface WorkspaceState {
   navigateToSchemaDatasets: (subject: string) => void;
   clearSchemaInitialView: () => void;
 
-  executeBackgroundStatement: (contextId: string, sql: string, scanMode?: string) => Promise<void>;
+  executeBackgroundStatement: (contextId: string, sql: string, scanMode?: string, topicName?: string) => Promise<void>;
   cancelBackgroundStatement: (contextId: string) => Promise<void>;
   clearBackgroundStatements: () => Promise<void>;
 }
@@ -275,7 +351,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       toasts: [],
       sidebarCollapsed: false,
-      workspaceName: 'F.o.B',
+      workspaceName: 'Workspace',
       activeNavItem: 'workspace' as NavItem,
       navExpanded: false,
       theme: 'light',
@@ -325,6 +401,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       // Phase 12.6 — F6: Snippets (persisted via partialize)
       snippets: [],
 
+      // Saved Workspaces (persisted via partialize)
+      savedWorkspaces: [],
+
       // Jobs Page (runtime only, NOT persisted)
       jobStatements: [],
       jobsLoading: false,
@@ -338,6 +417,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       artifactUploading: false,
       uploadProgress: null,
       artifactError: null,
+
+      // Workspace Notes (runtime only, NOT persisted)
+      workspaceNotes: null,
+      workspaceNotesOpen: false,
 
       // Phase 13.1 — Stream Panel (runtime only, NOT persisted)
       streamsPanelOpen: false,
@@ -552,19 +635,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       deleteStatement: (id) => {
-        set((state) => {
-          const newStatements = state.statements.filter((s) => s.id !== id);
-          return {
-            statements: newStatements.length > 0 ? newStatements : [{
-              id: generateId(),
-              code: '-- Write your Flink SQL query here',
-              status: 'IDLE' as const,
-              createdAt: new Date(),
-              label: generateFunName(),
-            }],
-            lastSavedAt: new Date().toISOString(),
-          };
-        });
+        set((state) => ({
+          statements: state.statements.filter((s) => s.id !== id),
+          lastSavedAt: new Date().toISOString(),
+        }));
         get().addToast({ type: 'success', message: 'Statement deleted' });
       },
 
@@ -708,7 +782,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             const phase = status.status?.phase;
 
             if (phase === 'FAILED') {
-              throw new Error(status.status?.detail || 'Query failed');
+              const errorDetail = await flinkApi.getStatementErrorDetail(statementName, status.status?.detail);
+              throw new Error(errorDetail);
             }
 
             if (phase === 'CANCELLED') {
@@ -887,9 +962,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             if (phase !== 'RUNNING' && phase !== 'PENDING') {
               const newStatus = phase === 'FAILED' ? 'ERROR' as const :
                                 phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
+              const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(statementName, status.status?.detail) : undefined;
               set((state) => ({
                 statements: state.statements.map((s) =>
-                  s.id === id ? { ...s, status: newStatus, lastExecutedAt: new Date(), error: phase === 'FAILED' ? (status.status?.detail || 'Query failed') : undefined } : s
+                  s.id === id ? { ...s, status: newStatus, lastExecutedAt: new Date(), error: errorDetail } : s
                 ),
               }));
             }
@@ -909,8 +985,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             const status = await flinkApi.getStatementStatus(statementName);
             const phase = status.status?.phase;
 
-            if (phase === 'FAILED') throw new Error(status.status?.detail || 'Query failed');
-            if (phase === 'CANCELLED') {
+            if (phase === 'FAILED') {
+              const errorDetail = await flinkApi.getStatementErrorDetail(statementName, status.status?.detail);
+              throw new Error(errorDetail);
+            }
+            if (phase === 'CANCELLED' || (phase as string) === 'STOPPED') {
               set((state) => ({
                 statements: state.statements.map((s) =>
                   s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
@@ -1013,13 +1092,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           };
           const newStatus = statusMap[phase] || statement.status;
           if (newStatus !== statement.status) {
+            const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(statement.statementName, apiStatus.status?.detail) : undefined;
             set((state) => ({
               statements: state.statements.map((s) =>
                 s.id === id ? {
                   ...s,
                   status: newStatus,
                   lastExecutedAt: newStatus !== 'RUNNING' && newStatus !== 'PENDING' ? new Date() : s.lastExecutedAt,
-                  error: phase === 'FAILED' ? (apiStatus.status?.detail || 'Query failed') : undefined,
+                  error: errorDetail,
                 } : s
               ),
             }));
@@ -1069,6 +1149,46 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           if (!current || current.status === 'RUNNING' || current.status === 'PENDING') continue;
           await get().executeStatement(statement.id);
         }
+      },
+
+      stopAllStatements: async () => {
+        const { statements } = get();
+        const active = statements.filter((s) => s.status === 'RUNNING' || s.status === 'PENDING');
+        if (active.length === 0) return;
+
+        // Optimistically mark all as CANCELLED
+        set((state) => ({
+          statements: state.statements.map((s) =>
+            s.status === 'RUNNING' || s.status === 'PENDING'
+              ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() }
+              : s
+          ),
+        }));
+        get().addToast({ type: 'info', message: `Stopped ${active.length} statement(s)` });
+
+        // Fire-and-forget cancel requests for each active statement
+        await Promise.allSettled(
+          active
+            .filter((s) => s.statementName)
+            .map((s) => flinkApi.cancelStatement(s.statementName!))
+        );
+      },
+
+      clearWorkspace: () => {
+        // Cancel any running statements server-side (best-effort, no await)
+        const { statements } = get();
+        statements
+          .filter((s) => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName)
+          .forEach((s) => flinkApi.cancelStatement(s.statementName!).catch(() => {}));
+
+        // Clear all statements and stream cards
+        set({
+          statements: [],
+          streamCards: [],
+          workspaceNotes: null,
+          workspaceNotesOpen: false,
+        });
+        get().addToast({ type: 'info', message: 'Workspace cleared' });
       },
 
       // Toast Actions
@@ -1173,7 +1293,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadStatementHistory: async () => {
         set({ historyLoading: true, historyError: null });
         try {
-          const statements = await flinkApi.listStatements(50);
+          const statements = await flinkApi.listStatements(100, (accumulated) => {
+            // Progressive render: show results as each page arrives
+            set({ statementHistory: accumulated });
+          }, 100);
           set({ statementHistory: statements, historyLoading: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to load statement history';
@@ -1558,6 +1681,219 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
       },
 
+      // Saved Workspace actions
+      saveCurrentWorkspace: (name, sourceTemplateId, sourceTemplateName, notes) => {
+        const { statements, streamCards, savedWorkspaces } = get();
+        if (savedWorkspaces.length >= 20) {
+          get().addToast({ type: 'error', message: 'Max 20 workspaces reached — delete one first' });
+          return;
+        }
+        const now = new Date().toISOString();
+        const snapshot: SavedWorkspace = {
+          id: crypto.randomUUID(),
+          name,
+          createdAt: now,
+          updatedAt: now,
+          statementCount: statements.length,
+          streamCardCount: streamCards.length,
+          ...(sourceTemplateId ? { sourceTemplateId } : {}),
+          ...(sourceTemplateName ? { sourceTemplateName } : {}),
+          ...(notes ? { notes } : {}),
+          statements: statements.map((s) => ({
+            id: s.id,
+            code: s.code,
+            label: s.label,
+            isCollapsed: s.isCollapsed,
+            scanMode: s.scanMode,
+            scanTimestampMillis: s.scanTimestampMillis,
+            scanSpecificOffsets: s.scanSpecificOffsets,
+            scanGroupId: s.scanGroupId,
+            ...(s.status === 'RUNNING' && s.statementName ? { statementName: s.statementName } : {}),
+          })),
+          streamCards: streamCards.map((c) => ({
+            topicName: c.topicName,
+            mode: c.mode ?? c.initialMode ?? 'consume',
+            dataSource: c.dataSource ?? 'synthetic',
+            selectedDatasetId: c.selectedDatasetId ?? null,
+            scanMode: c.scanMode ?? 'earliest-offset',
+            ...(c.datasetTemplate ? { datasetTemplate: c.datasetTemplate } : {}),
+          })),
+        };
+        try {
+          set({ savedWorkspaces: [...get().savedWorkspaces, snapshot] });
+          // Only show toast for manual saves (template callers show their own toast)
+          if (!sourceTemplateId) {
+            get().addToast({ type: 'success', message: `Workspace "${name}" saved` });
+          }
+        } catch (e) {
+          if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+            get().addToast({ type: 'error', message: 'Storage full — delete some saved workspaces first' });
+          }
+        }
+      },
+
+      // Workspace Notes actions
+      setWorkspaceNotes: (notes) => {
+        set({
+          workspaceNotes: notes,
+          // Auto-expand panel when notes are set (e.g., from Quick Start)
+          ...(notes !== null ? { workspaceNotesOpen: true } : {}),
+        });
+      },
+
+      toggleWorkspaceNotes: () => {
+        set((state) => ({ workspaceNotesOpen: !state.workspaceNotesOpen }));
+      },
+
+      updateSavedWorkspaceNotes: (id, notes) => {
+        set((state) => ({
+          savedWorkspaces: state.savedWorkspaces.map((w) =>
+            w.id === id ? { ...w, notes, updatedAt: new Date().toISOString() } : w
+          ),
+        }));
+      },
+
+      openSavedWorkspace: async (id) => {
+        const workspace = get().savedWorkspaces.find((w) => w.id === id);
+        if (!workspace) return;
+
+        // Cancel active statements server-side (best-effort), await before proceeding
+        const running = get().statements.filter(
+          (s) => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName
+        );
+        await Promise.allSettled(
+          running.map((s) => flinkApi.cancelStatement(s.statementName!).catch(() => {}))
+        );
+
+        // Validate datasets
+        const { schemaDatasets } = get();
+        const datasetWarnings: string[] = [];
+
+        // Restore statements — regenerate IDs
+        const restoredStatements: SQLStatement[] = workspace.statements.map((s) => ({
+          id: crypto.randomUUID(),
+          code: s.code,
+          status: s.statementName ? 'RUNNING' as const : 'IDLE' as const,
+          createdAt: new Date(),
+          label: s.label,
+          isCollapsed: s.isCollapsed,
+          scanMode: s.scanMode,
+          scanTimestampMillis: s.scanTimestampMillis,
+          scanSpecificOffsets: s.scanSpecificOffsets,
+          scanGroupId: s.scanGroupId,
+          ...(s.statementName ? { statementName: s.statementName, startedAt: new Date() } : {}),
+        }));
+
+        // Restore stream cards — regenerate IDs, validate datasets
+        const restoredCards = workspace.streamCards.map((c) => {
+          let selectedDatasetId = c.selectedDatasetId;
+          let dataSource = c.dataSource;
+          if (c.dataSource === 'dataset' && c.selectedDatasetId) {
+            const exists = schemaDatasets.some((ds) => ds.id === c.selectedDatasetId);
+            if (!exists) {
+              datasetWarnings.push(c.topicName);
+              selectedDatasetId = null;
+              dataSource = 'synthetic';
+            }
+          }
+          return {
+            id: crypto.randomUUID(),
+            topicName: c.topicName,
+            initialMode: c.mode,
+            preselectedDatasetId: selectedDatasetId ?? undefined,
+            mode: c.mode,
+            dataSource,
+            selectedDatasetId,
+            scanMode: c.scanMode,
+          };
+        });
+
+        set({
+          statements: restoredStatements,
+          streamCards: restoredCards,
+          workspaceName: workspace.name,
+          workspaceNotes: workspace.notes ?? null,
+          workspaceNotesOpen: !!workspace.notes,
+        });
+
+        // Open streams panel if there are stream cards
+        if (restoredCards.length > 0) {
+          get().setStreamsPanelOpen(true);
+        }
+
+        // Show dataset warnings
+        for (const topicName of datasetWarnings) {
+          get().addToast({ type: 'warning', message: `Dataset for ${topicName} was removed — switched to synthetic mode` });
+        }
+
+        get().addToast({ type: 'success', message: `Workspace "${workspace.name}" opened` });
+
+        // Reconnect RUNNING statements
+        const runningToReconnect = restoredStatements.filter((s) => s.statementName && s.status === 'RUNNING');
+        await Promise.allSettled(
+          runningToReconnect.map(async (stmt) => {
+            try {
+              const apiStatus = await flinkApi.getStatementStatus(stmt.statementName!);
+              const phase = apiStatus.status?.phase;
+              const stopped = (apiStatus.spec as any)?.stopped === true;
+
+              if (stopped || (phase as string) === 'STOPPED' || phase === 'CANCELLED') {
+                set((state) => ({
+                  statements: state.statements.map((s) =>
+                    s.id === stmt.id ? { ...s, status: 'CANCELLED' as StatementStatus, statementName: undefined } : s
+                  ),
+                }));
+              } else if (phase === 'RUNNING') {
+                setTimeout(() => get().resumeStatementPolling(stmt.id), 100);
+              } else if (phase === 'COMPLETED' || phase === 'FAILED') {
+                const newStatus = phase === 'FAILED' ? 'ERROR' as const : 'COMPLETED' as const;
+                const errorDetail = phase === 'FAILED'
+                  ? await flinkApi.getStatementErrorDetail(stmt.statementName!, apiStatus.status?.detail)
+                  : undefined;
+                set((state) => ({
+                  statements: state.statements.map((s) =>
+                    s.id === stmt.id ? { ...s, status: newStatus, error: errorDetail, statementName: undefined } : s
+                  ),
+                }));
+              }
+            } catch (error: any) {
+              if (error?.response?.status === 404) {
+                // Statement GC'd — mark IDLE
+                set((state) => ({
+                  statements: state.statements.map((s) =>
+                    s.id === stmt.id ? { ...s, status: 'IDLE' as StatementStatus, statementName: undefined } : s
+                  ),
+                }));
+              } else {
+                // Transient 5xx/network — keep RUNNING, show toast
+                get().addToast({ type: 'warning', message: `Reconnect check failed for ${stmt.statementName} — retrying...` });
+              }
+            }
+          })
+        );
+      },
+
+      deleteSavedWorkspace: (id) => {
+        set((state) => ({
+          savedWorkspaces: state.savedWorkspaces.filter((w) => w.id !== id),
+        }));
+      },
+
+      renameSavedWorkspace: (id, name) => {
+        if (!name.trim()) return;
+        set((state) => ({
+          savedWorkspaces: state.savedWorkspaces.map((w) =>
+            w.id === id ? { ...w, name: name.trim(), updatedAt: new Date().toISOString() } : w
+          ),
+        }));
+      },
+
+      updateStreamCardConfig: (id, updates) => {
+        set((state) => ({
+          streamCards: state.streamCards.map((c) => c.id === id ? { ...c, ...updates } : c),
+        }));
+      },
+
       // Jobs Page actions
       navigateToJobDetail: (statementName: string) => {
         set({ activeNavItem: 'jobs' as NavItem, selectedJobName: statementName });
@@ -1718,10 +2054,24 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         // Panel stays mounted — cards and background statements persist across open/close
       },
 
-      addStreamCard: (topicName) => {
+      addStreamCard: (topicName, initialMode, preselectedDatasetId, datasetTemplate) => {
         set((state) => {
           if (state.streamCards.length >= 10) return state; // Max 10 cards
-          return { streamCards: [...state.streamCards, { id: crypto.randomUUID(), topicName }] };
+          return {
+            streamCards: [...state.streamCards, {
+              id: crypto.randomUUID(),
+              topicName,
+              initialMode,
+              preselectedDatasetId,
+              // Auto-initialize mutable config so saveCurrentWorkspace captures correct state
+              // even when called before StreamCard.tsx renders
+              mode: initialMode,
+              dataSource: preselectedDatasetId ? 'dataset' as const : 'synthetic' as const,
+              selectedDatasetId: preselectedDatasetId ?? null,
+              scanMode: 'earliest-offset' as const,
+              ...(datasetTemplate ? { datasetTemplate } : {}),
+            }],
+          };
         });
       },
 
@@ -1783,7 +2133,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ schemaInitialView: null });
       },
 
-      executeBackgroundStatement: async (contextId, sql, scanMode) => {
+      executeBackgroundStatement: async (contextId, sql, scanMode, topicName) => {
         // Cancel existing statement for same contextId first (max 1 per contextId — AC-8.5)
         const existing = get().backgroundStatements.find((s) => s.contextId === contextId);
         if (existing && existing.statementName) {
@@ -1794,7 +2144,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           }
         }
 
-        const statementName = `bg-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 8)}`;
+        const statementName = topicName
+          ? generateTopicStatementName(topicName)
+          : generateStatementName();
         const bgStatement: BackgroundStatement = {
           id: crypto.randomUUID(),
           contextId,
@@ -1845,10 +2197,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             const phase = status.status?.phase;
 
             if (phase === 'FAILED') {
+              const errorDetail = await flinkApi.getStatementErrorDetail(statementName, status.status?.detail);
               set((state) => ({
                 backgroundStatements: state.backgroundStatements.map((s) =>
                   s.id === bgStatement.id
-                    ? { ...s, status: 'ERROR' as const, error: status.status?.detail || 'Query failed' }
+                    ? { ...s, status: 'ERROR' as const, error: errorDetail }
                     : s
                 ),
               }));
@@ -2002,12 +2355,30 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         // Phase 12.6 — F6: Snippets persisted to localStorage
         snippets: state.snippets,
         schemaDatasets: state.schemaDatasets,
+        savedWorkspaces: state.savedWorkspaces,
       }) as unknown as WorkspaceState,
       migrate: (persistedState: unknown, _version: number) => {
         const state = persistedState as any;
         // Migration: remove invalid 'parallelism.default' session property
         if (state?.sessionProperties?.['parallelism.default']) {
           delete state.sessionProperties['parallelism.default'];
+        }
+        // Migration: init savedWorkspaces if absent (new in this version)
+        if (!state?.savedWorkspaces) {
+          state.savedWorkspaces = [];
+        }
+        // Migration: rename legacy default workspace names
+        if (state?.workspaceName === 'SQL Workspace' || state?.workspaceName === 'Flafka') {
+          state.workspaceName = 'Workspace';
+        }
+        // Migration: guard new SavedWorkspace fields added in workspace notes / template provenance
+        if (state?.savedWorkspaces) {
+          state.savedWorkspaces = state.savedWorkspaces.map((w: any) => ({
+            ...w,
+            sourceTemplateId: w.sourceTemplateId ?? undefined,
+            sourceTemplateName: w.sourceTemplateName ?? undefined,
+            notes: w.notes ?? undefined,
+          }));
         }
         // Rehydrate Date fields from JSON strings
         if (state?.statements) {
@@ -2053,7 +2424,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
             // Verify each running statement's status against the server
             for (const stmt of runningStatements) {
-              flinkApi.getStatementStatus(stmt.statementName!).then((apiStatus) => {
+              flinkApi.getStatementStatus(stmt.statementName!).then(async (apiStatus) => {
                 const phase = apiStatus.status?.phase;
 
                 if (phase === 'RUNNING') {
@@ -2063,9 +2434,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   // Statement finished while we were away — update local status
                   const newStatus = phase === 'FAILED' ? 'ERROR' as const :
                                     phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
+                  const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(stmt.statementName!, apiStatus.status?.detail) : undefined;
                   useWorkspaceStore.setState((state) => ({
                     statements: state.statements.map((s) =>
-                      s.id === stmt.id ? { ...s, status: newStatus, error: phase === 'FAILED' ? (apiStatus.status?.detail || 'Query failed') : undefined } : s
+                      s.id === stmt.id ? { ...s, status: newStatus, error: errorDetail } : s
                     ),
                   }));
                 }

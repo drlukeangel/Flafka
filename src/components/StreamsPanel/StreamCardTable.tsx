@@ -79,12 +79,14 @@ export function StreamCardTable({ data, columns }: StreamCardTableProps) {
     <div className="stream-card-table-wrapper">
       <table className="stream-card-table">
         <colgroup>
+          <col style={{ width: '28px' }} />
           {displayCols.map((col) => (
             <col key={col} style={{ width: getColWidth(col) }} />
           ))}
         </colgroup>
         <thead>
           <tr>
+            <th className="stream-card-table-row-num">#</th>
             {displayCols.map((col) => (
               <th key={col} title={col}>{col}</th>
             ))}
@@ -93,6 +95,7 @@ export function StreamCardTable({ data, columns }: StreamCardTableProps) {
         <tbody>
           {sortedData.map((row, rowIdx) => (
             <tr key={rowIdx}>
+              <td className="stream-card-table-row-num">{rowIdx + 1}</td>
               {displayCols.map((col) => {
                 const cellKey = `${rowIdx}-${col}`;
                 const val = row[col];

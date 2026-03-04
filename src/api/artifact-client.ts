@@ -16,7 +16,7 @@ export const artifactClient: AxiosInstance = axios.create({
 artifactClient.interceptors.request.use(
   config => {
     // Evaluate credentials on every request so rotated keys take effect immediately
-    const credentials = `${env.cloudApiKey}:${env.cloudApiSecret}`;
+    const credentials = `${env.metricsKey}:${env.metricsSecret}`;
     const encoded = btoa(credentials);
     config.headers['Authorization'] = `Basic ${encoded}`;
     if (import.meta.env.DEV) {

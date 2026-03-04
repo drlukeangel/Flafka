@@ -100,7 +100,7 @@ export interface WorkspaceImportData {
 
 // Navigation Rail Types
 // Phase 12.6 F6: Added 'snippets' for SQL snippet library panel
-export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'examples' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams';
+export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'examples' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams' | 'workspaces';
 
 // Schema Registry Types
 export type CompatibilityLevel = 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE';
@@ -196,6 +196,44 @@ export interface Snippet {
   updatedAt: string; // ISO 8601
 }
 
+// Saved Workspaces — snapshot of SQL cells + stream card configs
+export interface SavedWorkspaceStatement {
+  id: string;
+  code: string;
+  label?: string;
+  isCollapsed?: boolean;
+  scanMode?: string;
+  scanTimestampMillis?: string;
+  scanSpecificOffsets?: string;
+  scanGroupId?: string;
+  statementName?: string; // only if was RUNNING when saved
+}
+
+export interface SavedWorkspaceStreamCard {
+  topicName: string;
+  mode: 'consume' | 'produce-consume';
+  dataSource: 'synthetic' | 'dataset';
+  selectedDatasetId: string | null;
+  scanMode: 'earliest-offset' | 'latest-offset';
+  // Present for stream cards created by Quick Start examples (informational only)
+  datasetTemplate?: { type: string; count: number };
+}
+
+export interface SavedWorkspace {
+  id: string;
+  name: string;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+  statementCount: number;
+  streamCardCount: number;
+  statements: SavedWorkspaceStatement[];
+  streamCards: SavedWorkspaceStreamCard[];
+  // Template provenance — set for workspaces created from Quick Start examples
+  sourceTemplateId?: string;   // ExampleCard.id
+  sourceTemplateName?: string; // Display name for badge (ephemeral — not preserved through export/import)
+  notes?: string;              // Free-form notes; pre-populated from steps for example workspaces
+}
+
 // Phase 13.1 — Stream Panel Types
 
 export interface BackgroundStatement {
@@ -283,6 +321,18 @@ export interface PresignedUploadUrlResponse {
   upload_form_data: Record<string, string>;
 }
 
+// Example completion steps — shown in the Workspace Notes panel after Quick Start setup
+export interface ExampleCompletionStep {
+  label: string;    // Bold step title, e.g. "Start the stream"
+  detail?: string;  // Optional trailing detail after em dash
+}
+
+export interface ExampleCompletionModal {
+  title: string;           // Card title (injected at runtime — not stored on ExampleCard)
+  subtitle?: string;       // Introductory paragraph
+  steps: ExampleCompletionStep[];
+}
+
 // Example card for the Examples panel
 export interface ExampleCard {
   id: string;
@@ -290,7 +340,10 @@ export interface ExampleCard {
   description: string;
   sql: string;
   tags: string[];
-  onImport?: (onProgress: (step: string) => void) => Promise<void>;
+  category: 'kickstart' | 'snippet';
+  completionModal?: Omit<ExampleCompletionModal, 'title'>; // title injected from card.title at runtime
+  onImport?: (onProgress: (step: string) => void) => Promise<{ runId: string }>;
+  comingSoon?: string; // If set: show disabled "Coming Soon" button; no Set Up button
 }
 
 // Schema test datasets

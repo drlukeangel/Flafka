@@ -12,6 +12,10 @@ vi.mock('../../store/workspaceStore', () => ({
 vi.mock('../../services/example-setup', () => ({
   setupScalarExtractExample: vi.fn(),
   setupTableExplodeExample: vi.fn(),
+  setupJavaTableExplodeExample: vi.fn(),
+}));
+vi.mock('../../services/example-runner', () => ({
+  runKickstarterExample: vi.fn(),
 }));
 
 function makeArtifact(overrides: Partial<FlinkArtifact> = {}): FlinkArtifact {
@@ -118,18 +122,99 @@ describe('[@example-cards] getExampleCards', () => {
     expect(card!.sql).toContain('LoanDetailExtract');
   });
 
-  it('loan-table-explode card exists with Python tag', () => {
+  it('loan-table-explode card exists with Python tag (Coming Soon)', () => {
     const cards = getExampleCards([]);
     const card = cards.find((c) => c.id === 'loan-table-explode');
     expect(card).toBeDefined();
     expect(card!.tags).toContain('Quick Start');
     expect(card!.tags).toContain('Python');
-    expect(card!.onImport).toBeDefined();
+  });
+
+  it('loan-tradeline-java card exists with Java tag and onImport', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'loan-tradeline-java');
+    expect(card).toBeDefined();
+    expect(card!.tags).toContain('Quick Start');
+    expect(card!.tags).toContain('Java');
+    expect(typeof card!.onImport).toBe('function');
+  });
+
+  it('loan-tradeline-java card sql contains LATERAL TABLE', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'loan-tradeline-java')!;
+    expect(card.sql).toContain('LATERAL TABLE');
+  });
+
+  it('loan-tradeline-java card has completionModal with >= 3 steps', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'loan-tradeline-java')!;
+    expect(card.completionModal).toBeDefined();
+    expect(card.completionModal!.steps.length).toBeGreaterThanOrEqual(3);
   });
 
   it('loan-table-explode card sql contains LATERAL TABLE', () => {
     const cards = getExampleCards([]);
     const card = cards.find((c) => c.id === 'loan-table-explode');
     expect(card!.sql).toContain('LATERAL TABLE');
+  });
+
+  // --- New Quick Start cards (template engine) ---
+
+  it('four new Quick Start cards exist with correct IDs', () => {
+    const cards = getExampleCards([]);
+    const ids = ['loan-filter', 'loan-aggregate', 'loan-join', 'loan-temporal-join'];
+    for (const id of ids) {
+      expect(cards.find((c) => c.id === id), `card ${id} missing`).toBeDefined();
+    }
+  });
+
+  it('each new Quick Start card has "Quick Start" tag', () => {
+    const cards = getExampleCards([]);
+    const ids = ['loan-filter', 'loan-aggregate', 'loan-join', 'loan-temporal-join'];
+    for (const id of ids) {
+      const card = cards.find((c) => c.id === id)!;
+      expect(card.tags, `${id} missing Quick Start tag`).toContain('Quick Start');
+    }
+  });
+
+  it('each new Quick Start card has onImport defined', () => {
+    const cards = getExampleCards([]);
+    const ids = ['loan-filter', 'loan-aggregate', 'loan-join', 'loan-temporal-join'];
+    for (const id of ids) {
+      const card = cards.find((c) => c.id === id)!;
+      expect(typeof card.onImport, `${id} missing onImport`).toBe('function');
+    }
+  });
+
+  it('each new Quick Start card has completionModal with >= 3 steps', () => {
+    const cards = getExampleCards([]);
+    const ids = ['loan-filter', 'loan-aggregate', 'loan-join', 'loan-temporal-join'];
+    for (const id of ids) {
+      const card = cards.find((c) => c.id === id)!;
+      expect(card.completionModal, `${id} missing completionModal`).toBeDefined();
+      expect(card.completionModal!.steps.length, `${id} has fewer than 3 steps`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('loan-table-explode card has comingSoon string (non-empty)', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'loan-table-explode')!;
+    expect(typeof card.comingSoon).toBe('string');
+    expect(card.comingSoon!.length).toBeGreaterThan(0);
+  });
+
+  it('loan-table-explode card has onImport undefined (gated)', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'loan-table-explode')!;
+    expect(card.onImport).toBeUndefined();
+  });
+
+  it('new cards appear before UDF example cards in order', () => {
+    const cards = getExampleCards([]);
+    const filterIdx = cards.findIndex((c) => c.id === 'loan-filter');
+    const scalarIdx = cards.findIndex((c) => c.id === 'loan-scalar-extract');
+    expect(filterIdx).toBeGreaterThanOrEqual(0);
+    expect(scalarIdx).toBeGreaterThanOrEqual(0);
+    expect(filterIdx).toBeLessThan(scalarIdx);
   });
 });

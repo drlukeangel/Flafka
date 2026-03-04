@@ -295,9 +295,19 @@ describe('[@history-panel] HistoryPanel component', () => {
       expect(screen.getByRole('button', { name: /^Running \(\d+\)$/ })).toBeInTheDocument()
     })
 
-    it('does not show filter tabs when loading', () => {
+    it('shows filter tabs during progressive loading when data exists', () => {
       mockHistoryLoading = true
       mockStatementHistory = [makeStatement('s1', 'SELECT 1', 'COMPLETED')]
+
+      render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
+
+      // Progressive rendering: filters shown even while loading more pages
+      expect(screen.getByRole('button', { name: /^All \(\d+\)$/ })).toBeInTheDocument()
+    })
+
+    it('does not show filter tabs when loading with no data yet', () => {
+      mockHistoryLoading = true
+      mockStatementHistory = []
 
       render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
 

@@ -101,8 +101,6 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: [
         { find: '@', replacement: path.resolve(__dirname, 'src') },
-        { find: '@monaco-editor/react', replacement: path.resolve(__dirname, 'src/test/mocks/monaco.tsx') },
-        { find: /^monaco-editor$/, replacement: path.resolve(__dirname, 'src/test/mocks/monaco-editor.ts') },
       ],
     },
     server: {

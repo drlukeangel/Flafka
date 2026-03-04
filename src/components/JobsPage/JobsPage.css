@@ -129,7 +129,7 @@
   border: none;
   border-radius: 6px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-button-danger-text);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -380,7 +380,7 @@
   border: none;
   border-radius: 6px;
   background: var(--color-error);
-  color: #fff;
+  color: var(--color-button-danger-text);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -457,6 +457,16 @@
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
   font-weight: 500;
+}
+
+.jobs-detail-tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.jobs-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
 }
 
 /* Content */
@@ -537,7 +547,7 @@
 
 .jobs-load-workspace-btn:hover {
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-button-danger-text);
 }
 
 .jobs-detail-sql-code {

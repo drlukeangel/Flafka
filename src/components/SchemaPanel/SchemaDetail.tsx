@@ -41,6 +41,7 @@ import {
   FiCode,
   FiCopy,
   FiLoader,
+  FiChevronDown,
 } from 'react-icons/fi';
 
 // ---------------------------------------------------------------------------
@@ -565,6 +566,8 @@ export default function SchemaDetail() {
   const [topicAdding, setTopicAdding] = useState(false);
   const [topicRemoving, setTopicRemoving] = useState<string | null>(null);
   const [topicAddError, setTopicAddError] = useState<string | null>(null);
+  const [topicsOpen, setTopicsOpen] = useState(false);
+  const [schemaOpen, setSchemaOpen] = useState(false);
 
   const subject = selectedSchemaSubject?.subject ?? null;
 
@@ -1183,17 +1186,121 @@ export default function SchemaDetail() {
         </button>
       </div>
 
-      {/* ── Meta row: version + compatibility (schema mode only) ────────── */}
+      {/* ── Topics section ───────────────────────────────────────────────── */}
+      {topMode === 'schema' && selectedSchemaSubject && (
+        <div style={{ borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+          <div
+            style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer', userSelect: 'none' }}
+            onClick={() => setTopicsOpen((o) => !o)}
+            role="button"
+            aria-expanded={topicsOpen}
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTopicsOpen((o) => !o); } }}
+          >
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Topics</span>
+            {!isEditing && !diffMode && associatedTopics.length > 0 && (
+              <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 5 }}>({associatedTopics.length})</span>
+            )}
+            <div style={{ flex: 1 }} />
+            <FiChevronDown size={13} style={{ transform: topicsOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s', color: 'var(--color-text-tertiary)' }} aria-hidden="true" />
+          </div>
+          {topicsOpen && (isEditing || diffMode) && (
+            <div style={{ padding: '0 12px 8px', fontSize: 10, color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+              Topics ({associatedTopics.length}) — unavailable while editing
+            </div>
+          )}
+          {topicsOpen && !isEditing && !diffMode && (
+            <div style={{ padding: '0 12px 10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {topicsLoading && <FiLoader size={11} className="history-spin" aria-hidden="true" />}
+                {associatedTopics.map((name) => (
+                  <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button onClick={() => navigateToTopic(name)} title={`Open topic ${name}`} aria-label={`Go to topic ${name}`} style={{ flex: 1, fontSize: 12, fontFamily: 'monospace', color: 'var(--color-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>{name}</button>
+                    <button onClick={() => handleRemoveTopic(name)} disabled={!!topicRemoving} title={`Remove association with ${name}`} aria-label={`Remove topic ${name}`} style={{ display: 'flex', alignItems: 'center', padding: 3, border: '1px solid var(--color-border)', borderRadius: 4, background: 'transparent', color: 'var(--color-text-tertiary)', cursor: topicRemoving === name ? 'wait' : 'pointer', opacity: topicRemoving === name ? 0.5 : 1, flexShrink: 0 }} onMouseEnter={(e) => { if (!topicRemoving) (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)'; }} onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)'; }}>
+                      {topicRemoving === name ? <FiLoader size={10} className="history-spin" aria-hidden="true" /> : <FiX size={10} aria-hidden="true" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div style={{ position: 'relative', marginTop: associatedTopics.length > 0 ? 8 : 0 }}>
+                <input type="text" value={topicSearch} role="combobox" aria-expanded={topicSearchResults.length > 0 && !topicAdding} aria-autocomplete="list" aria-controls="topic-associate-listbox" onChange={(e) => { setTopicSearch(e.target.value); setTopicAddError(null); setTopicDropdownFocusIdx(-1); }} onKeyDown={handleTopicSearchKeyDown} onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; handleSearchFocus(); }} onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; }} placeholder="Associate with a topic..." disabled={topicAdding} style={{ width: '100%', padding: '4px 8px', fontSize: 11, fontFamily: 'monospace', border: '1px solid var(--color-border)', borderRadius: 4, background: 'var(--color-surface)', color: 'var(--color-text-primary)', outline: 'none', boxSizing: 'border-box', opacity: topicAdding ? 0.6 : 1 }} />
+                {topicSearchResults.length > 0 && !topicAdding && (
+                  <div role="listbox" id="topic-associate-listbox" aria-label="Available topics" style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 140, overflowY: 'auto', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderTop: 'none', borderRadius: '0 0 4px 4px', zIndex: 20, boxShadow: '0 4px 8px rgba(0,0,0,0.15)' }}>
+                    {topicSearchResults.map((name, idx) => (
+                      <button key={name} role="option" aria-selected={false} tabIndex={-1} onMouseDown={(e) => { e.preventDefault(); handleAddTopic(name); }} style={{ display: 'block', width: '100%', padding: '5px 8px', fontSize: 11, fontFamily: 'monospace', textAlign: 'left', border: 'none', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', background: idx === topicDropdownFocusIdx ? 'var(--color-bg-hover)' : 'transparent', color: 'var(--color-text-primary)' }} onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)'; }} onMouseLeave={(e) => { if (idx !== topicDropdownFocusIdx) (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>{name}</button>
+                    ))}
+                  </div>
+                )}
+                {topicAdding && <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, fontSize: 11, color: 'var(--color-text-tertiary)' }}><FiLoader size={11} className="history-spin" aria-hidden="true" /> Associating...</div>}
+                {topicAddError && <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-error)' }}>{topicAddError}</div>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Schema section header: Left (badges) | Center (Code/Tree) | Right (Evolve + collapse) ─ */}
       {topMode === 'schema' && <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 16,
+          gap: 8,
           padding: '7px 12px',
           borderBottom: '1px solid var(--color-border)',
           flexShrink: 0,
-          flexWrap: 'wrap',
-          rowGap: 5,
+        }}
+      >
+        {/* Left: Schema type + Global badges */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {!isEditing && (
+            <span style={{ ...typeBadgeStyle, padding: '2px 7px', borderRadius: 3, fontSize: 11, fontWeight: 700, letterSpacing: '0.04em' }} title={`Schema type: ${schemaType}`}>{schemaType}</span>
+          )}
+          {!isEditing && compatIsGlobal && (
+            <span title="This subject inherits the global compatibility setting" style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)', background: 'var(--color-surface-secondary)', border: '1px solid var(--color-border)', borderRadius: 3, padding: '1px 5px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Global</span>
+          )}
+        </div>
+
+        {/* Center: Code/Tree (positioned in middle of full width) */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
+          {!isEditing && <ViewToggle view={view} onChange={setView} treeDisabled={schemaType !== 'AVRO'} />}
+        </div>
+
+        {/* Right: SELECT + collapse arrow */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {!isEditing && schemaType === 'AVRO' && generateSelectFromSchema(schema, selectedSchemaSubject.subject) && (
+            <button style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: copiedSelect ? 'var(--color-success)' : 'var(--color-text-secondary)', fontSize: 12, cursor: 'pointer', transition: 'color var(--transition-fast)' }} onClick={handleGenerateSelect} title="Copy SELECT statement with all fields" aria-label="Copy SELECT statement">
+              {copiedSelect ? <FiCheck size={12} aria-hidden="true" /> : <FiCode size={12} aria-hidden="true" />}
+              SELECT
+            </button>
+          )}
+          {isEditing && (
+            <>
+              <button style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: isValidated ? 'var(--color-success)' : 'var(--color-text-secondary)', fontSize: 12, cursor: validating || saving ? 'not-allowed' : 'pointer', opacity: validating || saving ? 0.7 : 1 }} onClick={handleValidate} disabled={validating || saving} title="Check compatibility against existing versions">
+                {validating ? <span className="spin" style={{ width: 12, height: 12, display: 'inline-block' }} aria-hidden="true" /> : isValidated ? <FiCheck size={12} aria-hidden="true" /> : null}
+                {validating ? 'Checking…' : 'Validate'}
+              </button>
+              <button style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 4, border: 'none', background: isValidated ? 'var(--color-primary)' : 'var(--color-text-disabled)', color: '#ffffff', fontSize: 12, fontWeight: 600, cursor: !isValidated || saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1 }} onClick={handleSave} disabled={!isValidated || saving} title={isValidated ? 'Save new schema version' : 'Validate before saving'} aria-label="Save new schema version">
+                {saving && <span className="spin" style={{ width: 12, height: 12, display: 'inline-block' }} aria-hidden="true" />}
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              <button style={{ padding: '5px 12px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-secondary)', fontSize: 12, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1 }} onClick={handleCancelEdit} disabled={saving} title="Cancel editing">Cancel</button>
+            </>
+          )}
+          <button style={{ display: 'flex', alignItems: 'center', padding: 5, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-text-tertiary)' }} onClick={() => setSchemaOpen((o) => !o)} title={schemaOpen ? 'Collapse schema controls' : 'Expand schema controls'} aria-expanded={schemaOpen} aria-label="Toggle schema controls">
+            <FiChevronDown size={14} style={{ transform: schemaOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }} aria-hidden="true" />
+          </button>
+        </div>
+      </div>}
+
+      {/* ── Schema controls (collapsible): VERSION + COMPAT + Diff + Evolve ── */}
+      {topMode === 'schema' && schemaOpen && <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 40,
+          padding: '7px 12px',
+          borderBottom: '1px solid var(--color-border)',
+          flexShrink: 0,
         }}
       >
         {/* Version selector */}
@@ -1297,221 +1404,21 @@ export default function SchemaDetail() {
               )}
             </>
           )}
-        </div>
-      </div>}
-
-      {/* ── Toolbar: view toggle + action buttons (schema mode only) ──────── */}
-      {topMode === 'schema' && <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '7px 12px',
-          borderBottom: '1px solid var(--color-border)',
-          flexShrink: 0,
-          flexWrap: 'wrap',
-          rowGap: 5,
-        }}
-      >
-        {!isEditing && <ViewToggle view={view} onChange={setView} treeDisabled={schemaType !== 'AVRO'} />}
-
-        {/* Schema type badge (moved here from header) */}
-        {!isEditing && (
-          <span
-            style={{
-              ...typeBadgeStyle,
-              padding: '2px 7px',
-              borderRadius: 3,
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-              flexShrink: 0,
-            }}
-            title={`Schema type: ${schemaType}`}
-          >
-            {schemaType}
-          </span>
-        )}
-
-        {/* GLOBAL badge */}
-        {!isEditing && compatIsGlobal && (
-          <span
-            title="This subject inherits the global compatibility setting"
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              color: 'var(--color-text-tertiary)',
-              background: 'var(--color-surface-secondary)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 3,
-              padding: '1px 5px',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-            }}
-          >
-            Global
-          </span>
-        )}
-
-        <div style={{ flex: 1 }} />
-
-        {!isEditing ? (
-          /* Read mode actions */
-          <>
-            {/* Item 11: Generate SELECT (only for AVRO) */}
-            {schemaType === 'AVRO' && generateSelectFromSchema(schema, selectedSchemaSubject.subject) && (
-              <button
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '5px 10px',
-                  borderRadius: 4,
-                  border: '1px solid var(--color-border)',
-                  background: 'var(--color-surface)',
-                  color: copiedSelect ? 'var(--color-success)' : 'var(--color-text-secondary)',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  transition: 'color var(--transition-fast)',
-                }}
-                onClick={handleGenerateSelect}
-                title="Copy SELECT statement with all fields"
-                aria-label="Copy SELECT statement"
-              >
-                {copiedSelect ? <FiCheck size={12} aria-hidden="true" /> : <FiCode size={12} aria-hidden="true" />}
-                SELECT
-              </button>
-            )}
-            {/* Item 6: Diff button (only when multiple versions exist) */}
-            {versions.length >= 2 && (
-              <button
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  padding: '5px 10px',
-                  borderRadius: 4,
-                  border: `1px solid ${diffMode ? 'var(--color-primary)' : 'var(--color-border)'}`,
-                  background: diffMode ? 'var(--color-primary-badge-bg)' : 'var(--color-surface)',
-                  color: diffMode ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  transition: 'background var(--transition-fast)',
-                }}
-                onClick={handleToggleDiff}
-                title="Compare two schema versions"
-                aria-label="Toggle diff view"
-                aria-pressed={diffMode}
-              >
-                <FiCopy size={12} aria-hidden="true" />
-                Diff
-              </button>
-            )}
-            <button
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 12px',
-                borderRadius: 4,
-                border: '1px solid var(--color-border)',
-                background: 'var(--color-surface)',
-                color: 'var(--color-text-primary)',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-              onClick={handleEvolveClick}
-              title="Register a new version of this schema"
-              aria-label="Evolve schema"
-            >
+          {/* Item 6: Diff button (only when multiple versions exist, read mode) */}
+          {!isEditing && versions.length >= 2 && (
+            <button style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 4, border: `1px solid ${diffMode ? 'var(--color-primary)' : 'var(--color-border)'}`, background: diffMode ? 'var(--color-primary-badge-bg)' : 'var(--color-surface)', color: diffMode ? 'var(--color-primary)' : 'var(--color-text-secondary)', fontSize: 12, cursor: 'pointer', transition: 'background var(--transition-fast)' }} onClick={handleToggleDiff} title="Compare two schema versions" aria-label="Toggle diff view" aria-pressed={diffMode}>
+              <FiCopy size={12} aria-hidden="true" />
+              Diff
+            </button>
+          )}
+          <div style={{ flex: 1 }} />
+          {!isEditing && (
+            <button style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-primary)', fontSize: 12, cursor: 'pointer' }} onClick={handleEvolveClick} title="Register a new version of this schema" aria-label="Evolve schema">
               <FiEdit2 size={12} aria-hidden="true" />
               Evolve
             </button>
-          </>
-        ) : (
-          /* Edit mode actions */
-          <>
-            <button
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 12px',
-                borderRadius: 4,
-                border: '1px solid var(--color-border)',
-                background: 'var(--color-surface)',
-                color: isValidated ? 'var(--color-success)' : 'var(--color-text-secondary)',
-                fontSize: 12,
-                cursor: validating || saving ? 'not-allowed' : 'pointer',
-                opacity: validating || saving ? 0.7 : 1,
-              }}
-              onClick={handleValidate}
-              disabled={validating || saving}
-              title="Check compatibility against existing versions"
-            >
-              {validating ? (
-                <span
-                  className="spin"
-                  style={{ width: 12, height: 12, display: 'inline-block' }}
-                  aria-hidden="true"
-                />
-              ) : isValidated ? (
-                <FiCheck size={12} aria-hidden="true" />
-              ) : null}
-              {validating ? 'Checking…' : 'Validate'}
-            </button>
-
-            <button
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 12px',
-                borderRadius: 4,
-                border: 'none',
-                background: isValidated
-                  ? 'var(--color-primary)'
-                  : 'var(--color-text-disabled)',
-                color: '#ffffff',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: !isValidated || saving ? 'not-allowed' : 'pointer',
-                opacity: saving ? 0.75 : 1,
-              }}
-              onClick={handleSave}
-              disabled={!isValidated || saving}
-              title={isValidated ? 'Save new schema version' : 'Validate before saving'}
-              aria-label="Save new schema version"
-            >
-              {saving && (
-                <span
-                  className="spin"
-                  style={{ width: 12, height: 12, display: 'inline-block' }}
-                  aria-hidden="true"
-                />
-              )}
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-
-            <button
-              style={{
-                padding: '5px 12px',
-                borderRadius: 4,
-                border: '1px solid var(--color-border)',
-                background: 'var(--color-surface)',
-                color: 'var(--color-text-secondary)',
-                fontSize: 12,
-                cursor: saving ? 'not-allowed' : 'pointer',
-                opacity: saving ? 0.7 : 1,
-              }}
-              onClick={handleCancelEdit}
-              disabled={saving}
-              title="Cancel editing"
-            >
-              Cancel
-            </button>
-          </>
-        )}
+          )}
+        </div>
       </div>}
 
       {/* ── Validation feedback banner ──────────────────────────────────────── */}
@@ -1554,124 +1461,6 @@ export default function SchemaDetail() {
         </div>
       )}
 
-      {/* F8: Topics section — collapsed stub in edit/diff mode */}
-      {topMode === 'schema' && selectedSchemaSubject && (isEditing || diffMode) && (
-        <div style={{ borderBottom: '1px solid var(--color-border)', padding: '8px 12px', flexShrink: 0 }}>
-          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>
-            TOPICS ({associatedTopics.length}) — unavailable while editing
-          </span>
-        </div>
-      )}
-
-      {/* F8: Topics section — full management in read mode */}
-      {topMode === 'schema' && selectedSchemaSubject && !isEditing && !diffMode && (
-        <div style={{ borderBottom: '1px solid var(--color-border)', padding: '10px 12px', flexShrink: 0 }}>
-          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--color-text-tertiary)',
-            textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            Topics
-          </span>
-          <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginLeft: 6,
-            fontStyle: 'italic' }}>
-            (TopicNameStrategy)
-          </span>
-
-          {/* Associated topic rows */}
-          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {topicsLoading && <FiLoader size={11} className="history-spin" aria-hidden="true" />}
-            {associatedTopics.map((name) => (
-              <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  onClick={() => navigateToTopic(name)}
-                  title={`Open topic ${name}`}
-                  aria-label={`Go to topic ${name}`}
-                  style={{ flex: 1, fontSize: 12, fontFamily: 'monospace',
-                    color: 'var(--color-primary)', overflow: 'hidden',
-                    textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'left',
-                    background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
-                >
-                  {name}
-                </button>
-                <button
-                  onClick={() => handleRemoveTopic(name)}
-                  disabled={!!topicRemoving}
-                  title={`Remove association with ${name}`}
-                  aria-label={`Remove topic ${name}`}
-                  style={{ display: 'flex', alignItems: 'center', padding: 3,
-                    border: '1px solid var(--color-border)', borderRadius: 4,
-                    background: 'transparent', color: 'var(--color-text-tertiary)',
-                    cursor: topicRemoving === name ? 'wait' : 'pointer',
-                    opacity: topicRemoving === name ? 0.5 : 1, flexShrink: 0 }}
-                  onMouseEnter={(e) => { if (!topicRemoving) (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-error)'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-tertiary)'; }}
-                >
-                  {topicRemoving === name
-                    ? <FiLoader size={10} className="history-spin" aria-hidden="true" />
-                    : <FiX size={10} aria-hidden="true" />}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Search to add — ARIA combobox pattern */}
-          <div style={{ position: 'relative', marginTop: associatedTopics.length > 0 ? 8 : 6 }}>
-            <input
-              type="text" value={topicSearch}
-              role="combobox"
-              aria-expanded={topicSearchResults.length > 0 && !topicAdding}
-              aria-autocomplete="list"
-              aria-controls="topic-associate-listbox"
-              onChange={(e) => { setTopicSearch(e.target.value); setTopicAddError(null); setTopicDropdownFocusIdx(-1); }}
-              onKeyDown={handleTopicSearchKeyDown}
-              onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; handleSearchFocus(); }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; }}
-              placeholder="Associate with a topic..."
-              disabled={topicAdding}
-              style={{ width: '100%', padding: '4px 8px', fontSize: 11, fontFamily: 'monospace',
-                border: '1px solid var(--color-border)', borderRadius: 4,
-                background: 'var(--color-surface)', color: 'var(--color-text-primary)',
-                outline: 'none', boxSizing: 'border-box', opacity: topicAdding ? 0.6 : 1 }}
-            />
-            {topicSearchResults.length > 0 && !topicAdding && (
-              <div
-                role="listbox" id="topic-associate-listbox" aria-label="Available topics"
-                style={{ position: 'absolute', top: '100%', left: 0, right: 0,
-                  maxHeight: 140, overflowY: 'auto',
-                  background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-                  borderTop: 'none', borderRadius: '0 0 4px 4px', zIndex: 20,
-                  boxShadow: '0 4px 8px rgba(0,0,0,0.15)' }}>
-                {topicSearchResults.map((name, idx) => (
-                  <button key={name}
-                    role="option" aria-selected={false} tabIndex={-1}
-                    onMouseDown={(e) => { e.preventDefault(); handleAddTopic(name); }}
-                    style={{ display: 'block', width: '100%', padding: '5px 8px',
-                      fontSize: 11, fontFamily: 'monospace', textAlign: 'left',
-                      border: 'none', cursor: 'pointer',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      background: idx === topicDropdownFocusIdx ? 'var(--color-bg-hover)' : 'transparent',
-                      color: 'var(--color-text-primary)' }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)'; }}
-                    onMouseLeave={(e) => {
-                      if (idx !== topicDropdownFocusIdx)
-                        (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                    }}
-                  >{name}</button>
-                ))}
-              </div>
-            )}
-            {topicAdding && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5,
-                fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                <FiLoader size={11} className="history-spin" aria-hidden="true" /> Associating...
-              </div>
-            )}
-            {topicAddError && (
-              <div style={{ marginTop: 4, fontSize: 11, color: 'var(--color-error)' }}>
-                {topicAddError}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── Content area ───────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

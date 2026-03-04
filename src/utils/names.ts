@@ -1,5 +1,7 @@
 // Memorable word-based name generator — used for statement names and cell labels
 
+import { env } from '../config/environment';
+
 const ADJECTIVES = [
   'wobbling', 'dizzy', 'bouncy', 'sneaky', 'cosmic', 'fizzy', 'grumpy', 'jolly',
   'zippy', 'wiggly', 'fluffy', 'chunky', 'spicy', 'crispy', 'snappy', 'blazing',
@@ -24,21 +26,29 @@ const NOUNS = [
 
 const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 
-// Session number — generated once per app load, shared across ALL names in this session.
-// Search this number in the Jobs page to find all statements from this session.
-const SESSION_NUMBER = Math.floor(Math.random() * 900) + 100; // 100–999
+// Employee ID — used as the session tag so resources can be traced back to their creator.
+// Set VITE_EMPLOYEE_ID in your .env file. Defaults to 'f696969'.
+const EMPLOYEE_ID: string = env.employeeId;
 
-/** Get the current session number. Stable for the lifetime of this app load. */
+/** Get the current session tag (employee ID). Stable for the lifetime of this app load. */
 export function getSessionTag(): string {
-  return String(SESSION_NUMBER);
+  return EMPLOYEE_ID;
 }
 
-/** Generate a fun name like "wobbling-penguin-4827" — used for cell labels and statement names */
+/** Generate a fun name like "wobbling-penguin-f696969" — used for cell labels and statement names */
 export function generateFunName(): string {
-  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${SESSION_NUMBER}`;
+  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${EMPLOYEE_ID}`;
 }
 
-/** Generate a unique statement name like "wobbling-penguin-4827" — same format, used for API calls */
+/** Generate a unique statement name like "wobbling-penguin-f696969" — same format, used for API calls */
 export function generateStatementName(): string {
-  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${SESSION_NUMBER}`;
+  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${EMPLOYEE_ID}`;
+}
+
+/** Generate a topic-prefixed statement name like "loan-details-355-wobbling-penguin" */
+export function generateTopicStatementName(topicName: string): string {
+  const slug = topicName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  // Confluent API requires statement names to start with a letter
+  const safeSlug = /^[a-z]/.test(slug) ? slug : `s-${slug}`;
+  return `${safeSlug}-${EMPLOYEE_ID}-${pick(ADJECTIVES)}-${pick(NOUNS)}`;
 }

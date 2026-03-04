@@ -79,15 +79,31 @@ async function fetchMetric(metric: string): Promise<Map<string, number>> {
 }
 
 // Fetch RUNNING statements on this compute pool
-// API has NO server-side phase filter, so we filter client-side
+// Mirrors the Confluent Cloud UI approach: page_size=1000, time_ordered=true
+// Then filter client-side by compute pool + RUNNING phase
 async function fetchRunningStatements(): Promise<StatementResponse[]> {
   const base = `/sql/v1/organizations/${env.orgId}/environments/${env.environmentId}/statements`;
-  const url = `${base}?spec.compute_pool_id=${env.computePoolId}&page_size=50`;
+  const url = `${base}?page_size=1000&time_ordered=true`;
   const response = await confluentClient.get(url);
   const all: StatementResponse[] = response.data?.data || [];
-  if (import.meta.env.DEV) console.log(`[Dashboard] Pool ${env.computePoolId}: ${all.length} total, filtering RUNNING`);
-  // Client-side filter: only RUNNING phase (API ignores phase param)
-  return all.filter((s) => s.status?.phase === 'RUNNING');
+
+  if (import.meta.env.DEV) {
+    const phaseCounts: Record<string, number> = {};
+    for (const s of all) {
+      const p = s.status?.phase || 'undefined';
+      phaseCounts[p] = (phaseCounts[p] || 0) + 1;
+    }
+    console.log(`[Dashboard] ${all.length} total statements, phases:`, phaseCounts);
+    const runningOnPool = all.filter(
+      s => s.status?.phase === 'RUNNING' && s.spec?.compute_pool_id === env.computePoolId
+    ).map(s => s.name);
+    if (runningOnPool.length) console.log('[Dashboard] RUNNING on pool:', runningOnPool);
+  }
+
+  // Filter: RUNNING phase on our compute pool
+  return all.filter(
+    (s) => s.status?.phase === 'RUNNING' && s.spec?.compute_pool_id === env.computePoolId
+  );
 }
 
 export async function getStatementTelemetry(

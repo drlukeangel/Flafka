@@ -1,9 +1,11 @@
 /**
  * Phase 12.6 F2: Added Type and Compat filter dropdowns (AND logic with name search)
  * Phase 12.6 F3: Added loading skeleton on initial mount (not on subsequent re-fetches)
+ * Bulk delete: Toggle button → bulk mode → action bar → modal confirmation (mirrors TopicList pattern)
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import * as schemaRegistryApi from '../../api/schema-registry-api';
 import type { CompatibilityLevel } from '../../types';
 import {
   FiSearch,
@@ -13,6 +15,9 @@ import {
   FiChevronRight,
   FiAlertCircle,
   FiPlus,
+  FiTrash2,
+  FiCheckSquare,
+  FiMinusSquare,
 } from 'react-icons/fi';
 import CreateSchema from './CreateSchema';
 
@@ -20,13 +25,13 @@ import CreateSchema from './CreateSchema';
 function getSchemaTypeBadgeStyle(schemaType: string): { background: string; color: string } {
   switch (schemaType) {
     case 'AVRO':
-      return { background: 'rgba(73,51,215,0.12)', color: 'var(--color-primary)' };
+      return { background: 'var(--color-primary-badge-bg)', color: 'var(--color-primary)' };
     case 'PROTOBUF':
-      return { background: 'rgba(245,158,11,0.12)', color: 'var(--color-warning)' };
+      return { background: 'var(--color-warning-badge-bg)', color: 'var(--color-warning)' };
     case 'JSON':
-      return { background: 'rgba(34,197,94,0.12)', color: 'var(--color-success)' };
+      return { background: 'var(--color-success-badge-bg)', color: 'var(--color-success)' };
     default:
-      return { background: 'rgba(156,163,175,0.12)', color: 'var(--color-text-secondary)' };
+      return { background: 'var(--color-bg-hover)', color: 'var(--color-text-secondary)' };
   }
 }
 
@@ -99,6 +104,7 @@ const SchemaList: React.FC = () => {
   const error = useWorkspaceStore((s) => s.schemaRegistryError);
   const loadSchemaRegistrySubjects = useWorkspaceStore((s) => s.loadSchemaRegistrySubjects);
   const loadSchemaDetail = useWorkspaceStore((s) => s.loadSchemaDetail);
+  const addToast = useWorkspaceStore((s) => s.addToast);
   // ORIG-8: Lazy cache of subject → schemaType (populated when subject is first clicked)
   const schemaTypeCache = useWorkspaceStore((s) => s.schemaTypeCache);
   // Phase 12.6 F2: Lazy cache of subject → compatibilityLevel
@@ -112,6 +118,12 @@ const SchemaList: React.FC = () => {
   // Phase 12.6 F2: Type and Compat filter state (resets on panel mount — AC-2.10)
   const [typeFilter, setTypeFilter] = useState<string>('All Types');
   const [compatFilter, setCompatFilter] = useState<string>('All Compat Modes');
+
+  // Bulk delete state — mirrors TopicList ENH-5 pattern
+  const [isBulkMode, setIsBulkMode] = useState(false);
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   // Phase 12.6 F3: Track whether initial load has happened (skeleton vs spinner)
   const hasLoadedOnceRef = useRef(false);
@@ -138,41 +150,66 @@ const SchemaList: React.FC = () => {
 
   // Phase 12.6 F2: AND filtering: name search + type filter + compat filter
   const filteredSubjects = subjects.filter((s) => {
-    // Name search filter
-    if (debouncedQuery && !s.toLowerCase().includes(debouncedQuery.toLowerCase())) {
-      return false;
-    }
-    // Type filter — exclude subjects with unloaded type if a specific type is selected
+    if (debouncedQuery && !s.toLowerCase().includes(debouncedQuery.toLowerCase())) return false;
     if (typeFilter !== 'All Types') {
       const cachedType = schemaTypeCache[s];
-      if (!cachedType) return false; // Not yet loaded — exclude from specific type filter
+      if (!cachedType) return false;
       if (cachedType !== typeFilter) return false;
     }
-    // Compat filter — exclude subjects with unloaded compat if a specific mode is selected
     if (compatFilter !== 'All Compat Modes') {
       const cachedCompat = schemaCompatCache[s];
-      if (!cachedCompat) return false; // Not yet loaded — exclude from specific compat filter
+      if (!cachedCompat) return false;
       if (cachedCompat !== compatFilter) return false;
     }
     return true;
   });
 
-  const handleItemClick = (subject: string) => {
-    loadSchemaDetail(subject);
-  };
+  const allSelected = filteredSubjects.length > 0 && bulkSelected.size === filteredSubjects.length;
+  const someSelected = bulkSelected.size > 0 && !allSelected;
 
-  const handleItemKeyDown = (e: React.KeyboardEvent<HTMLDivElement>, subject: string, index: number) => {
+  const exitBulkMode = useCallback(() => {
+    setIsBulkMode(false);
+    setBulkSelected(new Set());
+    setBulkConfirmOpen(false);
+  }, []);
+
+  const handleItemClick = useCallback((subject: string) => {
+    if (isBulkMode) {
+      setBulkSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(subject)) next.delete(subject);
+        else next.add(subject);
+        return next;
+      });
+      return;
+    }
+    loadSchemaDetail(subject);
+  }, [isBulkMode, loadSchemaDetail]);
+
+  const handleItemKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>, subject: string, index: number) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      loadSchemaDetail(subject);
+      if (isBulkMode) {
+        setBulkSelected((prev) => {
+          const next = new Set(prev);
+          if (next.has(subject)) next.delete(subject);
+          else next.add(subject);
+          return next;
+        });
+      } else {
+        loadSchemaDetail(subject);
+      }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       setFocusedIndex(Math.min(index + 1, filteredSubjects.length - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setFocusedIndex(Math.max(index - 1, 0));
+    } else if (e.key === 'Escape' && isBulkMode) {
+      e.preventDefault();
+      exitBulkMode();
     }
-  };
+  }, [isBulkMode, loadSchemaDetail, filteredSubjects.length, exitBulkMode]);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown' && filteredSubjects.length > 0) {
@@ -181,19 +218,33 @@ const SchemaList: React.FC = () => {
     }
   };
 
+  const handleBulkDeleteConfirm = useCallback(async () => {
+    setBulkDeleting(true);
+    setBulkConfirmOpen(false);
+    const toDelete = Array.from(bulkSelected);
+    try {
+      await Promise.all(toDelete.map((s) => schemaRegistryApi.deleteSubject(s)));
+      // Clean up local datasets for deleted subjects
+      const { schemaDatasets, deleteSchemaDataset } = useWorkspaceStore.getState();
+      for (const subject of toDelete) {
+        for (const ds of schemaDatasets) {
+          if (ds.schemaSubject === subject) deleteSchemaDataset(ds.id);
+        }
+      }
+      addToast({ type: 'success', message: `Deleted ${toDelete.length} subject${toDelete.length !== 1 ? 's' : ''}` });
+      exitBulkMode();
+      await loadSchemaRegistrySubjects();
+    } catch (err) {
+      addToast({ type: 'error', message: `Delete failed: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [bulkSelected, addToast, exitBulkMode, loadSchemaRegistrySubjects]);
+
   // Phase 12.6 F3: Show skeleton only on initial mount while loading
-  // Subsequent refreshes keep the existing list visible (no skeleton flash)
   if (loading && !hasLoadedOnce) {
     return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          overflow: 'hidden',
-        }}
-      >
-        {/* Keep filter toolbar visible during initial load */}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
         <div
           style={{
             padding: '8px 12px',
@@ -224,19 +275,10 @@ const SchemaList: React.FC = () => {
               placeholder="Filter subjects..."
               disabled
               aria-label="Filter schema subjects"
-              style={{
-                flex: 1,
-                border: 'none',
-                background: 'transparent',
-                outline: 'none',
-                fontSize: 13,
-                color: 'var(--color-text-primary)',
-                minWidth: 0,
-              }}
+              style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontSize: 13, color: 'var(--color-text-primary)', minWidth: 0 }}
             />
           </div>
         </div>
-        {/* F3: Skeleton shimmer rows — initial load only */}
         <SkeletonRows count={5} />
       </div>
     );
@@ -256,15 +298,80 @@ const SchemaList: React.FC = () => {
         }}
       />
 
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          overflow: 'hidden',
-        }}
-      >
-        {/* Search input + create button row */}
+      {/* Bulk delete confirmation modal — mirrors TopicList ENH-5 dialog */}
+      {bulkConfirmOpen && (
+        <>
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000 }}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schema-bulk-delete-title"
+            style={{
+              position: 'fixed',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              zIndex: 1001,
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              boxShadow: 'var(--shadow-lg)',
+              width: '90%',
+              maxWidth: 440,
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--color-border)', flexShrink: 0 }}>
+              <FiTrash2 size={16} style={{ color: 'var(--color-error)', flexShrink: 0 }} aria-hidden="true" />
+              <h2 id="schema-bulk-delete-title" style={{ margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                Delete {bulkSelected.size} subject{bulkSelected.size !== 1 ? 's' : ''}?
+              </h2>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+              <p style={{ margin: '0 0 10px', fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                This action is permanent and cannot be undone. The following subjects will be deleted:
+              </p>
+              <ul style={{ margin: 0, padding: '0 0 0 16px', fontSize: 12, color: 'var(--color-text-primary)', fontFamily: 'monospace', lineHeight: 1.8 }}>
+                {Array.from(bulkSelected).slice(0, 5).map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+                {bulkSelected.size > 5 && (
+                  <li style={{ color: 'var(--color-text-tertiary)', fontFamily: 'inherit' }}>
+                    …and {bulkSelected.size - 5} more
+                  </li>
+                )}
+              </ul>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 16px', borderTop: '1px solid var(--color-border)', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setBulkConfirmOpen(false)}
+                style={{ padding: '7px 16px', borderRadius: 4, border: '1px solid var(--color-border)', background: 'var(--color-surface)', color: 'var(--color-text-primary)', fontSize: 13, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteConfirm}
+                disabled={bulkDeleting}
+                aria-label={`Confirm delete ${bulkSelected.size} subject${bulkSelected.size !== 1 ? 's' : ''}`}
+                style={{ padding: '7px 16px', borderRadius: 4, border: 'none', background: 'var(--color-error)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: bulkDeleting ? 'not-allowed' : 'pointer', opacity: bulkDeleting ? 0.6 : 1 }}
+              >
+                Delete {bulkSelected.size} subject{bulkSelected.size !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+        {/* Search input + bulk toggle + create button row */}
         <div
           style={{
             padding: '8px 12px',
@@ -298,68 +405,162 @@ const SchemaList: React.FC = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={handleSearchKeyDown}
               aria-label="Filter schema subjects"
-              style={{
-                flex: 1,
-                border: 'none',
-                background: 'transparent',
-                outline: 'none',
-                fontSize: 13,
-                color: 'var(--color-text-primary)',
-                minWidth: 0,
-              }}
+              style={{ flex: 1, border: 'none', background: 'transparent', outline: 'none', fontSize: 13, color: 'var(--color-text-primary)', minWidth: 0 }}
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
                 aria-label="Clear filter"
-                style={{
-                  border: 'none',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  padding: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  color: 'var(--color-text-tertiary)',
-                  borderRadius: 3,
-                  flexShrink: 0,
-                }}
+                style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: 'var(--color-text-tertiary)', borderRadius: 3, flexShrink: 0 }}
               >
                 <FiX size={12} aria-hidden="true" />
               </button>
             )}
           </div>
 
-          {/* Create schema button */}
-          <button
-            onClick={() => setCreateOpen(true)}
-            title="Create new schema subject"
-            aria-label="Create new schema"
+          {/* Bulk mode toggle button */}
+          {subjects.length > 0 && (
+            <button
+              onClick={() => isBulkMode ? exitBulkMode() : setIsBulkMode(true)}
+              title={isBulkMode ? 'Exit bulk mode' : 'Select subjects for bulk delete'}
+              aria-label={isBulkMode ? 'Exit bulk selection mode' : 'Enter bulk selection mode'}
+              aria-pressed={isBulkMode}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                border: '1px solid var(--color-border)',
+                borderRadius: 4,
+                background: isBulkMode ? 'var(--color-primary-badge-bg)' : 'var(--color-surface)',
+                color: isBulkMode ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'color var(--transition-fast), background var(--transition-fast)',
+              }}
+            >
+              {isBulkMode ? <FiMinusSquare size={15} aria-hidden="true" /> : <FiCheckSquare size={15} aria-hidden="true" />}
+            </button>
+          )}
+
+          {/* Create schema button — hidden in bulk mode */}
+          {!isBulkMode && (
+            <button
+              onClick={() => setCreateOpen(true)}
+              title="Create new schema subject"
+              aria-label="Create new schema"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 32,
+                height: 32,
+                border: '1px solid var(--color-border)',
+                borderRadius: 4,
+                background: 'var(--color-surface)',
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'color var(--transition-fast), background var(--transition-fast)',
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-primary)';
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)';
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
+              }}
+            >
+              <FiPlus size={15} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
+        {/* Bulk action bar — visible when isBulkMode */}
+        {isBulkMode && (
+          <div
             style={{
+              padding: '6px 12px',
+              borderBottom: '1px solid var(--color-border)',
+              flexShrink: 0,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              width: 32,
-              height: 32,
-              border: '1px solid var(--color-border)',
-              borderRadius: 4,
-              background: 'var(--color-surface)',
-              color: 'var(--color-text-secondary)',
-              cursor: 'pointer',
-              flexShrink: 0,
-              transition: 'color var(--transition-fast), background var(--transition-fast)',
+              gap: 8,
+              background: 'var(--color-surface-secondary)',
             }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-primary)';
-              (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-bg-hover)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--color-text-secondary)';
-              (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-surface)';
-            }}
+            role="toolbar"
+            aria-label="Bulk selection actions"
           >
-            <FiPlus size={15} aria-hidden="true" />
-          </button>
-        </div>
+            {/* Select all toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                if (allSelected) {
+                  setBulkSelected(new Set());
+                } else {
+                  setBulkSelected(new Set(filteredSubjects));
+                }
+              }}
+              title={allSelected ? 'Clear all selections' : 'Select all subjects'}
+              aria-label={allSelected ? 'Clear all selections' : 'Select all subjects'}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                padding: '3px 6px',
+                fontSize: 12,
+                color: 'var(--color-text-secondary)',
+                borderRadius: 3,
+              }}
+            >
+              <input
+                type="checkbox"
+                readOnly
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                style={{ cursor: 'pointer', margin: 0 }}
+                aria-hidden="true"
+              />
+              <span>
+                {allSelected ? 'Deselect all' : someSelected ? `${bulkSelected.size} selected` : 'Select all'}
+              </span>
+            </button>
+
+            <span style={{ flex: 1, fontSize: 12, color: 'var(--color-text-tertiary)' }}>
+              {bulkSelected.size > 0 && !someSelected && !allSelected ? '' : ''}
+            </span>
+
+            {/* Delete button */}
+            <button
+              type="button"
+              disabled={bulkSelected.size === 0 || bulkDeleting}
+              onClick={() => setBulkConfirmOpen(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '5px 12px',
+                borderRadius: 4,
+                border: 'none',
+                background: bulkSelected.size === 0 ? 'var(--color-border)' : 'var(--color-error)',
+                color: bulkSelected.size === 0 ? 'var(--color-text-tertiary)' : 'var(--color-button-danger-text)',
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: bulkSelected.size === 0 ? 'not-allowed' : 'pointer',
+                transition: 'background var(--transition-fast)',
+              }}
+              aria-label={`Delete ${bulkSelected.size} selected subject${bulkSelected.size !== 1 ? 's' : ''}`}
+            >
+              <FiTrash2 size={13} aria-hidden="true" />
+              Delete{bulkSelected.size > 0 ? ` (${bulkSelected.size})` : ''}
+            </button>
+          </div>
+        )}
 
         {/* Phase 12.6 F2: Type and Compat filter dropdowns */}
         <div
@@ -373,10 +574,7 @@ const SchemaList: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <label
-              htmlFor="schema-type-filter"
-              style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}
-            >
+            <label htmlFor="schema-type-filter" style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>
               Type:
             </label>
             <select
@@ -401,10 +599,7 @@ const SchemaList: React.FC = () => {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <label
-              htmlFor="schema-compat-filter"
-              style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}
-            >
+            <label htmlFor="schema-compat-filter" style={{ fontSize: 11, color: 'var(--color-text-tertiary)', whiteSpace: 'nowrap' }}>
               Compat:
             </label>
             <select
@@ -432,16 +627,7 @@ const SchemaList: React.FC = () => {
           {hasActiveFilters && (typeFilter !== 'All Types' || compatFilter !== 'All Compat Modes') && (
             <button
               onClick={() => { setTypeFilter('All Types'); setCompatFilter('All Compat Modes'); }}
-              style={{
-                fontSize: 10,
-                padding: '2px 6px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 3,
-                background: 'transparent',
-                color: 'var(--color-text-tertiary)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
+              style={{ fontSize: 10, padding: '2px 6px', border: '1px solid var(--color-border)', borderRadius: 3, background: 'transparent', color: 'var(--color-text-tertiary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
               title="Clear type and compat filters"
             >
               Clear
@@ -454,7 +640,7 @@ const SchemaList: React.FC = () => {
           )}
         </div>
 
-        {/* Inline error banner — shown below filter row, never replaces it */}
+        {/* Inline error banner */}
         {error && (
           <div
             role="alert"
@@ -473,12 +659,7 @@ const SchemaList: React.FC = () => {
           >
             <FiAlertCircle size={13} aria-hidden="true" style={{ flexShrink: 0 }} />
             <span style={{ flex: 1, lineHeight: 1.4 }}>{error}</span>
-            <button
-              className="history-retry-btn"
-              onClick={loadSchemaRegistrySubjects}
-              aria-label="Retry loading schemas"
-              style={{ flexShrink: 0 }}
-            >
+            <button className="history-retry-btn" onClick={loadSchemaRegistrySubjects} aria-label="Retry loading schemas" style={{ flexShrink: 0 }}>
               Retry
             </button>
           </div>
@@ -501,12 +682,9 @@ const SchemaList: React.FC = () => {
           </div>
         )}
 
-        {/* Phase 12.6 F2: Subject list with aria-live for empty state announcements (U-4) */}
+        {/* Subject list */}
         <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-          }}
+          style={{ flex: 1, overflowY: 'auto' }}
           role="list"
           aria-label="Schema Registry subjects"
           aria-live="polite"
@@ -520,9 +698,7 @@ const SchemaList: React.FC = () => {
                 onClick={() => handleItemClick(subject)}
                 onKeyDown={(e) => handleItemKeyDown(e, subject, index)}
                 ref={(el) => {
-                  if (focusedIndex === index && el) {
-                    el.focus();
-                  }
+                  if (focusedIndex === index && el) el.focus();
                 }}
                 aria-label={`Schema subject: ${subject}`}
                 style={{
@@ -534,29 +710,32 @@ const SchemaList: React.FC = () => {
                   borderBottom: '1px solid var(--color-border)',
                   transition: 'background-color var(--transition-fast)',
                   outline: 'none',
+                  background: isBulkMode && bulkSelected.has(subject) ? 'var(--color-primary-badge-bg)' : undefined,
                 }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--color-bg-hover)';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.backgroundColor = '';
-                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--color-bg-hover)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = isBulkMode && bulkSelected.has(subject) ? 'var(--color-primary-badge-bg)' : ''; }}
                 onFocus={(e) => {
                   (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--color-bg-hover)';
                   (e.currentTarget as HTMLDivElement).style.outline = '2px solid var(--color-primary)';
                   (e.currentTarget as HTMLDivElement).style.outlineOffset = '-2px';
                 }}
                 onBlur={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.backgroundColor = '';
+                  (e.currentTarget as HTMLDivElement).style.backgroundColor = isBulkMode && bulkSelected.has(subject) ? 'var(--color-primary-badge-bg)' : '';
                   (e.currentTarget as HTMLDivElement).style.outline = '';
                   (e.currentTarget as HTMLDivElement).style.outlineOffset = '';
                 }}
               >
-                <FiFileText
-                  size={14}
-                  style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }}
-                  aria-hidden="true"
-                />
+                {/* Checkbox — only visible in bulk mode */}
+                {isBulkMode && (
+                  <input
+                    type="checkbox"
+                    checked={bulkSelected.has(subject)}
+                    readOnly
+                    aria-label={`Select ${subject}`}
+                    style={{ cursor: 'pointer', margin: 0, flexShrink: 0, pointerEvents: 'none' }}
+                  />
+                )}
+                <FiFileText size={14} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} aria-hidden="true" />
                 <span
                   style={{
                     flex: 1,
@@ -571,7 +750,7 @@ const SchemaList: React.FC = () => {
                 >
                   {subject}
                 </span>
-                {/* ORIG-8: Type badge — shown once type is known from lazy cache */}
+                {/* ORIG-8: Type badge */}
                 {schemaTypeCache[subject] && (
                   <span
                     style={{
@@ -589,15 +768,12 @@ const SchemaList: React.FC = () => {
                     {schemaTypeCache[subject]}
                   </span>
                 )}
-                <FiChevronRight
-                  size={13}
-                  style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }}
-                  aria-hidden="true"
-                />
+                {!isBulkMode && (
+                  <FiChevronRight size={13} style={{ color: 'var(--color-text-tertiary)', flexShrink: 0 }} aria-hidden="true" />
+                )}
               </div>
             ))
           ) : subjects.length === 0 ? (
-            /* Empty state — no schemas exist */
             <div
               style={{
                 display: 'flex',
@@ -641,7 +817,6 @@ const SchemaList: React.FC = () => {
               </button>
             </div>
           ) : (
-            /* Phase 12.6 F2: No filter results — updated empty state message (AC-2.6) */
             <div
               style={{
                 display: 'flex',

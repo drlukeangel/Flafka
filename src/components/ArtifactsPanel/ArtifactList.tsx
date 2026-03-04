@@ -172,7 +172,7 @@ const ArtifactList: React.FC = () => {
             padding: '8px 12px',
             fontSize: 12,
             color: 'var(--color-error)',
-            background: 'rgba(239,68,68,0.08)',
+            background: 'var(--color-error-badge-bg)',
             borderBottom: '1px solid var(--color-border)',
             display: 'flex',
             alignItems: 'center',
@@ -225,7 +225,7 @@ const ArtifactList: React.FC = () => {
                 border: 'none',
                 background:
                   focusedIndex === index
-                    ? 'var(--color-hover)'
+                    ? 'var(--color-bg-hover)'
                     : 'transparent',
                 cursor: 'pointer',
                 width: '100%',
@@ -265,7 +265,7 @@ const ArtifactList: React.FC = () => {
                 >
                   <span
                     style={{
-                      background: 'var(--color-hover)',
+                      background: 'var(--color-bg-hover)',
                       borderRadius: 3,
                       padding: '1px 5px',
                       fontSize: 10,

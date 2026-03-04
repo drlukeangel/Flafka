@@ -3,17 +3,16 @@ import type { NavItem } from '../../types';
 import {
   FiCode,
   FiDatabase,
-  FiMessageSquare,
   FiFileText,
   FiClock,
   FiHelpCircle,
   FiSettings,
-  FiChevronsRight,
-  FiChevronsLeft,
   FiBookmark,
   FiBookOpen,
   FiList,
   FiPackage,
+  FiLayers,
+  FiRadio,
   FiMoon,
   FiSun,
 } from 'react-icons/fi';
@@ -27,15 +26,16 @@ interface NavRailItemConfig {
 }
 
 const NAV_ITEMS: NavRailItemConfig[] = [
-  { id: 'workspace', icon: <FiCode size={18} />, label: 'SQL Workspace', section: 'workspace' },
+  { id: 'workspace', icon: <FiCode size={18} />, label: 'Workspace', section: 'workspace' },
   { id: 'jobs', icon: <FiList size={18} />, label: 'Jobs', section: 'workspace' },
   { id: 'tree', icon: <FiDatabase size={18} />, label: 'Database Objects', section: 'data' },
-  { id: 'artifacts', icon: <FiPackage size={18} />, label: 'Artifacts', section: 'data' },
+  { id: 'topics', icon: <FiRadio size={18} />, label: 'Topics', section: 'data' },
   { id: 'schemas', icon: <FiFileText size={18} />, label: 'Schemas', section: 'data' },
-  { id: 'topics', icon: <FiMessageSquare size={18} />, label: 'Topics', section: 'data' },
+  { id: 'workspaces', icon: <FiLayers size={18} />, label: 'Workspaces', section: 'tools' },
   { id: 'snippets', icon: <FiBookmark size={18} />, label: 'Snippets', section: 'tools' },
-  { id: 'examples', icon: <FiBookOpen size={18} />, label: 'Examples', section: 'tools' },
   { id: 'history', icon: <FiClock size={18} />, label: 'History', section: 'tools' },
+  { id: 'artifacts', icon: <FiPackage size={18} />, label: 'Artifacts', section: 'tools' },
+  { id: 'examples', icon: <FiBookOpen size={18} />, label: 'Examples', section: 'tools' },
   { id: 'help', icon: <FiHelpCircle size={18} />, label: 'Help', section: 'tools' },
   { id: 'settings', icon: <FiSettings size={18} />, label: 'Settings', section: 'settings' },
 ];
@@ -51,7 +51,6 @@ export function NavRail() {
   const activeNavItem = useWorkspaceStore((s) => s.activeNavItem);
   const navExpanded = useWorkspaceStore((s) => s.navExpanded);
   const setActiveNavItem = useWorkspaceStore((s) => s.setActiveNavItem);
-  const toggleNavExpanded = useWorkspaceStore((s) => s.toggleNavExpanded);
   const theme = useWorkspaceStore((s) => s.theme);
   const toggleTheme = useWorkspaceStore((s) => s.toggleTheme);
 
@@ -77,15 +76,6 @@ export function NavRail() {
       className={`nav-rail${navExpanded ? ' nav-rail--expanded' : ''}`}
       aria-label="Main navigation"
     >
-      <button
-        className="nav-rail-toggle"
-        onClick={toggleNavExpanded}
-        title={navExpanded ? 'Collapse navigation' : 'Expand navigation'}
-        aria-label={navExpanded ? 'Collapse navigation' : 'Expand navigation'}
-      >
-        {navExpanded ? <FiChevronsLeft size={16} /> : <FiChevronsRight size={16} />}
-      </button>
-
       {grouped.map((section, sectionIndex) => (
         <div key={section.key}>
           {section.key === 'settings' && <div className="nav-rail-spacer" />}
@@ -111,19 +101,22 @@ export function NavRail() {
         </div>
       ))}
 
-      <button
-        className="nav-rail-item nav-rail-theme-toggle"
-        onClick={toggleTheme}
-        title={!navExpanded ? (theme === 'light' ? 'Dark mode' : 'Light mode') : undefined}
-        aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-      >
-        <span className="nav-rail-item-icon">
-          {theme === 'light' ? <FiMoon size={18} /> : <FiSun size={18} />}
-        </span>
-        <span className="nav-rail-item-label">
-          {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
-        </span>
-      </button>
+      <div className="nav-rail-section">
+        <button
+          className="nav-rail-item"
+          onClick={toggleTheme}
+          title={!navExpanded ? (theme === 'light' ? 'Dark mode' : 'Light mode') : undefined}
+          aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          aria-pressed={theme === 'dark'}
+        >
+          <span className="nav-rail-item-icon">
+            {theme === 'light' ? <FiMoon size={18} /> : <FiSun size={18} />}
+          </span>
+          <span className="nav-rail-item-label">
+            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </span>
+        </button>
+      </div>
     </nav>
   );
 }
