@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
         configureServer(server) {
           // Proxy for S3 presigned uploads — target URL passed via X-Target-Url header.
           // Body is forwarded as-is (no parsing/manipulation of binary multipart data).
-          server.middlewares.use('/api/artifact-upload-proxy', (req: IncomingMessage, res: ServerResponse) => {
+          server.middlewares.use('/api/s3-upload-proxy', (req: IncomingMessage, res: ServerResponse) => {
             if (req.method !== 'POST') {
               res.writeHead(405)
               res.end('Method Not Allowed')

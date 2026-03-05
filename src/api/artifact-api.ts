@@ -65,7 +65,7 @@ export async function getPresignedUploadUrl(
  * The presigned response includes `upload_form_data` (S3 POST policy fields)
  * that must be sent as multipart form fields before the file.
  *
- * On CORS failure, falls back to the Vite dev proxy at /api/artifact-upload-proxy.
+ * On CORS failure, falls back to the Vite dev proxy at /api/s3-upload-proxy.
  */
 export async function uploadFileToPresignedUrl(
   presignedResponse: PresignedUploadUrlResponse,
@@ -93,7 +93,7 @@ export async function uploadFileToPresignedUrl(
 
   // S3 presigned URLs always CORS-block from browser — go through Vite proxy directly
   await axios.post(
-    '/api/artifact-upload-proxy',
+    '/api/s3-upload-proxy',
     buildFormData(),
     {
       headers: {
