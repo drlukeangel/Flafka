@@ -22,8 +22,6 @@ rm -rf "$STAGING/src/__tests__" "$STAGING/src/test"
 cp -r public/ "$STAGING/public/"
 rm -rf "$STAGING/public/examples"
 
-cp -r node_modules/ "$STAGING/node_modules/"
-
 # Copy config files
 for f in index.html vite.config.ts tsconfig.json tsconfig.node.json package.json package-lock.json .env.example README.md; do
   cp "$f" "$STAGING/$f"
