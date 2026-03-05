@@ -1,6 +1,4 @@
 import path from 'path'
-import https from 'https'
-import { URL } from 'url'
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
@@ -18,10 +16,10 @@ export default defineConfig(({ mode }) => {
       react(),
       nodePolyfills({ include: ['buffer'] }),
       {
-        name: 'artifact-upload-proxy',
+        name: 's3-upload-proxy',
         configureServer(server) {
           // Proxy for S3 presigned uploads — target URL passed via X-Target-Url header.
-          // Body is forwarded as-is (no parsing/manipulation of binary multipart data).
+          // Uses Node global fetch for reliable TLS/networking on all platforms.
           server.middlewares.use('/api/s3-upload-proxy', (req: IncomingMessage, res: ServerResponse) => {
             if (req.method !== 'POST') {
               res.writeHead(405)
@@ -39,34 +37,34 @@ export default defineConfig(({ mode }) => {
             const contentType = req.headers['content-type'] || ''
             const chunks: Buffer[] = []
             req.on('data', (chunk: Buffer) => chunks.push(chunk))
-            req.on('end', () => {
+            req.on('end', async () => {
               const body = Buffer.concat(chunks)
-              const parsed = new URL(targetUrl)
-              const proxyReq = https.request(
-                {
-                  hostname: parsed.hostname,
-                  port: parsed.port || 443,
-                  path: parsed.pathname + parsed.search,
+              console.log(`[s3-upload-proxy] Forwarding ${body.length} bytes to ${new URL(targetUrl).hostname}`)
+              try {
+                const proxyRes = await fetch(targetUrl, {
                   method: 'POST',
                   headers: {
                     'Content-Type': contentType,
-                    'Content-Length': body.length,
+                    'Content-Length': String(body.length),
                   },
-                },
-                (proxyRes) => {
-                  res.writeHead(proxyRes.statusCode || 500, proxyRes.headers)
-                  proxyRes.pipe(res)
-                },
-              )
-
-              proxyReq.on('error', (err) => {
-                console.error('[artifact-upload-proxy] Error:', err.message)
+                  body: body,
+                })
+                const resBody = Buffer.from(await proxyRes.arrayBuffer())
+                // Forward S3 response headers (skip compressed-encoding since we have full body)
+                const headers: Record<string, string> = {}
+                proxyRes.headers.forEach((v, k) => {
+                  if (k !== 'content-encoding' && k !== 'transfer-encoding') headers[k] = v
+                })
+                headers['content-length'] = String(resBody.length)
+                res.writeHead(proxyRes.status, headers)
+                res.end(resBody)
+                console.log(`[s3-upload-proxy] S3 responded ${proxyRes.status}`)
+              } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : String(err)
+                console.error(`[s3-upload-proxy] Error: ${msg}`)
                 res.writeHead(502)
-                res.end(`Proxy error: ${err.message}`)
-              })
-
-              proxyReq.write(body)
-              proxyReq.end()
+                res.end(`Proxy error: ${msg}`)
+              }
             })
           })
         },
