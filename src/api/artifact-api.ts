@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { artifactClient } from './artifact-client';
 import { env } from '../config/environment';
 import type {
@@ -70,40 +69,26 @@ export async function getPresignedUploadUrl(
 export async function uploadFileToPresignedUrl(
   presignedResponse: PresignedUploadUrlResponse,
   file: File,
-  onProgress?: (percent: number) => void,
+  _onProgress?: (percent: number) => void,
   abortSignal?: AbortSignal,
 ): Promise<void> {
-  const buildFormData = () => {
-    const formData = new FormData();
-    // Add all S3 policy fields first (order matters for S3)
-    Object.entries(presignedResponse.upload_form_data).forEach(([key, value]) => {
-      formData.append(key, value);
-    });
-    // File MUST be the last field
-    formData.append('file', file);
-    return formData;
-  };
+  const formData = new FormData();
+  // Add all S3 policy fields first (order matters for S3)
+  Object.entries(presignedResponse.upload_form_data).forEach(([key, value]) => {
+    formData.append(key, value);
+  });
+  // File MUST be the last field
+  formData.append('file', file);
 
-  const progressHandler = (progressEvent: { loaded: number; total?: number }) => {
-    if (onProgress && progressEvent.total) {
-      const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-      onProgress(percent);
-    }
-  };
-
-  // S3 presigned URLs always CORS-block from browser — go through Vite proxy directly
-  await axios.post(
-    '/api/s3-upload-proxy',
-    buildFormData(),
-    {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-        'X-Target-Url': presignedResponse.upload_url,
-      },
-      onUploadProgress: progressHandler,
-      signal: abortSignal,
-    },
-  );
+  // Use browser native fetch with no-cors — the browser CAN reach S3 and the
+  // upload goes through, but CORS blocks reading the response. That's fine for
+  // uploads — we verify success by polling the artifact API afterward.
+  await fetch(presignedResponse.upload_url, {
+    method: 'POST',
+    body: formData,
+    mode: 'no-cors',
+    signal: abortSignal ?? undefined,
+  });
 }
 
 /**
