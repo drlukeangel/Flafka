@@ -22,7 +22,7 @@ export async function listArtifacts(): Promise<FlinkArtifact[]> {
       },
     }
   );
-  return response.data.data;
+  return response.data.data ?? [];
 }
 
 /**

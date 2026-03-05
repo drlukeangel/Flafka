@@ -71,7 +71,7 @@ async function uploadArtifact(
 ): Promise<FlinkArtifact> {
   // Check if an artifact with same class already exists (reuse to avoid re-uploading)
   onProgress('Checking for existing artifact...');
-  const currentArtifacts = await artifactApi.listArtifacts();
+  const currentArtifacts = await artifactApi.listArtifacts() ?? [];
   const existing = currentArtifacts.find(
     (a) => a.class && a.class.toLowerCase() === entryClass.toLowerCase(),
   );
