@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type { StatementResponse } from '../../api/flink-api';
 import { FiRefreshCw, FiX } from 'react-icons/fi';
@@ -107,6 +107,12 @@ function HistoryItem({
 export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
   const { statementHistory, historyLoading, historyError, addStatement } = useWorkspaceStore();
   const [activeFilter, setActiveFilter] = useState<string>('all');
+
+  useEffect(() => {
+    if (statementHistory.length === 0 && !historyLoading) {
+      onRefresh();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoad = (sql: string) => {
     addStatement(sql);
