@@ -66,6 +66,26 @@ confluentClient.interceptors.request.use(
   }
 );
 
+// Retry helper for transient server errors (502, 503, 504)
+function retryOn5xx(client: AxiosInstance, label: string) {
+  client.interceptors.response.use(undefined, async (error: AxiosError) => {
+    const status = error.response?.status;
+    const config = error.config;
+    if (!config || !status || status < 502 || status > 504) return Promise.reject(error);
+    const retryCount = (config as { __retryCount?: number }).__retryCount ?? 0;
+    if (retryCount >= 2) return Promise.reject(error);
+    (config as { __retryCount?: number }).__retryCount = retryCount + 1;
+    const delay = (retryCount + 1) * 1500;
+    if (import.meta.env.DEV) {
+      console.warn(`[${label}] ${status} — retrying in ${delay}ms (attempt ${retryCount + 1}/2)`);
+    }
+    await new Promise((r) => setTimeout(r, delay));
+    return client.request(config);
+  });
+}
+
+retryOn5xx(confluentClient, 'API');
+
 // Add response interceptor for error handling
 confluentClient.interceptors.response.use(
   response => {
