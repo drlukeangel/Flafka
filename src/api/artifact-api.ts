@@ -73,12 +73,8 @@ export async function uploadFileToPresignedUrl(
   onProgress?: (percent: number) => void,
   abortSignal?: AbortSignal,
 ): Promise<void> {
-  const buildFormData = (targetUrl?: string) => {
+  const buildFormData = () => {
     const formData = new FormData();
-    // If proxying, include target URL as first field
-    if (targetUrl) {
-      formData.append('__target_url', targetUrl);
-    }
     // Add all S3 policy fields first (order matters for S3)
     Object.entries(presignedResponse.upload_form_data).forEach(([key, value]) => {
       formData.append(key, value);
@@ -98,9 +94,12 @@ export async function uploadFileToPresignedUrl(
   // S3 presigned URLs always CORS-block from browser — go through Vite proxy directly
   await axios.post(
     '/api/artifact-upload-proxy',
-    buildFormData(presignedResponse.upload_url),
+    buildFormData(),
     {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'X-Target-Url': presignedResponse.upload_url,
+      },
       onUploadProgress: progressHandler,
       signal: abortSignal,
     },

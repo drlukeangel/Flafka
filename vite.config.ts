@@ -20,9 +20,8 @@ export default defineConfig(({ mode }) => {
       {
         name: 'artifact-upload-proxy',
         configureServer(server) {
-          // CORS fallback proxy for S3 presigned uploads.
-          // Parses the multipart form body, extracts __target_url,
-          // and streams the remaining fields to the target.
+          // Proxy for S3 presigned uploads — target URL passed via X-Target-Url header.
+          // Body is forwarded as-is (no parsing/manipulation of binary multipart data).
           server.middlewares.use('/api/artifact-upload-proxy', (req: IncomingMessage, res: ServerResponse) => {
             if (req.method !== 'POST') {
               res.writeHead(405)
@@ -30,43 +29,18 @@ export default defineConfig(({ mode }) => {
               return
             }
 
+            const targetUrl = req.headers['x-target-url'] as string | undefined
+            if (!targetUrl) {
+              res.writeHead(400)
+              res.end('Missing X-Target-Url header')
+              return
+            }
+
+            const contentType = req.headers['content-type'] || ''
             const chunks: Buffer[] = []
             req.on('data', (chunk: Buffer) => chunks.push(chunk))
             req.on('end', () => {
               const body = Buffer.concat(chunks)
-              const contentType = req.headers['content-type'] || ''
-
-              // Extract boundary from content-type
-              const boundaryMatch = contentType.match(/boundary=(.+)/)
-              if (!boundaryMatch) {
-                res.writeHead(400)
-                res.end('Missing multipart boundary')
-                return
-              }
-
-              // Find __target_url field value from the raw body
-              const bodyStr = body.toString('latin1')
-              const targetMatch = bodyStr.match(
-                /name="__target_url"\r\n\r\n([^\r\n]+)/
-              )
-              if (!targetMatch) {
-                res.writeHead(400)
-                res.end('Missing __target_url field')
-                return
-              }
-
-              const targetUrl = targetMatch[1]
-
-              // Remove the __target_url field from the multipart body
-              const boundary = boundaryMatch[1]
-              const targetFieldRegex = new RegExp(
-                `--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\r\\nContent-Disposition: form-data; name="__target_url"\\r\\n\\r\\n[^\\r\\n]+\\r\\n`,
-                ''
-              )
-              const cleanedBodyStr = bodyStr.replace(targetFieldRegex, '')
-              const cleanedBody = Buffer.from(cleanedBodyStr, 'latin1')
-
-              // Forward to target
               const parsed = new URL(targetUrl)
               const proxyReq = https.request(
                 {
@@ -76,7 +50,7 @@ export default defineConfig(({ mode }) => {
                   method: 'POST',
                   headers: {
                     'Content-Type': contentType,
-                    'Content-Length': cleanedBody.length,
+                    'Content-Length': body.length,
                   },
                 },
                 (proxyRes) => {
@@ -91,7 +65,7 @@ export default defineConfig(({ mode }) => {
                 res.end(`Proxy error: ${err.message}`)
               })
 
-              proxyReq.write(cleanedBody)
+              proxyReq.write(body)
               proxyReq.end()
             })
           })
