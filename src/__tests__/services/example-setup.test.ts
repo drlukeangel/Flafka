@@ -12,12 +12,14 @@ import type { FlinkArtifact } from '../../types';
 
 const mockExecuteSQL = vi.fn();
 const mockPollForResults = vi.fn();
+const mockGetStatementStatus = vi.fn();
 const mockGetFunctions = vi.fn();
 const mockGetTables = vi.fn();
 
 vi.mock('../../api/flink-api', () => ({
   executeSQL: (...args: unknown[]) => mockExecuteSQL(...args),
   pollForResults: (...args: unknown[]) => mockPollForResults(...args),
+  getStatementStatus: (...args: unknown[]) => mockGetStatementStatus(...args),
   getFunctions: (...args: unknown[]) => mockGetFunctions(...args),
   getTables: (...args: unknown[]) => mockGetTables(...args),
 }));
@@ -107,6 +109,7 @@ describe('[@example-setup] setupScalarExtractExample', () => {
     mockCreateTopic.mockResolvedValue({});
     mockExecuteSQL.mockResolvedValue({ name: 'stmt-test' });
     mockPollForResults.mockResolvedValue([]);
+    mockGetStatementStatus.mockResolvedValue({ status: { phase: 'COMPLETED' } });
   });
 
   it('skips upload + registration when UDF already exists', async () => {
@@ -297,6 +300,7 @@ describe('[@example-setup] setupTableExplodeExample', () => {
     mockCreateTopic.mockResolvedValue({});
     mockExecuteSQL.mockResolvedValue({ name: 'stmt-test' });
     mockPollForResults.mockResolvedValue([]);
+    mockGetStatementStatus.mockResolvedValue({ status: { phase: 'COMPLETED' } });
   });
 
   it('skips registration when explode UDF already exists', async () => {

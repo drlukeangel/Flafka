@@ -5,7 +5,7 @@
  * import from here to avoid code duplication.
  */
 
-import { executeSQL, pollForResults } from '../api/flink-api';
+import { executeSQL, getStatementStatus } from '../api/flink-api';
 
 // Shared store contract for both example services
 export interface BaseExampleStoreSlice {
@@ -34,5 +34,18 @@ export async function createTable(
 ): Promise<void> {
   onProgress(`Creating table ${tableName}...`);
   const stmt = await executeSQL(ddl);
-  await pollForResults(stmt.name);
+  // DDL statements don't produce results — poll status only (not results endpoint)
+  let attempts = 0;
+  const maxAttempts = 60;
+  while (attempts < maxAttempts) {
+    const status = await getStatementStatus(stmt.name);
+    const phase = status.status?.phase;
+    if (phase === 'COMPLETED') return;
+    if (phase === 'FAILED') {
+      throw new Error(status.status?.detail || `CREATE TABLE ${tableName} failed`);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+    attempts++;
+  }
+  throw new Error(`CREATE TABLE ${tableName} timed out`);
 }

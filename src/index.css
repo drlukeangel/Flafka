@@ -19,12 +19,12 @@
   --color-background: #F5F4F4;
   --color-surface: #FFFFFF;
   --color-surface-secondary: #F9F9F9;
-  --color-border: #E5E7EB;
+  --color-border: #D4D6DC;
 
   /* Text Colors */
   --color-text-primary: #131316;
-  --color-text-secondary: #6B7280;
-  --color-text-tertiary: #9CA3AF;
+  --color-text-secondary: #606670;
+  --color-text-tertiary: #656C75;
   --color-text-disabled: #D1D5DB;
 
   /* Semantic surface colors for notifications/alerts */
@@ -59,6 +59,10 @@
   --color-input-bg: var(--color-surface-secondary);
   --color-accent: var(--color-primary);
   --color-bg-secondary: var(--color-surface-secondary);
+
+  /* Generic aliases used by TabBar, status bar, etc. */
+  --color-text: var(--color-text-primary);
+  --color-bg: var(--color-background);
 
   /* Icon colors */
   --color-table: #22C55E;
@@ -113,7 +117,7 @@
   /* Text Colors */
   --color-text-primary: #F5F5F7;
   --color-text-secondary: #A1A1A6;
-  --color-text-tertiary: #696969;
+  --color-text-tertiary: #8C8C8C;
   --color-text-disabled: #4B5563;
 
   /* Semantic surface colors for notifications/alerts */
@@ -148,6 +152,10 @@
   --color-input-bg: var(--color-surface-secondary);
   --color-accent: var(--color-primary);
   --color-bg-secondary: var(--color-surface-secondary);
+
+  /* Generic aliases used by TabBar, status bar, etc. */
+  --color-text: var(--color-text-primary);
+  --color-bg: var(--color-background);
 
   /* Icon colors */
   --color-table: #34D399;
