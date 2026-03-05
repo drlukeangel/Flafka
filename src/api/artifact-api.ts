@@ -95,29 +95,16 @@ export async function uploadFileToPresignedUrl(
     }
   };
 
-  try {
-    // Direct S3 POST
-    await axios.post(presignedResponse.upload_url, buildFormData(), {
+  // S3 presigned URLs always CORS-block from browser — go through Vite proxy directly
+  await axios.post(
+    '/api/artifact-upload-proxy',
+    buildFormData(presignedResponse.upload_url),
+    {
       headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: progressHandler,
       signal: abortSignal,
-    });
-  } catch (err: unknown) {
-    // If CORS or network error, retry via dev proxy
-    const axiosErr = err as { code?: string; response?: { status: number } };
-    const isCorsOrNetwork = !axiosErr.response && axiosErr.code === 'ERR_NETWORK';
-    if (!isCorsOrNetwork) throw err;
-
-    await axios.post(
-      '/api/artifact-upload-proxy',
-      buildFormData(presignedResponse.upload_url),
-      {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: progressHandler,
-        signal: abortSignal,
-      },
-    );
-  }
+    },
+  );
 }
 
 /**
