@@ -1,0 +1,225 @@
+/* Tab Bar — Excel-style workspace tabs, viewport-fixed at bottom of .main-content */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  background-color: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 4px;
+  gap: 2px;
+  font-size: 12px;
+  user-select: none;
+}
+
+/* Individual tab */
+.tab-bar__tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  max-width: 180px;
+  min-width: 60px;
+  position: relative;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.tab-bar__tab:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.tab-bar__tab[aria-selected="true"] {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  border-color: var(--color-border);
+  font-weight: 500;
+}
+
+.tab-bar__tab[aria-selected="true"]::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--color-accent, #3b82f6);
+}
+
+/* Tab name — truncated */
+.tab-bar__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-align: left;
+}
+
+/* Inline rename input */
+.tab-bar__rename-input {
+  border: 1px solid var(--color-accent, #3b82f6);
+  border-radius: 2px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 1px 4px;
+  width: 100%;
+  outline: none;
+}
+
+/* Close button — visible on hover only */
+.tab-bar__close {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  padding: 0;
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.tab-bar__tab:hover .tab-bar__close,
+.tab-bar__tab[aria-selected="true"] .tab-bar__close {
+  display: flex;
+}
+
+.tab-bar__close:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+/* "+" add tab button */
+.tab-bar__add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-size: 16px;
+  padding: 0;
+}
+
+.tab-bar__add:hover:not(:disabled) {
+  background-color: var(--color-hover);
+  color: var(--color-text);
+}
+
+.tab-bar__add:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Right side — cell count + last saved (from FooterStatus) */
+.tab-bar__right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 8px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Drag indicator */
+.tab-bar__tab[draggable="true"] {
+  cursor: grab;
+}
+
+.tab-bar__tab.tab-bar__tab--drag-over {
+  border-left: 2px solid var(--color-accent, #3b82f6);
+}
+
+/* Running indicator dot */
+.tab-bar__running-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #22c55e;
+  flex-shrink: 0;
+  animation: tab-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tab-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Close warning dialog */
+.tab-close-warning-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.tab-close-warning-dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 20px;
+  max-width: 360px;
+  width: 90%;
+}
+
+.tab-close-warning-dialog h3 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.tab-close-warning-dialog p {
+  margin: 0 0 16px 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.tab-close-warning-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tab-close-warning-actions button {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.tab-close-warning-actions button:last-child {
+  background: var(--color-accent, #3b82f6);
+  color: white;
+  border-color: transparent;
+}

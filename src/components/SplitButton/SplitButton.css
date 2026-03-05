@@ -1,0 +1,205 @@
+/* SplitButton — reusable split button with dropdown */
+
+.split-btn-wrapper {
+  position: relative;
+}
+
+.split-btn-group {
+  display: flex;
+  align-items: center;
+}
+
+.split-btn-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.split-btn-main:hover:not(:disabled) {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.split-btn-main:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.split-btn-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.split-btn-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border);
+  border-left: none;
+  border-radius: 0 4px 4px 0;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.split-btn-chevron:hover:not(:disabled) {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.split-btn-chevron:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.split-btn-main:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.split-btn-chevron:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.split-btn-menu-item:focus-visible {
+  outline: none;
+  background: var(--color-bg-hover);
+}
+
+.split-btn-chevron-icon--open {
+  transform: rotate(180deg);
+}
+
+/* Variant: stop — red border/text when enabled, fill on hover */
+.split-btn--stop .split-btn-main:not(:disabled) {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.split-btn--stop .split-btn-chevron:not(:disabled) {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+.split-btn--stop .split-btn-divider {
+  background: var(--color-error);
+  opacity: 0.4;
+}
+
+.split-btn--stop .split-btn-main:hover:not(:disabled) {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.split-btn--stop .split-btn-chevron:hover:not(:disabled) {
+  background-color: var(--color-error);
+  color: white;
+}
+
+/* Variant: delete — subtle border when enabled, red on hover */
+.split-btn--delete .split-btn-main:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.split-btn--delete .split-btn-chevron:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.split-btn--delete .split-btn-main:hover:not(:disabled) {
+  background-color: var(--color-error);
+  color: white;
+  border-color: var(--color-error);
+}
+
+.split-btn--delete .split-btn-chevron:hover:not(:disabled) {
+  background-color: var(--color-error);
+  color: white;
+  border-color: var(--color-error);
+}
+
+/* Variant: run (green/primary) — filled when enabled, muted when disabled */
+.split-btn--run .split-btn-main:not(:disabled) {
+  background-color: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.split-btn--run .split-btn-main:hover:not(:disabled) {
+  background-color: var(--color-primary-dark);
+  color: white;
+  border-color: var(--color-primary-dark);
+}
+
+.split-btn--run .split-btn-chevron:not(:disabled) {
+  background-color: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.split-btn--run .split-btn-chevron:hover:not(:disabled) {
+  background-color: var(--color-primary-dark);
+  color: white;
+  border-color: var(--color-primary-dark);
+}
+
+.split-btn--run:has(.split-btn-main:not(:disabled)) .split-btn-divider {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Dropdown menu */
+.split-btn-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  padding: 4px 0;
+}
+
+.split-btn-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.split-btn-menu-item:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.split-btn-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

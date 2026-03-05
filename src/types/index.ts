@@ -234,6 +234,37 @@ export interface SavedWorkspace {
   notes?: string;              // Free-form notes; pre-populated from steps for example workspaces
 }
 
+// Stream card entry — shape stored in the workspace store
+export interface StreamCardEntry {
+  id: string;
+  topicName: string;
+  initialMode?: 'consume' | 'produce-consume';
+  preselectedDatasetId?: string;
+  mode?: 'consume' | 'produce-consume';
+  dataSource?: 'synthetic' | 'dataset';
+  selectedDatasetId?: string | null;
+  scanMode?: 'earliest-offset' | 'latest-offset';
+  datasetTemplate?: { type: string; count: number };
+}
+
+// Per-tab workspace state (each open tab has its own independent copy)
+export interface TabState {
+  statements: SQLStatement[];
+  focusedStatementId: string | null;
+  workspaceName: string;
+  workspaceNotes: string | null;
+  workspaceNotesOpen: boolean;
+  lastSavedAt: string | null;
+  streamCards: StreamCardEntry[];
+  backgroundStatements: BackgroundStatement[];
+  treeNodes: TreeNode[];
+  selectedNodeId: string | null;
+  treeLoading: boolean;
+  selectedTableSchema: Column[];
+  selectedTableName: string | null;
+  schemaLoading: boolean;
+}
+
 // Phase 13.1 — Stream Panel Types
 
 export interface BackgroundStatement {

@@ -4,18 +4,35 @@ import * as flinkApi from '../../api/flink-api';
 
 vi.mock('../../api/flink-api');
 
-// Helper to reset store
+// Helper to reset store — must reset tabs structure for test isolation
 function resetStore() {
-  useWorkspaceStore.setState({
+  const tabId = 'test-tab';
+  const tab = {
     statements: [
-      { id: 'stmt-1', code: 'SELECT 1', status: 'IDLE', createdAt: new Date(), label: 'test-1' },
+      { id: 'stmt-1', code: 'SELECT 1', status: 'IDLE' as const, createdAt: new Date(), label: 'test-1' },
     ],
-    streamCards: [],
+    focusedStatementId: null,
+    workspaceName: 'My Workspace',
+    workspaceNotes: null,
+    workspaceNotesOpen: false,
+    lastSavedAt: null,
+    streamCards: [] as any[],
+    backgroundStatements: [] as any[],
+    treeNodes: [] as any[],
+    selectedNodeId: null,
+    treeLoading: false,
+    selectedTableSchema: [] as any[],
+    selectedTableName: null,
+    schemaLoading: false,
+  };
+  useWorkspaceStore.setState({
+    tabs: { [tabId]: tab },
+    activeTabId: tabId,
+    tabOrder: [tabId],
     savedWorkspaces: [],
     streamsPanelOpen: false,
     schemaDatasets: [],
     toasts: [],
-    workspaceName: 'My Workspace',
   });
 }
 
@@ -262,7 +279,7 @@ describe('[@workspaces] openSavedWorkspace', () => {
     expect(useWorkspaceStore.getState().streamsPanelOpen).toBe(false);
   });
 
-  it('cancels current running statements before opening', async () => {
+  it('creates new tab without cancelling old tab statements (non-destructive)', async () => {
     useWorkspaceStore.setState({
       statements: [
         { id: 's-run', code: 'SELECT 1', status: 'RUNNING', createdAt: new Date(), statementName: 'active-job' },
@@ -272,7 +289,11 @@ describe('[@workspaces] openSavedWorkspace', () => {
     vi.mocked(flinkApi.cancelStatement).mockResolvedValue(undefined as any);
 
     await useWorkspaceStore.getState().openSavedWorkspace('ws-saved');
-    expect(flinkApi.cancelStatement).toHaveBeenCalledWith('active-job');
+    // New tab-based behavior: old tab statements are not cancelled
+    expect(flinkApi.cancelStatement).not.toHaveBeenCalledWith('active-job');
+    // A new tab was created and is now active
+    const { tabOrder } = useWorkspaceStore.getState();
+    expect(tabOrder.length).toBeGreaterThan(1);
   });
 
   it('reconnect: still RUNNING → resumeStatementPolling called', async () => {

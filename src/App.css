@@ -533,8 +533,8 @@
 }
 
 .workspace-empty-logo {
-  width: 96px;
-  height: 96px;
+  width: 138px;
+  height: 138px;
   opacity: 0.7;
   margin-bottom: 4px;
 }
@@ -1362,84 +1362,24 @@
 .add-cell-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
+  justify-content: center;
+  padding: 6px 10px;
   background-color: var(--color-primary);
   color: white;
-  border: none;
+  border: 1px solid var(--color-primary);
   border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 700;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .add-cell-btn:hover {
   background-color: var(--color-primary-dark);
-}
-
-.stop-all-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background-color: transparent;
-  color: var(--color-error);
-  border: 1px solid var(--color-error);
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.stop-all-btn:hover {
-  background-color: var(--color-error);
+  border-color: var(--color-primary-dark);
   color: white;
 }
 
-.stop-all-btn--delete {
-  color: var(--color-text-secondary);
-  border-color: var(--color-border);
-}
-
-.stop-all-btn--delete:hover:not(:disabled) {
-  background-color: var(--color-error);
-  color: white;
-  border-color: var(--color-error);
-}
-
-.stop-all-btn--delete:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.run-all-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background-color: transparent;
-  color: var(--color-primary);
-  border: 1px solid var(--color-primary);
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.run-all-btn:hover:not(:disabled) {
-  background-color: var(--color-primary);
-  color: white;
-}
-
-.run-all-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  color: var(--color-text-tertiary);
-  border-color: var(--color-border);
-}
 
 /* Dropdown */
 .dropdown {

@@ -4,7 +4,7 @@ import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
 import * as telemetryApi from '../api/telemetry-api';
 import { env } from '../config/environment';
-import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace } from '../types';
+import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace, TabState, StreamCardEntry } from '../types';
 import * as artifactApi from '../api/artifact-api';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 import * as schemaRegistryApi from '../api/schema-registry-api';
@@ -66,30 +66,18 @@ export interface WorkspaceState {
   catalogs: string[];
   databases: string[];
 
-  // Tree Navigator
-  treeNodes: TreeNode[];
-  selectedNodeId: string | null;
-  treeLoading: boolean;
-
-  // Schema Panel
-  selectedTableSchema: Column[];
-  selectedTableName: string | null;
-  schemaLoading: boolean;
-
-  // Statements
-  statements: SQLStatement[];
+  // Tab infrastructure
+  tabs: Record<string, TabState>;
+  activeTabId: string;
+  tabOrder: string[];
 
   // UI State
   toasts: Toast[];
   sidebarCollapsed: boolean;
-  workspaceName: string;
 
   // Navigation Rail
   activeNavItem: NavItem;
   navExpanded: boolean;
-
-  // Persistence
-  lastSavedAt: string | null;
 
   // Compute Pool Status (runtime only, not persisted)
   computePoolPhase: string | null;
@@ -111,9 +99,6 @@ export interface WorkspaceState {
 
   // Theme
   theme: 'light' | 'dark';
-
-  // Focus State (runtime only, not persisted)
-  focusedStatementId: string | null;
 
   // Onboarding
   hasSeenOnboardingHint: boolean;
@@ -232,9 +217,7 @@ export interface WorkspaceState {
   deleteSnippet: (id: string) => void;
   renameSnippet: (id: string, newName: string) => void;
 
-  // Workspace Notes (runtime only, NOT persisted)
-  workspaceNotes: string | null;
-  workspaceNotesOpen: boolean;
+  // Workspace Notes actions (now per-tab, delegated to tab helpers)
   setWorkspaceNotes: (notes: string | null) => void;
   toggleWorkspaceNotes: () => void;
   updateSavedWorkspaceNotes: (id: string, notes: string) => void;
@@ -278,20 +261,6 @@ export interface WorkspaceState {
 
   // Phase 13.1 — Stream Panel (runtime only, NOT persisted)
   streamsPanelOpen: boolean;
-  streamCards: Array<{
-    id: string;
-    topicName: string;
-    initialMode?: 'consume' | 'produce-consume';
-    preselectedDatasetId?: string;
-    // Mutable config — updated by updateStreamCardConfig on user events
-    mode?: 'consume' | 'produce-consume';
-    dataSource?: 'synthetic' | 'dataset';
-    selectedDatasetId?: string | null;
-    scanMode?: 'earliest-offset' | 'latest-offset';
-    // In-memory only — for saveCurrentWorkspace to capture template provenance
-    datasetTemplate?: { type: string; count: number };
-  }>;
-  backgroundStatements: BackgroundStatement[];
 
   // Schema test datasets (persisted)
   schemaDatasets: SchemaDataset[];
@@ -318,45 +287,157 @@ export interface WorkspaceState {
   executeBackgroundStatement: (contextId: string, sql: string, scanMode?: string, topicName?: string) => Promise<void>;
   cancelBackgroundStatement: (contextId: string) => Promise<void>;
   clearBackgroundStatements: () => Promise<void>;
+
+  // Scoped stop/delete/run actions for split buttons
+  stopAllStreams: () => Promise<void>;
+  clearStatements: () => void;
+  clearStreamCards: () => Promise<void>;
+
+  // Signal pattern: StreamCard components watch these counters and self-start/stop
+  runAllStreamsSignal: number;
+  stopAllStreamsSignal: number;
+  runAllStreams: () => void;
+
+  // Tab actions
+  addTab: (name?: string) => string;
+  closeTab: (id: string) => void;
+  switchTab: (id: string) => void;
+  reorderTabs: (fromIndex: number, toIndex: number) => void;
+  renameTab: (id: string, name: string) => void;
+
+  // Backward-compatible accessors (delegate to active tab)
+  // These allow existing consumers to read state.statements, state.treeNodes, etc.
+  statements: SQLStatement[];
+  focusedStatementId: string | null;
+  workspaceName: string;
+  workspaceNotes: string | null;
+  workspaceNotesOpen: boolean;
+  lastSavedAt: string | null;
+  streamCards: StreamCardEntry[];
+  backgroundStatements: BackgroundStatement[];
+  treeNodes: TreeNode[];
+  selectedNodeId: string | null;
+  treeLoading: boolean;
+  selectedTableSchema: Column[];
+  selectedTableName: string | null;
+  schemaLoading: boolean;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+const initialTabId = generateId();
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
-    (set, get) => ({
+    (rawSet, get) => {
+      // Wrap set to auto-sync backward-compatible root-level mirrors from the active tab
+      const syncMirrors = (state: WorkspaceState): Partial<WorkspaceState> => {
+        const tab = state.tabs[state.activeTabId];
+        if (!tab) return {};
+        return {
+          statements: tab.statements,
+          focusedStatementId: tab.focusedStatementId,
+          workspaceName: tab.workspaceName,
+          workspaceNotes: tab.workspaceNotes,
+          workspaceNotesOpen: tab.workspaceNotesOpen,
+          lastSavedAt: tab.lastSavedAt,
+          streamCards: tab.streamCards,
+          backgroundStatements: tab.backgroundStatements,
+          treeNodes: tab.treeNodes,
+          selectedNodeId: tab.selectedNodeId,
+          treeLoading: tab.treeLoading,
+          selectedTableSchema: tab.selectedTableSchema,
+          selectedTableName: tab.selectedTableName,
+          schemaLoading: tab.schemaLoading,
+        };
+      };
+      const set = ((updater: any, replace?: any) => {
+        if (typeof updater === 'function') {
+          rawSet((state: WorkspaceState) => {
+            const partial = updater(state);
+            const merged = { ...state, ...partial };
+            return { ...partial, ...syncMirrors(merged as WorkspaceState) };
+          }, replace);
+        } else {
+          rawSet((state: WorkspaceState) => {
+            const merged = { ...state, ...updater };
+            return { ...updater, ...syncMirrors(merged as WorkspaceState) };
+          }, replace);
+        }
+      }) as typeof rawSet;
+
+      // Tab helpers — internal use only
+      const getTab = (tabId: string) => get().tabs[tabId];
+      const activeTab = () => get().tabs[get().activeTabId];
+      const setTab = (tabId: string, updates: Partial<TabState>) => {
+        set(state => ({
+          tabs: { ...state.tabs, [tabId]: { ...state.tabs[tabId], ...updates } }
+        }));
+      };
+      const setActiveTab = (updates: Partial<TabState>) => {
+        setTab(get().activeTabId, updates);
+      };
+
+      return {
       // Initial State
       catalog: env.flinkCatalog,
       database: env.flinkDatabase,
       catalogs: [env.flinkCatalog],
       databases: [env.flinkDatabase],
 
-      treeNodes: [],
-      selectedNodeId: null,
-      treeLoading: false,
-
-      selectedTableSchema: [],
-      selectedTableName: null,
-      schemaLoading: false,
-
-      statements: [
-        {
-          id: generateId(),
-          code: `SELECT * FROM \`${env.flinkCatalog}\`.\`${env.flinkDatabase}\`.\`EOT-PLATFORM-EXAMPLES-LOANS-v1\`;`,
-          status: 'IDLE',
-          createdAt: new Date(),
-          label: generateFunName(),
-        },
-      ],
+      // Tab infrastructure — build initial tab first so mirrors can reference same objects
+      ...(() => {
+        const _initialTab: TabState = {
+          statements: [
+            {
+              id: generateId(),
+              code: `SELECT * FROM \`${env.flinkCatalog}\`.\`${env.flinkDatabase}\`.\`EOT-PLATFORM-EXAMPLES-LOANS-v1\`;`,
+              status: 'IDLE',
+              createdAt: new Date(),
+              label: generateFunName(),
+            },
+          ],
+          focusedStatementId: null,
+          workspaceName: 'Workspace',
+          workspaceNotes: null,
+          workspaceNotesOpen: false,
+          lastSavedAt: null,
+          streamCards: [],
+          backgroundStatements: [],
+          treeNodes: [],
+          selectedNodeId: null,
+          treeLoading: false,
+          selectedTableSchema: [],
+          selectedTableName: null,
+          schemaLoading: false,
+        };
+        return {
+          tabs: { [initialTabId]: _initialTab },
+          activeTabId: initialTabId,
+          tabOrder: [initialTabId],
+          // Backward-compatible mirrors — reference same objects as initial tab
+          statements: _initialTab.statements,
+          focusedStatementId: _initialTab.focusedStatementId,
+          workspaceName: _initialTab.workspaceName,
+          workspaceNotes: _initialTab.workspaceNotes,
+          workspaceNotesOpen: _initialTab.workspaceNotesOpen,
+          lastSavedAt: _initialTab.lastSavedAt,
+          streamCards: _initialTab.streamCards,
+          backgroundStatements: _initialTab.backgroundStatements,
+          treeNodes: _initialTab.treeNodes,
+          selectedNodeId: _initialTab.selectedNodeId,
+          treeLoading: _initialTab.treeLoading,
+          selectedTableSchema: _initialTab.selectedTableSchema,
+          selectedTableName: _initialTab.selectedTableName,
+          schemaLoading: _initialTab.schemaLoading,
+        };
+      })(),
 
       toasts: [],
       sidebarCollapsed: false,
-      workspaceName: 'Workspace',
       activeNavItem: 'workspace' as NavItem,
       navExpanded: false,
       theme: 'light',
-
-      lastSavedAt: null,
 
       computePoolPhase: null,
       computePoolCfu: null,
@@ -372,8 +453,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       statementHistory: [],
       historyLoading: false,
       historyError: null,
-
-      focusedStatementId: null,
 
       hasSeenOnboardingHint: false,
 
@@ -418,14 +497,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       uploadProgress: null,
       artifactError: null,
 
-      // Workspace Notes (runtime only, NOT persisted)
-      workspaceNotes: null,
-      workspaceNotesOpen: false,
-
       // Phase 13.1 — Stream Panel (runtime only, NOT persisted)
       streamsPanelOpen: false,
-      streamCards: [],
-      backgroundStatements: [],
+      runAllStreamsSignal: 0,
+      stopAllStreamsSignal: 0,
 
       // Schema test datasets (persisted)
       schemaDatasets: [],
@@ -468,7 +543,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       // Tree Navigator Actions
       loadTreeData: async () => {
         const { catalog, database } = get();
-        set({ treeLoading: true });
+        setActiveTab({ treeLoading: true });
 
         try {
           const [tables, views, functions] = await Promise.all([
@@ -552,32 +627,31 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             },
           ];
 
-          set({ treeNodes, treeLoading: false });
+          setActiveTab({ treeNodes, treeLoading: false });
         } catch (error) {
           console.error('Failed to load tree data:', error);
-          set({ treeLoading: false });
+          setActiveTab({ treeLoading: false });
           get().addToast({ type: 'error', message: 'Failed to load database objects' });
         }
       },
 
       toggleTreeNode: (nodeId) => {
-        set((state) => ({
-          treeNodes: toggleNodeExpanded(state.treeNodes, nodeId),
-        }));
+        const tab = activeTab();
+        setActiveTab({ treeNodes: toggleNodeExpanded(tab.treeNodes, nodeId) });
       },
 
       selectTreeNode: (nodeId) => {
-        set({ selectedNodeId: nodeId });
-        const node = findNodeById(get().treeNodes, nodeId);
+        setActiveTab({ selectedNodeId: nodeId });
+        const node = findNodeById(activeTab().treeNodes, nodeId);
         if (node && (node.type === 'table' || node.type === 'view')) {
           const catalog = node.metadata?.catalog;
           const database = node.metadata?.database;
           if (catalog && database) {
-            set({ selectedTableName: node.name });
+            setActiveTab({ selectedTableName: node.name });
             get().loadTableSchema(catalog, database, node.name);
           }
         } else {
-          set({ selectedTableName: null, selectedTableSchema: [] });
+          setActiveTab({ selectedTableName: null, selectedTableSchema: [] });
         }
       },
 
@@ -588,13 +662,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       loadTableSchema: async (catalog, database, tableName) => {
-        set({ schemaLoading: true, selectedTableSchema: [] });
+        setActiveTab({ schemaLoading: true, selectedTableSchema: [] });
         try {
           const schema = await flinkApi.getTableSchema(catalog, database, tableName);
-          set({ selectedTableSchema: schema, schemaLoading: false });
+          setActiveTab({ selectedTableSchema: schema, schemaLoading: false });
         } catch (error) {
           console.error('Failed to load table schema:', error);
-          set({ schemaLoading: false });
+          setActiveTab({ schemaLoading: false });
         }
       },
 
@@ -612,38 +686,47 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           startedAt: overrides?.startedAt,
         };
         set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
           if (afterId) {
-            const index = state.statements.findIndex((s) => s.id === afterId);
+            const index = tab.statements.findIndex((s) => s.id === afterId);
             if (index !== -1) {
-              const newStatements = [...state.statements];
+              const newStatements = [...tab.statements];
               newStatements.splice(index + 1, 0, newStatement);
-              return { statements: newStatements, lastSavedAt: new Date().toISOString() };
+              return { tabs: { ...state.tabs, [tabId]: { ...tab, statements: newStatements, lastSavedAt: new Date().toISOString() } } };
             }
           }
-          return { statements: [...state.statements, newStatement], lastSavedAt: new Date().toISOString() };
+          return { tabs: { ...state.tabs, [tabId]: { ...tab, statements: [...tab.statements, newStatement], lastSavedAt: new Date().toISOString() } } };
         });
         return newId;
       },
 
       updateStatement: (id, code) => {
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.id === id ? { ...s, code, updatedAt: new Date() } : s
-          ),
-          lastSavedAt: new Date().toISOString(),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id ? { ...s, code, updatedAt: new Date() } : s
+            ), lastSavedAt: new Date().toISOString() } }
+          };
+        });
       },
 
       deleteStatement: (id) => {
-        set((state) => ({
-          statements: state.statements.filter((s) => s.id !== id),
-          lastSavedAt: new Date().toISOString(),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.filter((s) => s.id !== id), lastSavedAt: new Date().toISOString() } }
+          };
+        });
         get().addToast({ type: 'success', message: 'Statement deleted' });
       },
 
       duplicateStatement: (id) => {
-        const statement = get().statements.find((s) => s.id === id);
+        const tab = activeTab();
+        const statement = tab.statements.find((s) => s.id === id);
         if (!statement) return;
 
         const newStatement: SQLStatement = {
@@ -661,37 +744,46 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         };
 
         set((state) => {
-          const sourceIndex = state.statements.findIndex(s => s.id === id);
-          const newStatements = [...state.statements];
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          const sourceIndex = tab.statements.findIndex(s => s.id === id);
+          const newStatements = [...tab.statements];
           newStatements.splice(sourceIndex + 1, 0, newStatement);
           return {
-            statements: newStatements,
-            lastSavedAt: new Date().toISOString(),
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: newStatements, lastSavedAt: new Date().toISOString() } }
           };
         });
       },
 
       toggleStatementCollapse: (id) => {
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.id === id ? { ...s, isCollapsed: !s.isCollapsed } : s
-          ),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id ? { ...s, isCollapsed: !s.isCollapsed } : s
+            ) } }
+          };
+        });
       },
 
       reorderStatements: (fromIndex, toIndex) => {
         if (fromIndex === toIndex) return;
         set((state) => {
-          const statements = [...state.statements];
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          const statements = [...tab.statements];
           const [removed] = statements.splice(fromIndex, 1);
           statements.splice(toIndex, 0, removed);
-          return { statements, lastSavedAt: new Date().toISOString() };
+          return { tabs: { ...state.tabs, [tabId]: { ...tab, statements, lastSavedAt: new Date().toISOString() } } };
         });
       },
 
       // Execution Actions
       executeStatement: async (id) => {
-        const statement = get().statements.find((s) => s.id === id);
+        const tabId = get().activeTabId; // Capture tab at execution start
+        const tab = getTab(tabId);
+        const statement = tab.statements.find((s) => s.id === id);
         if (!statement) return;
 
         // Require a valid job name (label) before execution
@@ -709,11 +801,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const submittedCode = statement.code;
 
         // Update status to PENDING
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.id === id ? { ...s, status: 'PENDING' as StatementStatus, error: undefined, results: undefined, startedAt: new Date(), lastExecutedCode: submittedCode } : s
-          ),
-        }));
+        set((state) => {
+          const tab = state.tabs[tabId];
+          if (!tab) return state;
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id ? { ...s, status: 'PENDING' as StatementStatus, error: undefined, results: undefined, startedAt: new Date(), lastExecutedCode: submittedCode } : s
+            ) } }
+          };
+        });
 
         const startTime = Date.now();
 
@@ -751,16 +847,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const statementName = result.name;
 
           // Update with statement name and RUNNING status
-          set((state) => ({
-            statements: state.statements.map((s) =>
-              s.id === id ? { ...s, status: 'RUNNING' as StatementStatus, statementName } : s
-            ),
-          }));
+          set((state) => {
+            const tab = state.tabs[tabId];
+            if (!tab) return state;
+            return {
+              tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                s.id === id ? { ...s, status: 'RUNNING' as StatementStatus, statementName } : s
+              ) } }
+            };
+          });
 
           // Poll for results continuously.
-          // The Confluent API uses long-polling cursors: you call the same cursor URL
-          // repeatedly and each call returns the next batch of new rows.
-          const maxAttempts = 600; // 10 minutes for streaming queries
+          const maxAttempts = 600;
           let attempts = 0;
           let nextCursor: string | undefined;
           const MAX_ROWS = 5000;
@@ -773,8 +871,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }
 
             // Check if this statement was cancelled or re-executed
-            const currentStatement = get().statements.find((s) => s.id === id);
-            if (currentStatement?.status === 'CANCELLED') {
+            const currentTab = getTab(tabId);
+            if (!currentTab) return; // Tab was closed, orphaned poll
+            const currentStatement = currentTab.statements.find((s) => s.id === id);
+            if (!currentStatement) return; // Tab was closed, orphaned poll
+            if (currentStatement.status === 'CANCELLED') {
               return;
             }
 
@@ -816,7 +917,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                 const rows = rawRows.map((item) => item.row || []);
 
                 if (rows.length > 0) {
-                  // If we still don't have columns from schema, derive from data
                   if (columns.length === 0) {
                     const firstRow = rows[0];
                     columns = firstRow.map((_: unknown, idx: number) => ({
@@ -825,7 +925,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                     }));
                   }
 
-                  // Convert and append all rows from this batch
                   const newResults = rows.map((row: unknown[]) => {
                     const obj: Record<string, unknown> = {};
                     row.forEach((val, idx) => {
@@ -838,49 +937,54 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   allResults = [...allResults, ...newResults];
                   totalRowsReceived += newResults.length;
 
-                  // FIFO: keep only the last MAX_ROWS rows
                   if (allResults.length > MAX_ROWS) {
                     allResults = allResults.slice(allResults.length - MAX_ROWS);
                   }
 
                   const executionTime = Date.now() - startTime;
 
-                  // Update store with all accumulated results
-                  set((state) => ({
-                    statements: state.statements.map((s) =>
-                      s.id === id
-                        ? {
-                            ...s,
-                            status: phase === 'COMPLETED' ? 'COMPLETED' as StatementStatus : 'RUNNING' as StatementStatus,
-                            results: allResults,
-                            columns,
-                            executionTime,
-                            totalRowsReceived,
-                            lastExecutedAt: new Date(),
-                          }
-                        : s
-                    ),
-                  }));
+                  set((state) => {
+                    const tab = state.tabs[tabId];
+                    if (!tab) return state;
+                    return {
+                      tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                        s.id === id
+                          ? {
+                              ...s,
+                              status: phase === 'COMPLETED' ? 'COMPLETED' as StatementStatus : 'RUNNING' as StatementStatus,
+                              results: allResults,
+                              columns,
+                              executionTime,
+                              totalRowsReceived,
+                              lastExecutedAt: new Date(),
+                            }
+                          : s
+                      ) } }
+                    };
+                  });
 
                   if (import.meta.env.DEV) {
                     console.log(`[Poll] Total: ${allResults.length} (+${newResults.length})`);
                   }
                 }
 
-                // Update cursor for next fetch
                 if (resultsData.metadata?.next) {
                   nextCursor = resultsData.metadata.next;
                 }
 
                 if (phase === 'COMPLETED' && !resultsData.metadata?.next) {
                   const executionTime = Date.now() - startTime;
-                  set((state) => ({
-                    statements: state.statements.map((s) =>
-                      s.id === id
-                        ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime, lastExecutedAt: new Date() }
-                        : s
-                    ),
-                  }));
+                  set((state) => {
+                    const tab = state.tabs[tabId];
+                    if (!tab) return state;
+                    return {
+                      tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                        s.id === id
+                          ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime, lastExecutedAt: new Date() }
+                          : s
+                      ) } }
+                    };
+                  });
                   get().addToast({
                     type: 'success',
                     message: `Statement completed in ${(executionTime / 1000).toFixed(2)}s${allResults.length > 0 ? ` — ${allResults.length} rows` : ''}`,
@@ -894,16 +998,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               }
             }
 
-            // DDL / empty-result completion: server says COMPLETED but results fetch failed or returned nothing
+            // DDL / empty-result completion
             if (phase === 'COMPLETED' && !nextCursor) {
               const executionTime = Date.now() - startTime;
-              set((state) => ({
-                statements: state.statements.map((s) =>
-                  s.id === id
-                    ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime, lastExecutedAt: new Date() }
-                    : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id
+                      ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime, lastExecutedAt: new Date() }
+                      : s
+                  ) } }
+                };
+              });
               get().addToast({
                 type: 'success',
                 message: `Statement completed in ${(executionTime / 1000).toFixed(2)}s`,
@@ -913,11 +1021,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
             // Continue polling
             if (phase !== 'COMPLETED' || nextCursor) {
-              set((state) => ({
-                statements: state.statements.map((s) =>
-                  s.id === id && s.status !== 'CANCELLED' ? { ...s, status: 'RUNNING' as StatementStatus } : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id && s.status !== 'CANCELLED' ? { ...s, status: 'RUNNING' as StatementStatus } : s
+                  ) } }
+                };
+              });
 
               attempts++;
               await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -929,18 +1041,24 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         } catch (error) {
           const apiErr = error as { message?: string; details?: string };
           const errorMessage = [apiErr?.message, apiErr?.details].filter(Boolean).join(': ') || (error instanceof Error ? error.message : 'Unknown error');
-          set((state) => ({
-            statements: state.statements.map((s) =>
-              s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
-            ),
-          }));
+          set((state) => {
+            const tab = state.tabs[tabId];
+            if (!tab) return state;
+            return {
+              tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
+              ) } }
+            };
+          });
           get().addToast({ type: 'error', message: errorMessage });
         }
       },
 
       // Resume polling for a statement that is already running on the server (e.g. after page refresh)
       resumeStatementPolling: async (id) => {
-        const statement = get().statements.find((s) => s.id === id);
+        const tabId = get().activeTabId; // Capture tab at execution start
+        const tab = getTab(tabId);
+        const statement = tab?.statements.find((s) => s.id === id);
         if (!statement?.statementName || statement.status !== 'RUNNING') return;
 
         const statementName = statement.statementName;
@@ -963,11 +1081,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               const newStatus = phase === 'FAILED' ? 'ERROR' as const :
                                 phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
               const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(statementName, status.status?.detail) : undefined;
-              set((state) => ({
-                statements: state.statements.map((s) =>
-                  s.id === id ? { ...s, status: newStatus, lastExecutedAt: new Date(), error: errorDetail } : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id ? { ...s, status: newStatus, lastExecutedAt: new Date(), error: errorDetail } : s
+                  ) } }
+                };
+              });
             }
           } catch {
             // API check failed — keep showing RUNNING, user can manually stop
@@ -979,8 +1101,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const poll = async (): Promise<void> => {
             if (attempts >= maxAttempts) throw new Error('Query timeout');
 
-            const currentStatement = get().statements.find((s) => s.id === id);
-            if (currentStatement?.status === 'CANCELLED') return;
+            const currentTab = getTab(tabId);
+            if (!currentTab) return; // Tab was closed, orphaned poll
+            const currentStatement = currentTab.statements.find((s) => s.id === id);
+            if (!currentStatement) return; // Tab was closed, orphaned poll
+            if (currentStatement.status === 'CANCELLED') return;
 
             const status = await flinkApi.getStatementStatus(statementName);
             const phase = status.status?.phase;
@@ -990,11 +1115,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               throw new Error(errorDetail);
             }
             if (phase === 'CANCELLED' || (phase as string) === 'STOPPED') {
-              set((state) => ({
-                statements: state.statements.map((s) =>
-                  s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
+                  ) } }
+                };
+              });
               return;
             }
 
@@ -1029,21 +1158,29 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   totalRowsReceived += newResults.length;
                   if (allResults.length > MAX_ROWS) allResults = allResults.slice(allResults.length - MAX_ROWS);
 
-                  set((state) => ({
-                    statements: state.statements.map((s) =>
-                      s.id === id ? { ...s, status: phase as StatementStatus, results: allResults, columns, executionTime: Date.now() - startTime, totalRowsReceived, lastExecutedAt: new Date() } : s
-                    ),
-                  }));
+                  set((state) => {
+                    const tab = state.tabs[tabId];
+                    if (!tab) return state;
+                    return {
+                      tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                        s.id === id ? { ...s, status: phase as StatementStatus, results: allResults, columns, executionTime: Date.now() - startTime, totalRowsReceived, lastExecutedAt: new Date() } : s
+                      ) } }
+                    };
+                  });
                 }
 
                 if (resultsData.metadata?.next) nextCursor = resultsData.metadata.next;
 
                 if (phase === 'COMPLETED' && !resultsData.metadata?.next) {
-                  set((state) => ({
-                    statements: state.statements.map((s) =>
-                      s.id === id ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime: Date.now() - startTime, lastExecutedAt: new Date() } : s
-                    ),
-                  }));
+                  set((state) => {
+                    const tab = state.tabs[tabId];
+                    if (!tab) return state;
+                    return {
+                      tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                        s.id === id ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime: Date.now() - startTime, lastExecutedAt: new Date() } : s
+                      ) } }
+                    };
+                  });
                   return;
                 }
               } catch {
@@ -1052,11 +1189,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             }
 
             if (phase === 'COMPLETED' && !nextCursor) {
-              set((state) => ({
-                statements: state.statements.map((s) =>
-                  s.id === id ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime: Date.now() - startTime, lastExecutedAt: new Date() } : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id ? { ...s, status: 'COMPLETED' as StatementStatus, executionTime: Date.now() - startTime, lastExecutedAt: new Date() } : s
+                  ) } }
+                };
+              });
               return;
             }
 
@@ -1071,16 +1212,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         } catch (error) {
           const apiErr = error as { message?: string; details?: string };
           const errorMessage = [apiErr?.message, apiErr?.details].filter(Boolean).join(': ') || (error instanceof Error ? error.message : 'Unknown error');
-          set((state) => ({
-            statements: state.statements.map((s) =>
-              s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
-            ),
-          }));
+          set((state) => {
+            const tab = state.tabs[tabId];
+            if (!tab) return state;
+            return {
+              tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
+              ) } }
+            };
+          });
         }
       },
 
       refreshStatementStatus: async (id) => {
-        const statement = get().statements.find((s) => s.id === id);
+        const tab = activeTab();
+        const statement = tab.statements.find((s) => s.id === id);
         if (!statement?.statementName) return;
         try {
           const apiStatus = await flinkApi.getStatementStatus(statement.statementName);
@@ -1093,16 +1239,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const newStatus = statusMap[phase] || statement.status;
           if (newStatus !== statement.status) {
             const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(statement.statementName, apiStatus.status?.detail) : undefined;
-            set((state) => ({
-              statements: state.statements.map((s) =>
-                s.id === id ? {
-                  ...s,
-                  status: newStatus,
-                  lastExecutedAt: newStatus !== 'RUNNING' && newStatus !== 'PENDING' ? new Date() : s.lastExecutedAt,
-                  error: errorDetail,
-                } : s
-              ),
-            }));
+            set((state) => {
+              const tabId = state.activeTabId;
+              const tab = state.tabs[tabId];
+              return {
+                tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                  s.id === id ? {
+                    ...s,
+                    status: newStatus,
+                    lastExecutedAt: newStatus !== 'RUNNING' && newStatus !== 'PENDING' ? new Date() : s.lastExecutedAt,
+                    error: errorDetail,
+                  } : s
+                ) } }
+              };
+            });
             get().addToast({ type: 'info', message: `${statement.statementName}: ${phase}` });
           } else {
             get().addToast({ type: 'info', message: `Status confirmed: ${phase}` });
@@ -1113,14 +1263,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       cancelStatement: async (id) => {
-        const statement = get().statements.find((s) => s.id === id);
+        const tab = activeTab();
+        const statement = tab.statements.find((s) => s.id === id);
 
         // Always update local state to CANCELLED so user can re-run
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
-          ),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() } : s
+            ) } }
+          };
+        });
         get().addToast({ type: 'info', message: 'Query cancelled' });
 
         // Try to cancel on the server if we have a statement name
@@ -1129,14 +1284,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             await flinkApi.cancelStatement(statement.statementName);
           } catch (error) {
             console.error('Failed to cancel statement on server:', error);
-            // Already updated local state, so user can still re-run
           }
         }
       },
 
       runAllStatements: async () => {
-        const { statements } = get();
-        const eligible = statements.filter(
+        const tab = activeTab();
+        const eligible = tab.statements.filter(
           (s) => s.status === 'IDLE' || s.status === 'ERROR' || s.status === 'CANCELLED'
         );
         if (eligible.length === 0) return;
@@ -1144,29 +1298,31 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         get().addToast({ type: 'info', message: `Running ${eligible.length} statement(s)...` });
 
         for (const statement of eligible) {
-          // Re-check: skip if somehow already running (e.g. user triggered individually)
-          const current = get().statements.find((s) => s.id === statement.id);
+          const current = activeTab().statements.find((s) => s.id === statement.id);
           if (!current || current.status === 'RUNNING' || current.status === 'PENDING') continue;
           await get().executeStatement(statement.id);
         }
       },
 
       stopAllStatements: async () => {
-        const { statements } = get();
-        const active = statements.filter((s) => s.status === 'RUNNING' || s.status === 'PENDING');
+        const tab = activeTab();
+        const active = tab.statements.filter((s) => s.status === 'RUNNING' || s.status === 'PENDING');
         if (active.length === 0) return;
 
         // Optimistically mark all as CANCELLED
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.status === 'RUNNING' || s.status === 'PENDING'
-              ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() }
-              : s
-          ),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.status === 'RUNNING' || s.status === 'PENDING'
+                ? { ...s, status: 'CANCELLED' as StatementStatus, lastExecutedAt: new Date() }
+                : s
+            ) } }
+          };
+        });
         get().addToast({ type: 'info', message: `Stopped ${active.length} statement(s)` });
 
-        // Fire-and-forget cancel requests for each active statement
         await Promise.allSettled(
           active
             .filter((s) => s.statementName)
@@ -1175,16 +1331,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       clearWorkspace: () => {
-        // Cancel any running statements server-side (best-effort, no await)
-        const { statements } = get();
-        statements
+        const tab = activeTab();
+        // Cancel running statements server-side (best-effort)
+        tab.statements
           .filter((s) => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName)
           .forEach((s) => flinkApi.cancelStatement(s.statementName!).catch(() => {}));
 
-        // Clear all statements and stream cards
-        set({
+        // Cancel background statements for stream cards
+        tab.backgroundStatements
+          .filter((s) => s.status === 'RUNNING' || s.status === 'PENDING')
+          .forEach((s) => flinkApi.cancelStatement(s.statementName).catch(() => {}));
+
+        setActiveTab({
           statements: [],
           streamCards: [],
+          backgroundStatements: [],
           workspaceNotes: null,
           workspaceNotesOpen: false,
         });
@@ -1247,7 +1408,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ telemetryLoading: true, telemetryError: null });
         try {
           // Collect workspace statement names for origin tagging
-          const wsNames = get().statements
+          const tab = activeTab();
+          const wsNames = tab.statements
             .filter((s) => s.statementName)
             .map((s) => s.statementName!);
           const telemetry = await telemetryApi.getStatementTelemetry(wsNames);
@@ -1269,11 +1431,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         try {
           await flinkApi.cancelStatement(statementName);
           get().addToast({ type: 'success', message: `Stopped ${statementName}` });
-          // Refresh telemetry to reflect the change
           get().loadStatementTelemetry();
         } catch (error: unknown) {
           const err = error as { message?: string; status?: number };
-          // 409 = statement already terminated — treat as success
           if (err?.status === 409) {
             get().addToast({ type: 'info', message: `${statementName} already stopped` });
             get().loadStatementTelemetry();
@@ -1285,7 +1445,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       setDashboardHeight: (height: number) => {
-        // Clamp between 120 and 600
         set({ dashboardHeight: Math.min(Math.max(height, 120), 600) });
       },
 
@@ -1294,7 +1453,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ historyLoading: true, historyError: null });
         try {
           const statements = await flinkApi.listStatements(100, (accumulated) => {
-            // Progressive render: show results as each page arrives
             set({ statementHistory: accumulated });
           }, 100);
           set({ statementHistory: statements, historyLoading: false });
@@ -1310,11 +1468,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       setWorkspaceName: (name) => {
-        set({ workspaceName: name });
+        setActiveTab({ workspaceName: name });
       },
 
       setFocusedStatementId: (id) => {
-        set({ focusedStatementId: id });
+        setActiveTab({ focusedStatementId: id });
       },
 
       dismissOnboardingHint: () => {
@@ -1329,7 +1487,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         const data = fileData as { statements: Array<{ id: string; code: string; createdAt: string; isCollapsed?: boolean; lastExecutedCode?: string | null }>; catalog: string; database: string; workspaceName: string };
 
-        set({
+        const newTabId = generateId();
+        const newTab: TabState = {
           statements: data.statements.map((s) => ({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             code: s.code,
@@ -1338,11 +1497,28 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             isCollapsed: s.isCollapsed,
             lastExecutedCode: s.lastExecutedCode ?? null,
           })),
+          focusedStatementId: null,
+          workspaceName: data.workspaceName,
+          workspaceNotes: null,
+          workspaceNotesOpen: false,
+          lastSavedAt: new Date().toISOString(),
+          streamCards: [],
+          backgroundStatements: [],
+          treeNodes: [],
+          selectedNodeId: null,
+          treeLoading: false,
+          selectedTableSchema: [],
+          selectedTableName: null,
+          schemaLoading: false,
+        };
+
+        set((state) => ({
+          tabs: { ...state.tabs, [newTabId]: newTab },
+          tabOrder: [...state.tabOrder, newTabId],
+          activeTabId: newTabId,
           catalog: data.catalog,
           database: data.database,
-          workspaceName: data.workspaceName,
-          lastSavedAt: new Date().toISOString(),
-        });
+        }));
 
         try {
           get().loadTreeData();
@@ -1352,31 +1528,37 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       updateStatementLabel: (id, label) => {
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.id === id
-              ? { ...s, label: label.trim() === '' ? undefined : label.trim() }
-              : s
-          ),
-          lastSavedAt: new Date().toISOString(),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id
+                ? { ...s, label: label.trim() === '' ? undefined : label.trim() }
+                : s
+            ), lastSavedAt: new Date().toISOString() } }
+          };
+        });
       },
 
       setStatementScanMode: (id, mode, params) => {
-        set((state) => ({
-          statements: state.statements.map((s) =>
-            s.id === id
-              ? {
-                  ...s,
-                  scanMode: mode ?? undefined,
-                  scanTimestampMillis: mode === 'timestamp' ? params?.timestampMillis : undefined,
-                  scanSpecificOffsets: mode === 'specific-offsets' ? params?.specificOffsets : undefined,
-                  scanGroupId: mode === 'group-offsets' ? params?.groupId : undefined,
-                }
-              : s
-          ),
-          lastSavedAt: new Date().toISOString(),
-        }));
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id
+                ? {
+                    ...s,
+                    scanMode: mode ?? undefined,
+                    scanTimestampMillis: mode === 'timestamp' ? params?.timestampMillis : undefined,
+                    scanSpecificOffsets: mode === 'specific-offsets' ? params?.specificOffsets : undefined,
+                    scanGroupId: mode === 'group-offsets' ? params?.groupId : undefined,
+                  }
+                : s
+            ), lastSavedAt: new Date().toISOString() } }
+          };
+        });
       },
 
       setSessionProperty: (key, value) => {
@@ -1394,7 +1576,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ...state.sessionProperties,
             [trimmedKey]: value,
           },
-          lastSavedAt: new Date().toISOString(),
         }));
       },
 
@@ -1402,7 +1583,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set(state => {
           const updated = { ...state.sessionProperties };
           delete updated[key];
-          return { sessionProperties: updated, lastSavedAt: new Date().toISOString() };
+          return { sessionProperties: updated };
         });
       },
 
@@ -1411,7 +1592,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           sessionProperties: {
             'sql.local-time-zone': 'UTC',
           },
-          lastSavedAt: new Date().toISOString(),
         });
       },
 
@@ -1433,12 +1613,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ schemaRegistryLoading: true, schemaRegistryError: null });
         try {
           const detail = await schemaRegistryApi.getSchemaDetail(subject, version);
-          // Discard stale responses from superseded requests
           if ((get() as unknown as Record<string, string>)._schemaDetailRequestId !== requestId) return;
-          // ORIG-8: Populate lazy schema type cache so SchemaList can show type badges
           const existingCache = get().schemaTypeCache;
           const updatedCache = { ...existingCache, [detail.subject]: detail.schemaType };
-          // Phase 12.6 F2: Populate lazy compat cache for schema subject filter
           const existingCompatCache = get().schemaCompatCache;
           const updatedCompatCache = detail.compatibilityLevel
             ? { ...existingCompatCache, [detail.subject]: detail.compatibilityLevel }
@@ -1481,7 +1658,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           if (error && typeof error === 'object' && 'response' in error) {
             const axiosError = error as { response?: { status: number } | undefined };
             if (axiosError.response === undefined) {
-              // HIGH-2: network error — axios sets response to undefined, not absent
               errorMessage = 'Cannot connect to Kafka REST endpoint.';
             } else if (axiosError.response?.status === 401) {
               errorMessage = 'Authentication failed. Check API key and secret.';
@@ -1498,7 +1674,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       selectTopic: (topic) => {
-        // LOW-2: remember for back-nav focus restore
         set({ selectedTopic: topic, lastFocusedTopicName: topic.topic_name });
       },
 
@@ -1534,9 +1709,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       deleteTopic: async (topicName) => {
-        // CRIT-3: Store only does the API call. Component orchestrates post-delete
-        // navigation (clearSelectedTopic + loadTopics) to avoid double-loadTopics race.
-        // HIGH-3: Optimistically remove from list so topic doesn't ghost-appear.
         set((state) => ({
           topicList: state.topicList.filter((t) => t.topic_name !== topicName),
         }));
@@ -1547,7 +1719,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ topicError: error });
       },
 
-      // LOW-2: set last focused topic name for back-nav focus restore
       setLastFocusedTopicName: (name) => {
         set({ lastFocusedTopicName: name });
       },
@@ -1583,8 +1754,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       deleteTopicsBulk: async (topicNames) => {
-        // ENH-5: sequential deletes to avoid Kafka REST rate limits
-        // Optimistically remove all selected from list
         set((state) => ({
           topicList: state.topicList.filter((t) => !topicNames.includes(t.topic_name)),
           isBulkMode: false,
@@ -1600,7 +1769,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             failed.push(name);
           }
         }
-        // Refresh list after all attempts
         await get().loadTopics();
         return { deleted, failed };
       },
@@ -1631,7 +1799,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => {
           const newEntry: ConfigAuditEntry = { ...entry, timestamp };
           const updated = [newEntry, ...state.configAuditLog];
-          // FIFO cap: max 200 entries across all topics
           return { configAuditLog: updated.slice(0, 200) };
         });
       },
@@ -1669,7 +1836,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       renameSnippet: (id, newName) => {
-        if (!newName.trim()) return; // Empty name: revert (caller must handle)
+        if (!newName.trim()) return;
         set((state) => ({
           snippets: state.snippets
             .map((s) =>
@@ -1683,7 +1850,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       // Saved Workspace actions
       saveCurrentWorkspace: (name, sourceTemplateId, sourceTemplateName, notes) => {
-        const { statements, streamCards, savedWorkspaces } = get();
+        const tab = activeTab();
+        const { savedWorkspaces } = get();
         if (savedWorkspaces.length >= 20) {
           get().addToast({ type: 'error', message: 'Max 20 workspaces reached — delete one first' });
           return;
@@ -1694,12 +1862,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           name,
           createdAt: now,
           updatedAt: now,
-          statementCount: statements.length,
-          streamCardCount: streamCards.length,
+          statementCount: tab.statements.length,
+          streamCardCount: tab.streamCards.length,
           ...(sourceTemplateId ? { sourceTemplateId } : {}),
           ...(sourceTemplateName ? { sourceTemplateName } : {}),
           ...(notes ? { notes } : {}),
-          statements: statements.map((s) => ({
+          statements: tab.statements.map((s) => ({
             id: s.id,
             code: s.code,
             label: s.label,
@@ -1710,7 +1878,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             scanGroupId: s.scanGroupId,
             ...(s.status === 'RUNNING' && s.statementName ? { statementName: s.statementName } : {}),
           })),
-          streamCards: streamCards.map((c) => ({
+          streamCards: tab.streamCards.map((c) => ({
             topicName: c.topicName,
             mode: c.mode ?? c.initialMode ?? 'consume',
             dataSource: c.dataSource ?? 'synthetic',
@@ -1721,7 +1889,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         };
         try {
           set({ savedWorkspaces: [...get().savedWorkspaces, snapshot] });
-          // Only show toast for manual saves (template callers show their own toast)
           if (!sourceTemplateId) {
             get().addToast({ type: 'success', message: `Workspace "${name}" saved` });
           }
@@ -1734,15 +1901,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       // Workspace Notes actions
       setWorkspaceNotes: (notes) => {
-        set({
+        setActiveTab({
           workspaceNotes: notes,
-          // Auto-expand panel when notes are set (e.g., from Quick Start)
           ...(notes !== null ? { workspaceNotesOpen: true } : {}),
         });
       },
 
       toggleWorkspaceNotes: () => {
-        set((state) => ({ workspaceNotesOpen: !state.workspaceNotesOpen }));
+        const tab = activeTab();
+        setActiveTab({ workspaceNotesOpen: !tab.workspaceNotesOpen });
       },
 
       updateSavedWorkspaceNotes: (id, notes) => {
@@ -1757,13 +1924,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const workspace = get().savedWorkspaces.find((w) => w.id === id);
         if (!workspace) return;
 
-        // Cancel active statements server-side (best-effort), await before proceeding
-        const running = get().statements.filter(
-          (s) => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName
-        );
-        await Promise.allSettled(
-          running.map((s) => flinkApi.cancelStatement(s.statementName!).catch(() => {}))
-        );
+        // Check tab limit
+        const { tabOrder } = get();
+        if (tabOrder.length >= 8) {
+          get().addToast({ type: 'error', message: 'Tab limit reached (8) — close a tab first' });
+          return;
+        }
 
         // Validate datasets
         const { schemaDatasets } = get();
@@ -1785,7 +1951,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         }));
 
         // Restore stream cards — regenerate IDs, validate datasets
-        const restoredCards = workspace.streamCards.map((c) => {
+        const restoredCards: StreamCardEntry[] = workspace.streamCards.map((c) => {
           let selectedDatasetId = c.selectedDatasetId;
           let dataSource = c.dataSource;
           if (c.dataSource === 'dataset' && c.selectedDatasetId) {
@@ -1808,13 +1974,30 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           };
         });
 
-        set({
+        // Create new tab from saved workspace (non-destructive)
+        const newTabId = generateId();
+        const newTab: TabState = {
           statements: restoredStatements,
-          streamCards: restoredCards,
+          focusedStatementId: null,
           workspaceName: workspace.name,
           workspaceNotes: workspace.notes ?? null,
           workspaceNotesOpen: !!workspace.notes,
-        });
+          lastSavedAt: null,
+          streamCards: restoredCards,
+          backgroundStatements: [],
+          treeNodes: [],
+          selectedNodeId: null,
+          treeLoading: false,
+          selectedTableSchema: [],
+          selectedTableName: null,
+          schemaLoading: false,
+        };
+
+        set(state => ({
+          tabs: { ...state.tabs, [newTabId]: newTab },
+          tabOrder: [...state.tabOrder, newTabId],
+          activeTabId: newTabId,
+        }));
 
         // Open streams panel if there are stream cards
         if (restoredCards.length > 0) {
@@ -1839,9 +2022,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
               if (stopped || (phase as string) === 'STOPPED' || phase === 'CANCELLED') {
                 set((state) => ({
-                  statements: state.statements.map((s) =>
-                    s.id === stmt.id ? { ...s, status: 'CANCELLED' as StatementStatus, statementName: undefined } : s
-                  ),
+                  tabs: { ...state.tabs, [newTabId]: {
+                    ...state.tabs[newTabId],
+                    statements: state.tabs[newTabId].statements.map((s) =>
+                      s.id === stmt.id ? { ...s, status: 'CANCELLED' as StatementStatus, statementName: undefined } : s
+                    ),
+                  }},
                 }));
               } else if (phase === 'RUNNING') {
                 setTimeout(() => get().resumeStatementPolling(stmt.id), 100);
@@ -1851,21 +2037,25 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   ? await flinkApi.getStatementErrorDetail(stmt.statementName!, apiStatus.status?.detail)
                   : undefined;
                 set((state) => ({
-                  statements: state.statements.map((s) =>
-                    s.id === stmt.id ? { ...s, status: newStatus, error: errorDetail, statementName: undefined } : s
-                  ),
+                  tabs: { ...state.tabs, [newTabId]: {
+                    ...state.tabs[newTabId],
+                    statements: state.tabs[newTabId].statements.map((s) =>
+                      s.id === stmt.id ? { ...s, status: newStatus, error: errorDetail, statementName: undefined } : s
+                    ),
+                  }},
                 }));
               }
             } catch (error: any) {
               if (error?.response?.status === 404) {
-                // Statement GC'd — mark IDLE
                 set((state) => ({
-                  statements: state.statements.map((s) =>
-                    s.id === stmt.id ? { ...s, status: 'IDLE' as StatementStatus, statementName: undefined } : s
-                  ),
+                  tabs: { ...state.tabs, [newTabId]: {
+                    ...state.tabs[newTabId],
+                    statements: state.tabs[newTabId].statements.map((s) =>
+                      s.id === stmt.id ? { ...s, status: 'IDLE' as StatementStatus, statementName: undefined } : s
+                    ),
+                  }},
                 }));
               } else {
-                // Transient 5xx/network — keep RUNNING, show toast
                 get().addToast({ type: 'warning', message: `Reconnect check failed for ${stmt.statementName} — retrying...` });
               }
             }
@@ -1889,9 +2079,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       updateStreamCardConfig: (id, updates) => {
-        set((state) => ({
-          streamCards: state.streamCards.map((c) => c.id === id ? { ...c, ...updates } : c),
-        }));
+        const tab = activeTab();
+        setActiveTab({
+          streamCards: tab.streamCards.map((c) => c.id === id ? { ...c, ...updates } : c),
+        });
       },
 
       // Jobs Page actions
@@ -1903,7 +2094,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ jobsLoading: true, jobsError: null });
         try {
           await flinkApi.listStatements(200, (accumulated) => {
-            // Show results progressively as each page arrives
             set({ jobStatements: accumulated });
           });
           set({ jobsLoading: false });
@@ -1922,7 +2112,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         const previousPhase = jobStatements[idx].status?.phase;
 
-        // Optimistic update
         set({
           jobStatements: jobStatements.map((s) =>
             s.name === statementName
@@ -1935,7 +2124,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           await flinkApi.cancelStatement(statementName, { stopAfterTerminatingQueries: true });
           get().addToast({ type: 'success', message: `Stopped ${statementName}` });
         } catch (error: unknown) {
-          // Rollback on failure
           set({
             jobStatements: get().jobStatements.map((s) =>
               s.name === statementName && previousPhase
@@ -1954,14 +2142,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const idx = jobStatements.findIndex((s) => s.name === statementName);
         if (idx === -1) return;
 
-        // Optimistic removal
         set({ jobStatements: jobStatements.filter((s) => s.name !== statementName) });
 
         try {
           await flinkApi.cancelStatement(statementName);
           get().addToast({ type: 'success', message: `Deleted ${statementName}` });
         } catch (error: unknown) {
-          // Rollback on failure
           set({ jobStatements: [...get().jobStatements, jobStatements[idx]] });
           const err = error as { message?: string; status?: number; details?: string };
           const msg = err?.details || err?.message || 'Failed to delete statement';
@@ -1975,7 +2161,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         try {
           const artifacts = await artifactApi.listArtifacts();
           set({ artifactList: artifacts, artifactLoading: false });
-          // Enrich with version data (list endpoint omits versions)
           const enriched = await Promise.all(
             artifacts.map(async (a) => {
               try {
@@ -2009,7 +2194,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const removed = artifactList.find((a) => a.id === id);
         if (!removed) return;
 
-        // Optimistic delete
         set({
           artifactList: artifactList.filter((a) => a.id !== id),
           selectedArtifact: null,
@@ -2019,7 +2203,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           await artifactApi.deleteArtifact(id);
           get().addToast({ type: 'success', message: `Deleted artifact "${removed.display_name}"` });
         } catch (error: unknown) {
-          // Rollback on failure
           set({ artifactList: [...get().artifactList, removed] });
           const err = error as { response?: { status?: number }; message?: string };
           const status = err?.response?.status;
@@ -2046,55 +2229,46 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       // Phase 13.1 — Stream Panel actions
       toggleStreamsPanel: () => {
         set({ streamsPanelOpen: !get().streamsPanelOpen });
-        // Panel stays mounted — cards and background statements persist across open/close
       },
 
       setStreamsPanelOpen: (open) => {
         set({ streamsPanelOpen: open });
-        // Panel stays mounted — cards and background statements persist across open/close
       },
 
       addStreamCard: (topicName, initialMode, preselectedDatasetId, datasetTemplate) => {
-        set((state) => {
-          if (state.streamCards.length >= 10) return state; // Max 10 cards
-          return {
-            streamCards: [...state.streamCards, {
-              id: crypto.randomUUID(),
-              topicName,
-              initialMode,
-              preselectedDatasetId,
-              // Auto-initialize mutable config so saveCurrentWorkspace captures correct state
-              // even when called before StreamCard.tsx renders
-              mode: initialMode,
-              dataSource: preselectedDatasetId ? 'dataset' as const : 'synthetic' as const,
-              selectedDatasetId: preselectedDatasetId ?? null,
-              scanMode: 'earliest-offset' as const,
-              ...(datasetTemplate ? { datasetTemplate } : {}),
-            }],
-          };
+        const tab = activeTab();
+        if (tab.streamCards.length >= 10) return;
+        setActiveTab({
+          streamCards: [...tab.streamCards, {
+            id: crypto.randomUUID(),
+            topicName,
+            initialMode,
+            preselectedDatasetId,
+            mode: initialMode,
+            dataSource: preselectedDatasetId ? 'dataset' as const : 'synthetic' as const,
+            selectedDatasetId: preselectedDatasetId ?? null,
+            scanMode: 'earliest-offset' as const,
+            ...(datasetTemplate ? { datasetTemplate } : {}),
+          }],
         });
       },
 
       removeStreamCard: (cardId) => {
-        // Cancel background statement for this card
         get().cancelBackgroundStatement(cardId);
-        set((state) => ({
-          streamCards: state.streamCards.filter((c) => c.id !== cardId),
-        }));
+        const tab = activeTab();
+        setActiveTab({ streamCards: tab.streamCards.filter((c) => c.id !== cardId) });
       },
 
       removeStreamCardsByTopic: (topicName) => {
-        // Cancel all background statements for cards with this topic
-        const cards = get().streamCards.filter((c) => c.topicName === topicName);
+        const tab = activeTab();
+        const cards = tab.streamCards.filter((c) => c.topicName === topicName);
         cards.forEach((c) => get().cancelBackgroundStatement(c.id));
-        set((state) => ({
-          streamCards: state.streamCards.filter((c) => c.topicName !== topicName),
-        }));
+        setActiveTab({ streamCards: tab.streamCards.filter((c) => c.topicName !== topicName) });
       },
 
       // Schema dataset actions
       addSchemaDataset: (dataset) => {
-        if (dataset.records.length > 500) return; // Size guard
+        if (dataset.records.length > 500) return;
         set((state) => ({
           schemaDatasets: [...state.schemaDatasets, dataset],
         }));
@@ -2134,8 +2308,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       executeBackgroundStatement: async (contextId, sql, scanMode, topicName) => {
+        const tabId = get().activeTabId; // Capture tab at execution start
+        const tab = getTab(tabId);
         // Cancel existing statement for same contextId first (max 1 per contextId — AC-8.5)
-        const existing = get().backgroundStatements.find((s) => s.contextId === contextId);
+        const existing = tab.backgroundStatements.find((s) => s.contextId === contextId);
         if (existing && existing.statementName) {
           try {
             await flinkApi.cancelStatement(existing.statementName);
@@ -2157,15 +2333,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         };
 
         // Remove old statement for same contextId, add new one
-        set((state) => ({
-          backgroundStatements: [
-            ...state.backgroundStatements.filter((s) => s.contextId !== contextId),
-            bgStatement,
-          ],
-        }));
+        set((state) => {
+          const tab = state.tabs[tabId];
+          if (!tab) return state;
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: [
+              ...tab.backgroundStatements.filter((s) => s.contextId !== contextId),
+              bgStatement,
+            ] } }
+          };
+        });
 
         try {
-          // For background statements (stream monitoring), use caller's scan mode or default to earliest
           const { catalog: bgCatalog, database: bgDatabase } = get();
           const streamSessionProps = {
             'sql.current-catalog': bgCatalog,
@@ -2176,11 +2355,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           await flinkApi.executeSQL(sql, statementName, streamSessionProps);
 
           // Update to RUNNING
-          set((state) => ({
-            backgroundStatements: state.backgroundStatements.map((s) =>
-              s.id === bgStatement.id ? { ...s, status: 'RUNNING' as const } : s
-            ),
-          }));
+          set((state) => {
+            const tab = state.tabs[tabId];
+            if (!tab) return state;
+            return {
+              tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: tab.backgroundStatements.map((s) =>
+                s.id === bgStatement.id ? { ...s, status: 'RUNNING' as const } : s
+              ) } }
+            };
+          });
 
           // Poll for results
           let nextCursor: string | undefined;
@@ -2189,8 +2372,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const maxAttempts = 120;
 
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            // Check if statement was cancelled
-            const current = get().backgroundStatements.find((s) => s.id === bgStatement.id);
+            const currentTab = getTab(tabId);
+            if (!currentTab) return; // Tab was closed, orphaned poll
+            const current = currentTab.backgroundStatements.find((s) => s.id === bgStatement.id);
             if (!current || current.status === 'CANCELLED') return;
 
             const status = await flinkApi.getStatementStatus(statementName);
@@ -2198,22 +2382,30 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
             if (phase === 'FAILED') {
               const errorDetail = await flinkApi.getStatementErrorDetail(statementName, status.status?.detail);
-              set((state) => ({
-                backgroundStatements: state.backgroundStatements.map((s) =>
-                  s.id === bgStatement.id
-                    ? { ...s, status: 'ERROR' as const, error: errorDetail }
-                    : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: tab.backgroundStatements.map((s) =>
+                    s.id === bgStatement.id
+                      ? { ...s, status: 'ERROR' as const, error: errorDetail }
+                      : s
+                  ) } }
+                };
+              });
               return;
             }
 
             if (phase === 'CANCELLED') {
-              set((state) => ({
-                backgroundStatements: state.backgroundStatements.map((s) =>
-                  s.id === bgStatement.id ? { ...s, status: 'CANCELLED' as const } : s
-                ),
-              }));
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: tab.backgroundStatements.map((s) =>
+                    s.id === bgStatement.id ? { ...s, status: 'CANCELLED' as const } : s
+                  ) } }
+                };
+              });
               return;
             }
 
@@ -2250,18 +2442,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   });
 
                   allResults = [...allResults, ...newResults];
-                  // Keep last 500 rows for background statements
                   if (allResults.length > 500) {
                     allResults = allResults.slice(allResults.length - 500);
                   }
 
-                  set((state) => ({
-                    backgroundStatements: state.backgroundStatements.map((s) =>
-                      s.id === bgStatement.id
-                        ? { ...s, results: allResults, columns, status: phase === 'COMPLETED' ? 'COMPLETED' as const : 'RUNNING' as const }
-                        : s
-                    ),
-                  }));
+                  set((state) => {
+                    const tab = state.tabs[tabId];
+                    if (!tab) return state;
+                    return {
+                      tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: tab.backgroundStatements.map((s) =>
+                        s.id === bgStatement.id
+                          ? { ...s, results: allResults, columns, status: phase === 'COMPLETED' ? 'COMPLETED' as const : 'RUNNING' as const }
+                          : s
+                      ) } }
+                    };
+                  });
                 }
 
                 if (resultsData.metadata?.next) {
@@ -2269,11 +2464,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                 }
 
                 if (phase === 'COMPLETED' && !resultsData.metadata?.next) {
-                  set((state) => ({
-                    backgroundStatements: state.backgroundStatements.map((s) =>
-                      s.id === bgStatement.id ? { ...s, status: 'COMPLETED' as const } : s
-                    ),
-                  }));
+                  set((state) => {
+                    const tab = state.tabs[tabId];
+                    if (!tab) return state;
+                    return {
+                      tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: tab.backgroundStatements.map((s) =>
+                        s.id === bgStatement.id ? { ...s, status: 'COMPLETED' as const } : s
+                      ) } }
+                    };
+                  });
                   return;
                 }
               } catch {
@@ -2281,21 +2480,25 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               }
             }
 
-            // Wait before next poll
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Background query failed';
-          set((state) => ({
-            backgroundStatements: state.backgroundStatements.map((s) =>
-              s.id === bgStatement.id ? { ...s, status: 'ERROR' as const, error: message } : s
-            ),
-          }));
+          set((state) => {
+            const tab = state.tabs[tabId];
+            if (!tab) return state;
+            return {
+              tabs: { ...state.tabs, [tabId]: { ...tab, backgroundStatements: tab.backgroundStatements.map((s) =>
+                s.id === bgStatement.id ? { ...s, status: 'ERROR' as const, error: message } : s
+              ) } }
+            };
+          });
         }
       },
 
       cancelBackgroundStatement: async (contextId) => {
-        const statement = get().backgroundStatements.find((s) => s.contextId === contextId);
+        const tab = activeTab();
+        const statement = tab.backgroundStatements.find((s) => s.contextId === contextId);
         if (!statement) return;
 
         try {
@@ -2304,75 +2507,289 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           // Ignore cancel errors
         }
 
-        set((state) => ({
-          backgroundStatements: state.backgroundStatements.map((s) =>
+        setActiveTab({
+          backgroundStatements: activeTab().backgroundStatements.map((s) =>
             s.contextId === contextId ? { ...s, status: 'CANCELLED' as const } : s
           ),
-        }));
+        });
       },
 
       clearBackgroundStatements: async () => {
-        const statements = get().backgroundStatements;
-        // Cancel all active background statements
+        const tab = activeTab();
         await Promise.allSettled(
-          statements
+          tab.backgroundStatements
             .filter((s) => s.status === 'RUNNING' || s.status === 'PENDING')
             .map((s) => flinkApi.cancelStatement(s.statementName).catch(() => {}))
         );
-        set({ backgroundStatements: [] });
+        setActiveTab({ backgroundStatements: [] });
       },
-    }),
+
+      stopAllStreams: async () => {
+        const tab = activeTab();
+        const active = tab.backgroundStatements.filter((s) => s.status === 'RUNNING' || s.status === 'PENDING');
+
+        set(state => ({ stopAllStreamsSignal: state.stopAllStreamsSignal + 1 }));
+        setActiveTab({
+          backgroundStatements: activeTab().backgroundStatements.map((s) =>
+            s.status === 'RUNNING' || s.status === 'PENDING'
+              ? { ...s, status: 'CANCELLED' as const }
+              : s
+          ),
+        });
+
+        if (active.length > 0) {
+          get().addToast({ type: 'info', message: `Stopped ${active.length} stream${active.length !== 1 ? 's' : ''}` });
+          await Promise.allSettled(
+            active.map((s) => flinkApi.cancelStatement(s.statementName).catch(() => {}))
+          );
+        }
+      },
+
+      clearStatements: () => {
+        const tab = activeTab();
+        tab.statements
+          .filter((s) => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName)
+          .forEach((s) => flinkApi.cancelStatement(s.statementName!).catch(() => {}));
+
+        setActiveTab({ statements: [] });
+        get().addToast({ type: 'info', message: 'Workspace statements cleared' });
+      },
+
+      clearStreamCards: async () => {
+        await get().clearBackgroundStatements();
+        setActiveTab({ streamCards: [] });
+        get().addToast({ type: 'info', message: 'Stream cards cleared' });
+      },
+
+      runAllStreams: () => {
+        get().addToast({ type: 'info', message: 'Starting all streams...' });
+        set((state) => ({ runAllStreamsSignal: state.runAllStreamsSignal + 1 }));
+      },
+
+      // Tab actions
+      addTab: (name) => {
+        const { tabOrder } = get();
+        if (tabOrder.length >= 8) return '';
+        const newId = generateId();
+        const { catalog, database } = get();
+        const newTab: TabState = {
+          statements: [{
+            id: generateId(),
+            code: `-- Write your Flink SQL query here\nSELECT * FROM \`${catalog}\`.\`${database}\`.<table_name> LIMIT 10;`,
+            status: 'IDLE',
+            createdAt: new Date(),
+            label: generateFunName(),
+          }],
+          focusedStatementId: null,
+          workspaceName: name || 'Workspace',
+          workspaceNotes: null,
+          workspaceNotesOpen: false,
+          lastSavedAt: null,
+          streamCards: [],
+          backgroundStatements: [],
+          treeNodes: [],
+          selectedNodeId: null,
+          treeLoading: false,
+          selectedTableSchema: [],
+          selectedTableName: null,
+          schemaLoading: false,
+        };
+        set(state => ({
+          tabs: { ...state.tabs, [newId]: newTab },
+          tabOrder: [...state.tabOrder, newId],
+          activeTabId: newId,
+        }));
+        return newId;
+      },
+
+      closeTab: (id) => {
+        const { tabs, tabOrder, activeTabId } = get();
+        const tab = tabs[id];
+        if (!tab) return;
+
+        // Cancel running statements server-side (best-effort)
+        tab.statements
+          .filter(s => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName)
+          .forEach(s => flinkApi.cancelStatement(s.statementName!).catch(() => {}));
+        tab.backgroundStatements
+          .filter(s => s.status === 'RUNNING' || s.status === 'PENDING')
+          .forEach(s => flinkApi.cancelStatement(s.statementName).catch(() => {}));
+
+        const newTabOrder = tabOrder.filter(tid => tid !== id);
+        const newTabs = { ...tabs };
+        delete newTabs[id];
+
+        // If closing the last tab, create a fresh one
+        if (newTabOrder.length === 0) {
+          const freshId = generateId();
+          const { catalog, database } = get();
+          newTabs[freshId] = {
+            statements: [{
+              id: generateId(),
+              code: `-- Write your Flink SQL query here\nSELECT * FROM \`${catalog}\`.\`${database}\`.<table_name> LIMIT 10;`,
+              status: 'IDLE',
+              createdAt: new Date(),
+              label: generateFunName(),
+            }],
+            focusedStatementId: null,
+            workspaceName: 'Workspace',
+            workspaceNotes: null,
+            workspaceNotesOpen: false,
+            lastSavedAt: null,
+            streamCards: [],
+            backgroundStatements: [],
+            treeNodes: [],
+            selectedNodeId: null,
+            treeLoading: false,
+            selectedTableSchema: [],
+            selectedTableName: null,
+            schemaLoading: false,
+          };
+          newTabOrder.push(freshId);
+          set({ tabs: newTabs, tabOrder: newTabOrder, activeTabId: freshId });
+          return;
+        }
+
+        // If closing the active tab, switch to adjacent
+        let newActiveId = activeTabId;
+        if (activeTabId === id) {
+          const oldIdx = tabOrder.indexOf(id);
+          newActiveId = newTabOrder[Math.min(oldIdx, newTabOrder.length - 1)];
+        }
+
+        set({ tabs: newTabs, tabOrder: newTabOrder, activeTabId: newActiveId });
+      },
+
+      switchTab: (id) => {
+        if (get().tabs[id]) {
+          set({ activeTabId: id });
+        }
+      },
+
+      reorderTabs: (fromIndex, toIndex) => {
+        if (fromIndex === toIndex) return;
+        set(state => {
+          const newOrder = [...state.tabOrder];
+          const [removed] = newOrder.splice(fromIndex, 1);
+          newOrder.splice(toIndex, 0, removed);
+          return { tabOrder: newOrder };
+        });
+      },
+
+      renameTab: (id, name) => {
+        if (!name.trim()) return;
+        setTab(id, { workspaceName: name.trim() });
+      },
+    };
+    },
     {
       name: 'flink-workspace',
+      version: 2,
       partialize: (state) => ({
-        statements: state.statements.map((s) => {
-          // Statements running server-side — persist RUNNING + statementName so we can reconnect
-          const keepRunning = s.status === 'RUNNING' && !!s.statementName;
-          return {
-            id: s.id,
-            code: s.code,
-            status: keepRunning ? 'RUNNING' as const : (s.status === 'RUNNING' || s.status === 'PENDING' ? 'IDLE' as const : s.status),
-            createdAt: s.createdAt,
-            isCollapsed: s.isCollapsed,
-            lastExecutedCode: s.lastExecutedCode ?? null,
-            label: s.label,
-            scanMode: s.scanMode,
-            scanTimestampMillis: s.scanTimestampMillis,
-            scanSpecificOffsets: s.scanSpecificOffsets,
-            scanGroupId: s.scanGroupId,
-            // Persist statementName + startedAt for running statements so we can reconnect after refresh
-            ...(keepRunning ? { statementName: s.statementName, startedAt: s.startedAt } : {}),
-          };
-        }),
-        lastSavedAt: state.lastSavedAt,
+        tabs: Object.fromEntries(
+          Object.entries(state.tabs).map(([tabId, tab]) => [tabId, {
+            statements: tab.statements.map((s) => {
+              const keepRunning = s.status === 'RUNNING' && !!s.statementName;
+              return {
+                id: s.id,
+                code: s.code,
+                status: keepRunning ? 'RUNNING' as const : (s.status === 'RUNNING' || s.status === 'PENDING' ? 'IDLE' as const : s.status),
+                createdAt: s.createdAt,
+                isCollapsed: s.isCollapsed,
+                lastExecutedCode: s.lastExecutedCode ?? null,
+                label: s.label,
+                scanMode: s.scanMode,
+                scanTimestampMillis: s.scanTimestampMillis,
+                scanSpecificOffsets: s.scanSpecificOffsets,
+                scanGroupId: s.scanGroupId,
+                ...(keepRunning ? { statementName: s.statementName, startedAt: s.startedAt } : {}),
+              };
+            }),
+            lastSavedAt: tab.lastSavedAt,
+            workspaceName: tab.workspaceName,
+            focusedStatementId: null,
+            workspaceNotes: null,
+            workspaceNotesOpen: false,
+            streamCards: [],
+            backgroundStatements: [],
+            treeNodes: [],
+            selectedNodeId: null,
+            treeLoading: false,
+            selectedTableSchema: [],
+            selectedTableName: null,
+            schemaLoading: false,
+          }])
+        ),
+        activeTabId: state.activeTabId,
+        tabOrder: state.tabOrder,
         theme: state.theme,
-        workspaceName: state.workspaceName,
         hasSeenOnboardingHint: state.hasSeenOnboardingHint,
         navExpanded: state.navExpanded,
         sessionProperties: state.sessionProperties,
-        // Phase 12.6 — F6: Snippets persisted to localStorage
         snippets: state.snippets,
         schemaDatasets: state.schemaDatasets,
         savedWorkspaces: state.savedWorkspaces,
       }) as unknown as WorkspaceState,
-      migrate: (persistedState: unknown, _version: number) => {
+      migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as any;
+
+        // v1 → v2: Wrap flat workspace state into tabs
+        if (version < 2) {
+          if (!state.tabs) {
+            const tabId = generateId();
+            state.tabs = {
+              [tabId]: {
+                statements: state.statements || [],
+                focusedStatementId: null,
+                workspaceName: state.workspaceName || 'Workspace',
+                workspaceNotes: null,
+                workspaceNotesOpen: false,
+                lastSavedAt: state.lastSavedAt || null,
+                streamCards: [],
+                backgroundStatements: [],
+                treeNodes: [],
+                selectedNodeId: null,
+                treeLoading: false,
+                selectedTableSchema: [],
+                selectedTableName: null,
+                schemaLoading: false,
+              }
+            };
+            state.activeTabId = tabId;
+            state.tabOrder = [tabId];
+            // Clean up old flat fields
+            delete state.statements;
+            delete state.workspaceName;
+            delete state.lastSavedAt;
+          }
+        }
+
         // Migration: remove invalid 'parallelism.default' session property
         if (state?.sessionProperties?.['parallelism.default']) {
           delete state.sessionProperties['parallelism.default'];
         }
-        // Migration: init savedWorkspaces if absent (new in this version)
-        if (!state?.savedWorkspaces) {
-          state.savedWorkspaces = [];
-        }
-        // Migration: always use env catalog/database (don't persist stale values)
+        if (!state?.savedWorkspaces) state.savedWorkspaces = [];
         if (env.flinkCatalog) state.catalog = env.flinkCatalog;
         if (env.flinkDatabase) state.database = env.flinkDatabase;
-        // Migration: rename legacy default workspace names
-        if (state?.workspaceName === 'SQL Workspace' || state?.workspaceName === 'Flafka') {
-          state.workspaceName = 'Workspace';
+
+        // Migrate per-tab data
+        if (state.tabs) {
+          for (const tabId of Object.keys(state.tabs)) {
+            const tab = state.tabs[tabId];
+            if (tab.workspaceName === 'SQL Workspace' || tab.workspaceName === 'Flafka') {
+              tab.workspaceName = 'Workspace';
+            }
+            // Rehydrate Date fields
+            if (tab.statements) {
+              for (const s of tab.statements) {
+                if (s.startedAt && typeof s.startedAt === 'string') s.startedAt = new Date(s.startedAt);
+                if (s.createdAt && typeof s.createdAt === 'string') s.createdAt = new Date(s.createdAt);
+                if (s.lastExecutedAt && typeof s.lastExecutedAt === 'string') s.lastExecutedAt = new Date(s.lastExecutedAt);
+              }
+            }
+          }
         }
-        // Migration: guard new SavedWorkspace fields added in workspace notes / template provenance
+
         if (state?.savedWorkspaces) {
           state.savedWorkspaces = state.savedWorkspaces.map((w: any) => ({
             ...w,
@@ -2381,84 +2798,127 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             notes: w.notes ?? undefined,
           }));
         }
-        // Rehydrate Date fields from JSON strings
-        if (state?.statements) {
-          for (const s of state.statements) {
-            if (s.startedAt && typeof s.startedAt === 'string') s.startedAt = new Date(s.startedAt);
-            if (s.createdAt && typeof s.createdAt === 'string') s.createdAt = new Date(s.createdAt);
-            if (s.lastExecutedAt && typeof s.lastExecutedAt === 'string') s.lastExecutedAt = new Date(s.lastExecutedAt);
-          }
-        }
+
         return state as WorkspaceState;
       },
       onRehydrateStorage: () => {
-        // After store rehydrates from localStorage, verify RUNNING statements against the API
         return (_state, error) => {
           if (error) return;
 
-          // Rehydrate Date fields — JSON serializes Date to string, we need real Date objects
-          const { statements } = useWorkspaceStore.getState();
+          // Rehydrate Date fields in all tabs
+          const { tabs } = useWorkspaceStore.getState();
           let needsUpdate = false;
-          const fixed = statements.map((s) => {
-            const startedAt = s.startedAt && typeof s.startedAt === 'string' ? new Date(s.startedAt) : s.startedAt;
-            const createdAt = s.createdAt && typeof s.createdAt === 'string' ? new Date(s.createdAt) : s.createdAt;
-            const lastExecutedAt = s.lastExecutedAt && typeof s.lastExecutedAt === 'string' ? new Date(s.lastExecutedAt) : s.lastExecutedAt;
-            if (startedAt !== s.startedAt || createdAt !== s.createdAt || lastExecutedAt !== s.lastExecutedAt) {
-              needsUpdate = true;
-              return { ...s, startedAt, createdAt, lastExecutedAt };
-            }
-            return s;
-          });
+          const fixedTabs: Record<string, TabState> = {};
+          for (const [tabId, tab] of Object.entries(tabs)) {
+            const fixed = tab.statements.map((s) => {
+              const startedAt = s.startedAt && typeof s.startedAt === 'string' ? new Date(s.startedAt) : s.startedAt;
+              const createdAt = s.createdAt && typeof s.createdAt === 'string' ? new Date(s.createdAt) : s.createdAt;
+              const lastExecutedAt = s.lastExecutedAt && typeof s.lastExecutedAt === 'string' ? new Date(s.lastExecutedAt) : s.lastExecutedAt;
+              if (startedAt !== s.startedAt || createdAt !== s.createdAt || lastExecutedAt !== s.lastExecutedAt) {
+                needsUpdate = true;
+                return { ...s, startedAt, createdAt, lastExecutedAt };
+              }
+              return s;
+            });
+            fixedTabs[tabId] = { ...tab, statements: fixed };
+          }
           if (needsUpdate) {
-            useWorkspaceStore.setState({ statements: fixed });
+            useWorkspaceStore.setState({ tabs: fixedTabs });
           }
 
-          // Wait for React to fully mount before verifying server-side statements
+          // Verify RUNNING statements in all tabs
           const verify = () => {
-            const { statements } = useWorkspaceStore.getState();
-            const runningStatements = statements.filter(
-              (s) => s.status === 'RUNNING' && s.statementName
-            );
-            if (runningStatements.length === 0) return;
-
-            // Verify each running statement against the Flink API
-
-            // Verify each running statement's status against the server
-            for (const stmt of runningStatements) {
-              flinkApi.getStatementStatus(stmt.statementName!).then(async (apiStatus) => {
-                const phase = apiStatus.status?.phase;
-
-                if (phase === 'RUNNING') {
-                  // Still running on server — resume polling to reconnect (with extra delay)
-                  setTimeout(() => useWorkspaceStore.getState().resumeStatementPolling(stmt.id), 100);
-                } else if (phase === 'COMPLETED' || phase === 'FAILED' || phase === 'CANCELLED') {
-                  // Statement finished while we were away — update local status
-                  const newStatus = phase === 'FAILED' ? 'ERROR' as const :
-                                    phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
-                  const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(stmt.statementName!, apiStatus.status?.detail) : undefined;
+            const { tabs } = useWorkspaceStore.getState();
+            for (const [tabId, tab] of Object.entries(tabs)) {
+              const runningStatements = tab.statements.filter(s => s.status === 'RUNNING' && s.statementName);
+              for (const stmt of runningStatements) {
+                flinkApi.getStatementStatus(stmt.statementName!).then(async (apiStatus) => {
+                  const phase = apiStatus.status?.phase;
+                  if (phase === 'RUNNING') {
+                    setTimeout(() => useWorkspaceStore.getState().resumeStatementPolling(stmt.id), 100);
+                  } else if (phase === 'COMPLETED' || phase === 'FAILED' || phase === 'CANCELLED') {
+                    const newStatus = phase === 'FAILED' ? 'ERROR' as const :
+                                      phase === 'CANCELLED' ? 'CANCELLED' as const : 'COMPLETED' as const;
+                    const errorDetail = phase === 'FAILED' ? await flinkApi.getStatementErrorDetail(stmt.statementName!, apiStatus.status?.detail) : undefined;
+                    useWorkspaceStore.setState((state) => ({
+                      tabs: { ...state.tabs, [tabId]: {
+                        ...state.tabs[tabId],
+                        statements: state.tabs[tabId].statements.map((s) =>
+                          s.id === stmt.id ? { ...s, status: newStatus, error: errorDetail } : s
+                        ),
+                      }},
+                    }));
+                  }
+                }).catch(() => {
                   useWorkspaceStore.setState((state) => ({
-                    statements: state.statements.map((s) =>
-                      s.id === stmt.id ? { ...s, status: newStatus, error: errorDetail } : s
-                    ),
+                    tabs: { ...state.tabs, [tabId]: {
+                      ...state.tabs[tabId],
+                      statements: state.tabs[tabId].statements.map((s) =>
+                        s.id === stmt.id ? { ...s, status: 'IDLE' as const, statementName: undefined } : s
+                      ),
+                    }},
                   }));
-                }
-              }).catch(() => {
-                // API check failed — mark as IDLE so user can re-run
-                useWorkspaceStore.setState((state) => ({
-                  statements: state.statements.map((s) =>
-                    s.id === stmt.id ? { ...s, status: 'IDLE' as const, statementName: undefined } : s
-                  ),
-                }));
-              });
+                });
+              }
             }
           };
-          // Delay until after React render cycle completes
           setTimeout(verify, 2000);
         };
       },
     }
   )
 );
+
+// Patch external setState to keep tabs and root-level mirrors in sync.
+// When tests or external code calls useWorkspaceStore.setState({ statements: [...] }),
+// we need to propagate those values into the active tab, and vice versa.
+const _originalSetState = useWorkspaceStore.setState.bind(useWorkspaceStore);
+const TAB_FIELDS: (keyof TabState)[] = [
+  'statements', 'focusedStatementId', 'workspaceName', 'workspaceNotes',
+  'workspaceNotesOpen', 'lastSavedAt', 'streamCards', 'backgroundStatements',
+  'treeNodes', 'selectedNodeId', 'treeLoading', 'selectedTableSchema',
+  'selectedTableName', 'schemaLoading',
+];
+useWorkspaceStore.setState = ((updater: any, replace?: any) => {
+  _originalSetState((state: WorkspaceState) => {
+    const partial = typeof updater === 'function' ? updater(state) : updater;
+    // Check if any tab fields are being set at root level (backward compat)
+    const tabUpdates: Partial<TabState> = {};
+    let hasTabUpdates = false;
+    for (const field of TAB_FIELDS) {
+      if (field in partial && partial[field] !== undefined) {
+        (tabUpdates as any)[field] = partial[field];
+        hasTabUpdates = true;
+      }
+    }
+    // If tab fields were set at root, propagate into active tab
+    if (hasTabUpdates) {
+      const tabId = partial.activeTabId || state.activeTabId;
+      const currentTab = (partial.tabs || state.tabs)[tabId];
+      if (currentTab) {
+        const updatedTab = { ...currentTab, ...tabUpdates };
+        return {
+          ...partial,
+          tabs: { ...(partial.tabs || state.tabs), [tabId]: updatedTab },
+        };
+      }
+    }
+    // If tabs or activeTabId changed, sync root mirrors
+    if (partial.tabs || partial.activeTabId) {
+      const tabs = partial.tabs || state.tabs;
+      const activeTabId = partial.activeTabId || state.activeTabId;
+      const tab = tabs[activeTabId];
+      if (tab) {
+        const mirrors: any = {};
+        for (const field of TAB_FIELDS) {
+          mirrors[field] = tab[field];
+        }
+        return { ...partial, ...mirrors };
+      }
+    }
+    return partial;
+  }, replace);
+}) as typeof useWorkspaceStore.setState;
 
 // Helper function to toggle node expanded state
 function toggleNodeExpanded(nodes: TreeNode[], nodeId: string): TreeNode[] {

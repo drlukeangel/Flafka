@@ -66,6 +66,43 @@ vi.mock('../../components/TopicPanel/TopicPanel', () => ({
   default: () => <div data-testid="stub-topic-panel" aria-label="Kafka Topics panel">Topic Panel Stub</div>,
 }))
 
+vi.mock('../../components/SplitButton/SplitButton', () => ({
+  SplitButton: ({ label, onClick, disabled, icon, className }: { label: string; onClick: () => void; disabled?: boolean; icon?: React.ReactNode; className?: string }) => (
+    <button data-testid={`split-btn-${label.replace(/\s+/g, '-').toLowerCase()}`} onClick={onClick} disabled={disabled} className={className}>
+      {icon}
+      <span>{label}</span>
+    </button>
+  ),
+}))
+
+vi.mock('../../components/ComputePoolDashboard/ComputePoolDashboard', () => ({
+  ComputePoolDashboard: () => <div data-testid="stub-compute-pool-dashboard" />,
+}))
+
+vi.mock('../../components/SnippetsPanel/SnippetsPanel', () => ({
+  SnippetsPanel: () => <div data-testid="stub-snippets-panel" />,
+}))
+
+vi.mock('../../components/WorkspacesPanel/WorkspacesPanel', () => ({
+  WorkspacesPanel: () => <div data-testid="stub-workspaces-panel" />,
+}))
+
+vi.mock('../../components/ArtifactsPanel/ArtifactsPanel', () => ({
+  default: () => <div data-testid="stub-artifacts-panel" />,
+}))
+
+vi.mock('../../components/ExamplesPanel/ExamplesPanel', () => ({
+  ExamplesPanel: () => <div data-testid="stub-examples-panel" />,
+}))
+
+vi.mock('../../components/StreamsPanel/StreamsPanel', () => ({
+  StreamsPanel: () => <div data-testid="stub-streams-panel" />,
+}))
+
+vi.mock('../../components/JobsPage/JobsPage', () => ({
+  JobsPage: () => <div data-testid="stub-jobs-page" />,
+}))
+
 // ---------------------------------------------------------------------------
 // Workspace export utils mock — avoid blob/URL APIs in jsdom
 // ---------------------------------------------------------------------------
@@ -98,6 +135,19 @@ const mockRemoveSessionProperty = vi.fn()
 const mockResetSessionProperties = vi.fn()
 const mockSetActiveNavItem = vi.fn()
 const mockToggleNavExpanded = vi.fn()
+const mockStopAllStatements = vi.fn()
+const mockClearWorkspace = vi.fn()
+const mockClearStatements = vi.fn()
+const mockClearStreamCards = vi.fn()
+const mockStopAllStreams = vi.fn()
+const mockRunAllStreams = vi.fn()
+const mockToggleComputePoolDashboard = vi.fn()
+const mockLoadStatementTelemetry = vi.fn().mockResolvedValue(undefined)
+const mockSaveCurrentWorkspace = vi.fn()
+const mockToggleStreamsPanel = vi.fn()
+const mockToggleWorkspaceNotes = vi.fn()
+const mockSetWorkspaceNotes = vi.fn()
+const mockUpdateSavedWorkspaceNotes = vi.fn()
 
 // Mutable store state — override in each describe group
 let mockStoreState = buildStoreState()
@@ -131,6 +181,14 @@ function defaultStoreState() {
     sessionProperties: {} as Record<string, string>,
     activeNavItem: 'workspace' as string,
     navExpanded: false,
+    computePoolMaxCfu: null as number | null,
+    computePoolDashboardOpen: false,
+    streamCards: [] as unknown[],
+    selectedSchemaSubject: null as string | null,
+    streamsPanelOpen: false,
+    workspaceNotes: '' as string | null,
+    workspaceNotesOpen: false,
+    savedWorkspaces: [] as unknown[],
     loadCatalogs: mockLoadCatalogs,
     loadDatabases: mockLoadDatabases,
     loadComputePoolStatus: mockLoadComputePoolStatus,
@@ -150,6 +208,19 @@ function defaultStoreState() {
     resetSessionProperties: mockResetSessionProperties,
     setActiveNavItem: mockSetActiveNavItem,
     toggleNavExpanded: mockToggleNavExpanded,
+    stopAllStatements: mockStopAllStatements,
+    clearWorkspace: mockClearWorkspace,
+    clearStatements: mockClearStatements,
+    clearStreamCards: mockClearStreamCards,
+    stopAllStreams: mockStopAllStreams,
+    runAllStreams: mockRunAllStreams,
+    toggleComputePoolDashboard: mockToggleComputePoolDashboard,
+    loadStatementTelemetry: mockLoadStatementTelemetry,
+    saveCurrentWorkspace: mockSaveCurrentWorkspace,
+    toggleStreamsPanel: mockToggleStreamsPanel,
+    toggleWorkspaceNotes: mockToggleWorkspaceNotes,
+    setWorkspaceNotes: mockSetWorkspaceNotes,
+    updateSavedWorkspaceNotes: mockUpdateSavedWorkspaceNotes,
   }
 }
 
@@ -161,6 +232,7 @@ vi.mock('../../store/workspaceStore', () => ({
     },
     { getState: () => mockStoreState }
   ),
+  randomStarterJoke: () => '-- SELECT * FROM jokes\nWhy did the SQL query break up?',
 }))
 
 // Import App after all mocks are registered
@@ -1368,5 +1440,108 @@ describe('[@app] rows cached calculation', () => {
     })
     renderApp()
     expect(screen.getByText('0')).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// [@split-button-integration] Split button toolbar integration tests
+// ---------------------------------------------------------------------------
+
+describe('[@split-button-integration] split button toolbar', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Run All split button renders with correct label', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'workspace' })
+    renderApp()
+    const btn = screen.getByTestId('split-btn-run-all')
+    expect(btn).toBeInTheDocument()
+    expect(btn).toHaveTextContent('Run All')
+  })
+
+  it('Stop All split button renders with correct label', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'workspace' })
+    renderApp()
+    const btn = screen.getByTestId('split-btn-stop-all')
+    expect(btn).toBeInTheDocument()
+    expect(btn).toHaveTextContent('Stop All')
+  })
+
+  it('Delete All split button renders with correct label', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'workspace' })
+    renderApp()
+    const btn = screen.getByTestId('split-btn-delete-all')
+    expect(btn).toBeInTheDocument()
+    expect(btn).toHaveTextContent('Delete All')
+  })
+
+  it('+ button renders without "Statement" text (just the plus icon)', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'workspace' })
+    renderApp()
+    const addBtn = screen.getByTitle('Add Statement')
+    expect(addBtn).toBeInTheDocument()
+    expect(addBtn.textContent).toBe('')
+  })
+
+  it('Run All is disabled when no statements and no stream cards', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'workspace', statements: [], streamCards: [] })
+    renderApp()
+    expect(screen.getByTestId('split-btn-run-all')).toBeDisabled()
+  })
+
+  it('Stop All is disabled when no active statements and no stream cards', () => {
+    mockStoreState = buildStoreState({
+      activeNavItem: 'workspace',
+      statements: [{ id: 's1', code: '', status: 'IDLE' as const, createdAt: new Date() }],
+      streamCards: [],
+    })
+    renderApp()
+    expect(screen.getByTestId('split-btn-stop-all')).toBeDisabled()
+  })
+
+  it('Delete All is disabled when no statements and no stream cards', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'workspace', statements: [], streamCards: [] })
+    renderApp()
+    expect(screen.getByTestId('split-btn-delete-all')).toBeDisabled()
+  })
+
+  it('clicking Run All main button calls runAllStatements and runAllStreams', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState({
+      activeNavItem: 'workspace',
+      statements: [{ id: 's1', code: 'SELECT 1', status: 'IDLE' as const, createdAt: new Date() }],
+      streamCards: [{ id: 'sc1' }],
+    })
+    renderApp()
+    await user.click(screen.getByTestId('split-btn-run-all'))
+    expect(mockRunAllStatements).toHaveBeenCalledTimes(1)
+    expect(mockRunAllStreams).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking Stop All main button calls stopAllStatements and stopAllStreams', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState({
+      activeNavItem: 'workspace',
+      statements: [{ id: 's1', code: 'SELECT 1', status: 'RUNNING' as const, createdAt: new Date() }],
+      streamCards: [{ id: 'sc1' }],
+    })
+    renderApp()
+    await user.click(screen.getByTestId('split-btn-stop-all'))
+    expect(mockStopAllStatements).toHaveBeenCalledTimes(1)
+    expect(mockStopAllStreams).toHaveBeenCalledTimes(1)
+  })
+
+  it('clicking Delete All main button calls clearWorkspace and clearStreamCards', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState({
+      activeNavItem: 'workspace',
+      statements: [{ id: 's1', code: 'SELECT 1', status: 'IDLE' as const, createdAt: new Date() }],
+      streamCards: [{ id: 'sc1' }],
+    })
+    renderApp()
+    await user.click(screen.getByTestId('split-btn-delete-all'))
+    expect(mockClearWorkspace).toHaveBeenCalledTimes(1)
+    expect(mockClearStreamCards).toHaveBeenCalledTimes(1)
   })
 })

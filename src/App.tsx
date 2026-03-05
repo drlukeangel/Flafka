@@ -6,9 +6,10 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { HelpPanel } from './components/HelpPanel/HelpPanel';
 import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
-import FooterStatus from './components/FooterStatus';
+import { TabBar } from './components/TabBar/TabBar';
 import { env } from './config/environment';
 import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown, FiSquare, FiTrash2, FiSave, FiEdit3, FiChevronsRight, FiChevronsLeft } from 'react-icons/fi';
+import { SplitButton } from './components/SplitButton/SplitButton';
 import { ComputePoolDashboard } from './components/ComputePoolDashboard/ComputePoolDashboard';
 import { NavRail } from './components/NavRail/NavRail';
 import SchemaPanel from './components/SchemaPanel/SchemaPanel';
@@ -80,6 +81,11 @@ function App() {
     runAllStatements,
     stopAllStatements,
     clearWorkspace,
+    clearStatements,
+    clearStreamCards,
+    stopAllStreams,
+    runAllStreams,
+    streamCards,
     loadComputePoolStatus,
     loadStatementHistory,
     dismissOnboardingHint,
@@ -110,6 +116,8 @@ function App() {
   );
 
   const hasAnyStatements = statements.length > 0;
+
+  const hasAnyStreamCards = streamCards.length > 0;
 
   const showOnboardingHint = !hasSeenOnboardingHint && statements.length === 1 && statements[0].status === 'IDLE';
 
@@ -408,47 +416,82 @@ function App() {
         <div className="header-right">
           {activeNavItem === 'workspace' && (
             <>
-              {hasActiveStatements ? (
-                <button
-                  className="stop-all-btn"
-                  onClick={stopAllStatements}
-                  title="Stop all running statements"
-                >
-                  <FiSquare size={14} />
-                  <span>Stop All</span>
-                </button>
-              ) : (
-                <button
-                  className="stop-all-btn stop-all-btn--delete"
-                  onClick={clearWorkspace}
-                  disabled={!hasAnyStatements}
-                  title="Delete all statements and stream cards"
-                >
-                  <FiTrash2 size={14} />
-                  <span>Delete All</span>
-                </button>
-              )}
-              <button
-                className="run-all-btn"
+              <SplitButton
+                className="split-btn--run"
+                icon={<FiPlay size={16} />}
+                label="Run All"
                 onClick={() => {
                   dismissOnboardingHint();
                   runAllStatements();
+                  runAllStreams();
                 }}
-                disabled={!hasRunnableStatements}
-                title="Run all idle/errored statements sequentially"
-              >
-                <FiPlay size={16} />
-                <span>Run All</span>
-              </button>
+                disabled={!hasRunnableStatements && !hasAnyStreamCards}
+                options={[
+                  {
+                    label: 'Run Queries',
+                    icon: <FiPlay size={14} />,
+                    onClick: () => { dismissOnboardingHint(); runAllStatements(); },
+                    disabled: !hasRunnableStatements,
+                  },
+                  {
+                    label: 'Run Streams',
+                    icon: <FiPlay size={14} />,
+                    onClick: () => { runAllStreams(); },
+                    disabled: !hasAnyStreamCards,
+                  },
+                ]}
+              />
+              <SplitButton
+                className="split-btn--stop"
+                icon={<FiSquare size={14} />}
+                label="Stop All"
+                onClick={() => { stopAllStatements(); stopAllStreams(); }}
+                disabled={!hasActiveStatements && !hasAnyStreamCards}
+                options={[
+                  {
+                    label: 'Stop Queries',
+                    icon: <FiSquare size={14} />,
+                    onClick: () => stopAllStatements(),
+                    disabled: !hasActiveStatements,
+                  },
+                  {
+                    label: 'Stop Streams',
+                    icon: <FiSquare size={14} />,
+                    onClick: () => { stopAllStreams(); },
+                    disabled: !hasAnyStreamCards,
+                  },
+                ]}
+              />
+              <SplitButton
+                className="split-btn--delete"
+                icon={<FiTrash2 size={14} />}
+                label="Delete All"
+                onClick={() => { clearWorkspace(); clearStreamCards(); }}
+                disabled={!hasAnyStatements && !hasAnyStreamCards}
+                options={[
+                  {
+                    label: 'Delete Queries',
+                    icon: <FiTrash2 size={14} />,
+                    onClick: () => clearStatements(),
+                    disabled: !hasAnyStatements,
+                  },
+                  {
+                    label: 'Delete Streams',
+                    icon: <FiTrash2 size={14} />,
+                    onClick: () => { clearStreamCards(); },
+                    disabled: !hasAnyStreamCards,
+                  },
+                ]}
+              />
               <button
                 className="add-cell-btn"
                 onClick={() => {
                   addStatement();
                   dismissOnboardingHint();
                 }}
+                title="Add Statement"
               >
                 <FiPlus size={16} />
-                <span>Add Statement</span>
               </button>
             </>
           )}
@@ -701,7 +744,7 @@ function App() {
                     onClick={() => { addStatement(); dismissOnboardingHint(); }}
                   >
                     <FiPlus size={16} />
-                    <span>Add Statement</span>
+                    <span>Statement</span>
                   </button>
                 </div>
               ) : (
@@ -717,8 +760,8 @@ function App() {
                 </div>
               )}
 
-              {/* Footer Status */}
-              <FooterStatus />
+              {/* Tab Bar */}
+              <TabBar />
             </>
           )}
 

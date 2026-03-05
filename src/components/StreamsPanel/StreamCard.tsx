@@ -67,6 +67,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleFetchRef = useRef<() => void>(() => {});
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const startProduceRef = useRef<(() => void) | null>(null);
   const contextId = cardId; // Each card gets its own background statement
 
   // Find the background statement for this card
@@ -108,8 +109,8 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
       const currentBg = useWorkspaceStore.getState().backgroundStatements.find(
         (s) => s.contextId === contextId
       );
-      // Stop auto-refresh on error — don't hide errors by immediately retrying
-      if (currentBg?.status === 'ERROR') {
+      // Stop auto-refresh on error or cancellation — don't hide errors by immediately retrying
+      if (currentBg?.status === 'ERROR' || currentBg?.status === 'CANCELLED') {
         if (autoRefreshRef.current) {
           clearInterval(autoRefreshRef.current);
           autoRefreshRef.current = null;
@@ -117,7 +118,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
         setIsAutoRefreshing(false);
         return;
       }
-      if (!currentBg || currentBg.status === 'COMPLETED' || currentBg.status === 'CANCELLED' || currentBg.status === 'IDLE') {
+      if (!currentBg || currentBg.status === 'COMPLETED' || currentBg.status === 'IDLE') {
         handleFetchRef.current();
       }
     }, 3000);
@@ -138,6 +139,21 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
     };
   }, []);
 
+  // Run All Streams signal — watch store counter and self-start
+  const runAllStreamsSignal = useWorkspaceStore((s) => s.runAllStreamsSignal);
+  const runAllSignalRef = useRef(runAllStreamsSignal);
+  useEffect(() => {
+    if (runAllStreamsSignal === runAllSignalRef.current) return;
+    runAllSignalRef.current = runAllStreamsSignal;
+    // Skip if already running
+    if (bgStatement?.status === 'RUNNING' || bgStatement?.status === 'PENDING') return;
+    if (isAutoRefreshing || isProducing) return;
+    // Start consume (auto-refresh)
+    handleStartAutoRefresh();
+    // Start produce if in produce mode
+    startProduceRef.current?.();
+  }, [runAllStreamsSignal]);
+
   // Producer - stop (defined before start so it can be referenced)
   const handleStopProduce = () => {
     if (intervalRef.current) {
@@ -147,6 +163,17 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
     setIsProducing(false);
     setDatasetProgress(null);
   };
+
+  // Stop All Streams signal — watch store counter and self-stop
+  const stopAllStreamsSignal = useWorkspaceStore((s) => s.stopAllStreamsSignal);
+  const stopAllSignalRef = useRef(stopAllStreamsSignal);
+  useEffect(() => {
+    if (stopAllStreamsSignal === stopAllSignalRef.current) return;
+    stopAllSignalRef.current = stopAllStreamsSignal;
+    // Stop local intervals (auto-refresh + produce)
+    if (isAutoRefreshing) handleStopAutoRefresh();
+    if (isProducing) handleStopProduce();
+  }, [stopAllStreamsSignal]);
 
   // Producer - start (schema-aware: tries Schema Registry first, falls back to Flink DESCRIBE)
   const handleStartProduce = async () => {
@@ -338,6 +365,11 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
       }, 1000);
     }
   };
+
+  // Keep startProduceRef in sync for Run All Streams signal
+  startProduceRef.current = mode === 'produce-consume'
+    ? (dataSource === 'dataset' && selectedDataset ? handleStartDatasetProduce : handleStartProduce)
+    : null;
 
   // Mode switch safety — stop producing/auto-refresh when switching modes
   const handleModeChange = (newMode: 'consume' | 'produce-consume') => {
