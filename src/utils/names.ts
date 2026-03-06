@@ -26,29 +26,50 @@ const NOUNS = [
 
 const pick = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
 
-// Employee ID — used as the session tag so resources can be traced back to their creator.
-// Set VITE_EMPLOYEE_ID in your .env file. Defaults to 'f696969'.
-const EMPLOYEE_ID: string = env.employeeId;
+// Short random hex to ensure uniqueness across calls
+const hex4 = () => Math.floor(Math.random() * 0xffff).toString(16).padStart(4, '0');
 
-/** Get the current session tag (employee ID). Stable for the lifetime of this app load. */
+// Unique ID — used as the session tag so resources can be traced back to their creator.
+// Set VITE_UNIQUE_ID in your .env file. Confluent API requires lowercase alphanumeric + hyphens.
+const UNIQUE_ID: string = env.uniqueId.toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+/**
+ * Returns the sanitized unique ID that tags all resources created by this user session.
+ * Derived from VITE_UNIQUE_ID in .env, lowercased and stripped to [a-z0-9-].
+ * This tag is embedded in statement names and topic names so resources can be
+ * traced back to their creator in multi-user Confluent Cloud environments.
+ * Stable for the lifetime of this app load (does not change between calls).
+ */
 export function getSessionTag(): string {
-  return EMPLOYEE_ID;
+  return UNIQUE_ID;
 }
 
-/** Generate a fun name like "wobbling-penguin-f696969" — used for cell labels and statement names */
+/** Generate a fun name like "wobbling-penguin-f696969" — used for cell labels and run IDs */
 export function generateFunName(): string {
-  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${EMPLOYEE_ID}`;
+  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${UNIQUE_ID}`;
 }
 
-/** Generate a unique statement name like "wobbling-penguin-f696969" — same format, used for API calls */
+/**
+ * Generates a unique Flink statement name for the Confluent Cloud API.
+ * Format: "{adjective}-{noun}-{sessionTag}-{hex4}", e.g. "blazing-falcon-luke-a3f1".
+ * The 4-char random hex suffix prevents collisions when multiple statements
+ * are created in quick succession within the same session.
+ */
 export function generateStatementName(): string {
-  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${EMPLOYEE_ID}`;
+  return `${pick(ADJECTIVES)}-${pick(NOUNS)}-${UNIQUE_ID}-${hex4()}`;
 }
 
-/** Generate a topic-prefixed statement name like "loan-details-355-wobbling-penguin" */
+/**
+ * Generates a statement name prefixed with a slugified topic name.
+ * Used for topic-specific operations (e.g. SELECT from a topic, describe topic schema)
+ * so the statement can be visually associated with its target topic in the history panel.
+ * Format: "{topic-slug}-{sessionTag}-{adjective}-{noun}-{hex4}"
+ * The slug is sanitized to lowercase alphanumeric + hyphens; if it starts with a digit,
+ * "s-" is prepended (Confluent API requires statement names to start with a letter).
+ */
 export function generateTopicStatementName(topicName: string): string {
   const slug = topicName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   // Confluent API requires statement names to start with a letter
   const safeSlug = /^[a-z]/.test(slug) ? slug : `s-${slug}`;
-  return `${safeSlug}-${EMPLOYEE_ID}-${pick(ADJECTIVES)}-${pick(NOUNS)}`;
+  return `${safeSlug}-${UNIQUE_ID}-${pick(ADJECTIVES)}-${pick(NOUNS)}-${hex4()}`;
 }

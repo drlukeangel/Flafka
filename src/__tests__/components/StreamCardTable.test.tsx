@@ -59,7 +59,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       expect(screen.getAllByRole('rowgroup')).toHaveLength(2) // thead, tbody
     })
 
-    it('renders column headers in correct order (metadata first)', () => {
+    it('renders column headers in correct order (row number then metadata first)', () => {
       const columns = [
         makeColumn({ name: 'value' }),
         makeColumn({ name: '_ts' }),
@@ -70,9 +70,11 @@ describe('[@stream-card-table] StreamCardTable', () => {
       render(<StreamCardTable data={data} columns={columns} />)
 
       const headers = screen.getAllByRole('columnheader')
-      expect(headers[0]).toHaveTextContent('_ts')
-      expect(headers[1]).toHaveTextContent('_key')
-      expect(headers[2]).toHaveTextContent('value')
+      // headers[0] is the row number '#' column
+      expect(headers[0]).toHaveTextContent('#')
+      expect(headers[1]).toHaveTextContent('_ts')
+      expect(headers[2]).toHaveTextContent('_key')
+      expect(headers[3]).toHaveTextContent('value')
     })
 
     it('renders all metadata columns when present', () => {
@@ -319,10 +321,12 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const { container } = render(<StreamCardTable data={data} columns={columns} />)
 
       const cols = container.querySelectorAll('col')
-      expect(cols[0]).toHaveAttribute('style', expect.stringContaining('80px')) // _ts
-      expect(cols[1]).toHaveAttribute('style', expect.stringContaining('40px')) // _partition
-      expect(cols[2]).toHaveAttribute('style', expect.stringContaining('55px')) // _offset
-      expect(cols[3]).toHaveAttribute('style', expect.stringContaining('70px')) // _key
+      // cols[0] is the row number column (28px), metadata starts at index 1
+      expect(cols[0]).toHaveAttribute('style', expect.stringContaining('28px')) // row number
+      expect(cols[1]).toHaveAttribute('style', expect.stringContaining('80px')) // _ts
+      expect(cols[2]).toHaveAttribute('style', expect.stringContaining('40px')) // _partition
+      expect(cols[3]).toHaveAttribute('style', expect.stringContaining('55px')) // _offset
+      expect(cols[4]).toHaveAttribute('style', expect.stringContaining('70px')) // _key
     })
 
     it('assigns auto width to non-metadata columns', () => {
@@ -331,8 +335,9 @@ describe('[@stream-card-table] StreamCardTable', () => {
 
       const { container } = render(<StreamCardTable data={data} columns={columns} />)
 
-      const col = container.querySelector('col')
-      expect(col).toHaveAttribute('style', expect.stringContaining('auto'))
+      const cols = container.querySelectorAll('col')
+      // cols[0] is the row number column (28px), cols[1] is the custom column
+      expect(cols[1]).toHaveAttribute('style', expect.stringContaining('auto'))
     })
   })
 

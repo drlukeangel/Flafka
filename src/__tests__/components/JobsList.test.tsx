@@ -317,3 +317,251 @@ describe('[@jobs-list] JobsList', () => {
     expect(onRefresh).toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] JobsList — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] JobsList edge cases', () => {
+  const onSelectJob = vi.fn();
+  const onCancelJob = vi.fn();
+  const onDeleteJob = vi.fn();
+  const onRefresh = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanup();
+  });
+
+  const renderList = (overrides: Partial<Parameters<typeof JobsList>[0]> = {}) =>
+    render(
+      <JobsList
+        statements={mockStatements}
+        loading={false}
+        error={null}
+        onSelectJob={onSelectJob}
+        onCancelJob={onCancelJob}
+        onDeleteJob={onDeleteJob}
+        onRefresh={onRefresh}
+        {...overrides}
+      />
+    );
+
+  it('getStatusClass returns "unknown" for undefined phase', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-no-phase',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: {},
+    }];
+    renderList({ statements: stmts });
+    expect(document.querySelector('.status-dot.unknown')).toBeTruthy();
+  });
+
+  it('getStatusClass returns "unknown" for unrecognized phase string', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-weird',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'BIZARRE' },
+    }];
+    renderList({ statements: stmts });
+    expect(document.querySelector('.status-dot.unknown')).toBeTruthy();
+  });
+
+  it('getStatusLabel returns "Unknown" for undefined phase', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-undef-phase',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: {},
+    }];
+    renderList({ statements: stmts });
+    expect(screen.getByText('Unknown')).toBeTruthy();
+  });
+
+  it('formatRelativeTime shows "just now" for very recent date', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-just-now',
+      metadata: { created_at: new Date().toISOString() },
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    expect(screen.getByText('just now')).toBeTruthy();
+  });
+
+  it('formatRelativeTime shows em-dash for undefined date', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-no-date',
+      metadata: {},
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    // The created_at cell should show em-dash
+    const createdCells = document.querySelectorAll('.jobs-cell-created');
+    expect(Array.from(createdCells).some(c => c.textContent === '\u2014')).toBe(true);
+  });
+
+  it('formatRelativeTime shows em-dash for invalid date string', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-bad-date',
+      metadata: { created_at: 'not-a-date' },
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    const createdCells = document.querySelectorAll('.jobs-cell-created');
+    expect(Array.from(createdCells).some(c => c.textContent === '\u2014')).toBe(true);
+  });
+
+  it('formatRelativeTime shows hours for hour-old date', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-hours',
+      metadata: { created_at: new Date(Date.now() - 7200000).toISOString() },
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    expect(screen.getByText('2h ago')).toBeTruthy();
+  });
+
+  it('formatRelativeTime shows days for day-old date', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-days',
+      metadata: { created_at: new Date(Date.now() - 172800000).toISOString() },
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    expect(screen.getByText('2d ago')).toBeTruthy();
+  });
+
+  it('SQL truncated at 80 chars with ellipsis', () => {
+    const longSql = 'SELECT ' + 'a'.repeat(100) + ' FROM table_name';
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-long-sql',
+      metadata: {},
+      spec: { statement: longSql, statement_type: 'SELECT', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    const sqlCell = document.querySelector('.jobs-cell-sql');
+    expect(sqlCell?.textContent?.endsWith('\u2026')).toBe(true);
+    expect(sqlCell?.textContent?.length).toBeLessThanOrEqual(81); // 80 + ellipsis
+  });
+
+  it('SQL shown in full when <= 80 chars', () => {
+    const shortSql = 'SELECT 1';
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-short-sql',
+      metadata: {},
+      spec: { statement: shortSql, statement_type: 'SELECT', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    const sqlCell = document.querySelector('.jobs-cell-sql');
+    expect(sqlCell?.textContent).toBe('SELECT 1');
+  });
+
+  it('SQL shows em-dash when statement is undefined', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-no-sql',
+      metadata: {},
+      spec: { properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    const sqlCell = document.querySelector('.jobs-cell-sql');
+    expect(sqlCell?.textContent).toBe('\u2014');
+  });
+
+  it('statement_type shows em-dash when undefined', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-no-type',
+      metadata: {},
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    const typeCell = document.querySelector('.jobs-cell-type');
+    expect(typeCell?.textContent).toBe('\u2014');
+  });
+
+  it('region subtitle not shown when compute_pool_id is null', () => {
+    const stmts: StatementResponse[] = [{
+      name: 'stmt-no-pool',
+      metadata: {},
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: stmts });
+    expect(document.querySelector('.jobs-cell-name-region')).toBeNull();
+  });
+
+  it('shows "Loading more..." when loading with existing statements', () => {
+    renderList({ loading: true });
+    expect(screen.getByText(/Loading more\.\.\./)).toBeTruthy();
+  });
+
+  it('singular "1 statement shown" for single statement', () => {
+    const singleStmt: StatementResponse[] = [{
+      name: 'only-one',
+      metadata: {},
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    }];
+    renderList({ statements: singleStmt });
+    expect(screen.getByText(/1 statement shown\./)).toBeTruthy();
+  });
+
+  it('stale selections cleaned when filter changes', () => {
+    renderList();
+    // Select a running statement
+    fireEvent.click(screen.getByLabelText('Select stmt-running-1'));
+    expect((screen.getByLabelText('Select stmt-running-1') as HTMLInputElement).checked).toBe(true);
+
+    // Filter to completed only — running selection should be cleared
+    const dropdown = screen.getByLabelText('Filter statements');
+    fireEvent.change(dropdown, { target: { value: 'completed' } });
+    // The running row is no longer visible
+    expect(screen.queryByLabelText('Select stmt-running-1')).toBeNull();
+  });
+
+  it('actions dropdown closes on outside click', () => {
+    renderList();
+    // Select a statement to enable actions
+    fireEvent.click(screen.getByLabelText('Select stmt-running-1'));
+    const actionsBtn = document.querySelector('.jobs-actions-btn') as HTMLButtonElement;
+    fireEvent.click(actionsBtn);
+    expect(screen.getByText('Stop statement')).toBeTruthy();
+
+    // Simulate click outside the actions menu
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByText('Stop statement')).toBeNull();
+  });
+
+  it('bulk stop clears selection after execution', () => {
+    renderList();
+    fireEvent.click(screen.getByLabelText('Select stmt-running-1'));
+    const actionsBtn = document.querySelector('.jobs-actions-btn') as HTMLButtonElement;
+    fireEvent.click(actionsBtn);
+    fireEvent.click(screen.getByText('Stop statement'));
+    // After bulk stop, actions button should be disabled (no selection)
+    expect(actionsBtn.disabled).toBe(true);
+  });
+
+  it('matchesFilter default case returns true', () => {
+    // The 'all' tab should show all statements
+    renderList();
+    const dropdown = screen.getByLabelText('Filter statements');
+    fireEvent.change(dropdown, { target: { value: 'all' } });
+    expect(screen.getByText(/5 statements shown\./)).toBeTruthy();
+  });
+
+  it('failed filter shows only failed statements', () => {
+    renderList();
+    const dropdown = screen.getByLabelText('Filter statements');
+    fireEvent.change(dropdown, { target: { value: 'failed' } });
+    expect(screen.getByText('stmt-failed-1')).toBeTruthy();
+    expect(screen.queryByText('stmt-running-1')).toBeNull();
+  });
+});

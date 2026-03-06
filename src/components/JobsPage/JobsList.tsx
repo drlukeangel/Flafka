@@ -167,8 +167,13 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
       const p = s.status?.phase?.toUpperCase();
       const isRunning = p === 'RUNNING' || p === 'PENDING';
       const isTerminal = p === 'COMPLETED' || p === 'FAILED' || p === 'CANCELLED';
-      if (!isRunning) allStoppable = false;
-      if (!isTerminal) allDeletable = false;
+      
+      // Soft multi-tenancy check
+      const isOwner = s.name?.endsWith(`-${env.uniqueId}`);
+      const canManage = env.isAdmin || isOwner;
+
+      if (!isRunning || !canManage) allStoppable = false;
+      if (!isTerminal || !canManage) allDeletable = false;
     }
     return { canStop: allStoppable, canDelete: allDeletable };
   }, [statements, selectedNames]);
@@ -331,7 +336,10 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
             <tbody>
               {filtered.map((s) => {
                 const phase = s.status?.phase;
-                const canStop = phase === 'RUNNING' || phase === 'PENDING';
+                // Soft multi-tenancy check
+                const isOwner = s.name?.endsWith(`-${env.uniqueId}`);
+                const canManage = env.isAdmin || isOwner;
+                const canStop = (phase === 'RUNNING' || phase === 'PENDING') && canManage;
                 const regionSub = getRegionSubtitle(s.spec?.compute_pool_id);
                 return (
                   <tr
@@ -366,7 +374,7 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
                     </td>
                     <td className="jobs-cell-created">{formatRelativeTime(s.metadata?.created_at)}</td>
                     <td className="jobs-cell-actions">
-                      {canStop && (
+                      {canStop ? (
                         <button
                           className="jobs-stop-btn"
                           title="Stop"
@@ -377,6 +385,8 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
                         >
                           <FiSquare size={14} />
                         </button>
+                      ) : (
+                        <div style={{ width: 28 }} />
                       )}
                     </td>
                   </tr>

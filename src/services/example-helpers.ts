@@ -33,7 +33,15 @@ export async function createTable(
   onProgress: (s: string) => void,
 ): Promise<void> {
   onProgress(`Creating table ${tableName}...`);
-  const stmt = await executeSQL(ddl);
+  let stmt;
+  try {
+    stmt = await executeSQL(ddl);
+  } catch (err: unknown) {
+    // executeSQL throws ApiError { status, message, details } via handleApiError
+    const apiErr = err as { status?: number; message?: string; details?: string };
+    const detail = apiErr.details ?? apiErr.message ?? String(err);
+    throw new Error(`CREATE TABLE ${tableName} failed (${apiErr.status ?? '?'}): ${detail}`);
+  }
   // DDL statements don't produce results — poll status only (not results endpoint)
   let attempts = 0;
   const maxAttempts = 60;

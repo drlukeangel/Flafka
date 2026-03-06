@@ -90,7 +90,12 @@ describe('[@jobs-store] Jobs store state and actions', () => {
 
   describe('loadJobs', () => {
     it('sets loading true, then false after success', async () => {
-      (flinkApi.listStatements as ReturnType<typeof vi.fn>).mockResolvedValue(mockStatements);
+      (flinkApi.listStatements as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_pageSize: number, onPage?: (accumulated: unknown[]) => void) => {
+          if (onPage) onPage(mockStatements);
+          return mockStatements;
+        }
+      );
 
       const promise = useWorkspaceStore.getState().loadJobs();
       expect(useWorkspaceStore.getState().jobsLoading).toBe(true);
@@ -99,15 +104,21 @@ describe('[@jobs-store] Jobs store state and actions', () => {
       expect(useWorkspaceStore.getState().jobsLoading).toBe(false);
     });
 
-    it('calls listStatements with page size 200', async () => {
+    it('calls listStatements with page size 200 and an onPage callback', async () => {
       (flinkApi.listStatements as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
       await useWorkspaceStore.getState().loadJobs();
-      expect(flinkApi.listStatements).toHaveBeenCalledWith(200);
+      expect(flinkApi.listStatements).toHaveBeenCalledWith(200, expect.any(Function));
     });
 
-    it('stores results in jobStatements', async () => {
-      (flinkApi.listStatements as ReturnType<typeof vi.fn>).mockResolvedValue(mockStatements);
+    it('stores results in jobStatements via onPage callback', async () => {
+      // listStatements now takes an onPage callback — the store uses it to incrementally update jobStatements
+      (flinkApi.listStatements as ReturnType<typeof vi.fn>).mockImplementation(
+        async (_pageSize: number, onPage?: (accumulated: unknown[]) => void) => {
+          if (onPage) onPage(mockStatements);
+          return mockStatements;
+        }
+      );
 
       await useWorkspaceStore.getState().loadJobs();
       expect(useWorkspaceStore.getState().jobStatements).toEqual(mockStatements);

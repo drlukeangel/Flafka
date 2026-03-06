@@ -1,3 +1,21 @@
+/**
+ * Flink SQL REST API Client
+ *
+ * Communicates with Confluent Cloud's Flink SQL gateway to execute SQL statements,
+ * poll for results, and manage statement lifecycle. All requests are routed through
+ * a Vite dev proxy at `/api/flink` to avoid CORS issues.
+ *
+ * Key concepts:
+ * - **Statements** are the fundamental unit: you POST a SQL string, get back a
+ *   statement name, then poll its status until it reaches a terminal phase.
+ * - **Results** use cursor-based pagination: the response includes a `metadata.next`
+ *   URL that you follow to get the next page of rows.
+ * - **Two API clients**: `confluentClient` talks to the Flink SQL API;
+ *   `fcpmClient` talks to the Confluent Cloud Management API (for compute pools).
+ *
+ * Auth: Basic Auth with VITE_FLINK_API_KEY / VITE_FLINK_API_SECRET (handled by
+ * confluent-client.ts interceptor).
+ */
 import { confluentClient, fcpmClient, handleApiError } from './confluent-client';
 import { env } from '../config/environment';
 import type { Column } from '../types';
@@ -8,25 +26,59 @@ const buildStatementsUrl = (): string => {
   return `/sql/v1/organizations/${env.orgId}/environments/${env.environmentId}/statements`;
 };
 
-// Types
+/**
+ * Response from the Flink SQL `/statements` endpoint.
+ *
+ * Represents a single SQL statement submitted to Confluent Cloud Flink.
+ */
 export interface StatementResponse {
+  /** Unique statement identifier (e.g. "wobbling-penguin-a3f"). Used to poll status and fetch results. */
   name: string;
+
   metadata?: {
+    /** Optimistic-concurrency version string. Changes on every server-side mutation. */
     resource_version?: string;
+    /** ISO-8601 timestamp of when the statement was created on the server. */
     created_at?: string;
   };
+
   spec?: {
+    /** The SQL text that was submitted (e.g. "SELECT * FROM orders"). */
     statement?: string;
+    /** Server-classified type: "SELECT", "INSERT", "CREATE_TABLE", etc. */
     statement_type?: string;
+    /** Which compute pool runs this statement. */
     compute_pool_id?: string;
+    /** Session properties sent with the statement (catalog, database, scan mode, etc.). */
     properties?: Record<string, string>;
   };
+
   status?: {
+    /**
+     * Lifecycle phase of the statement:
+     * - `PENDING`   — Submitted, waiting for compute resources.
+     * - `RUNNING`   — Actively executing. For streaming queries this can last indefinitely.
+     * - `COMPLETED` — Finished successfully. Results are available.
+     * - `FAILED`    — Execution error. See `detail` for the error message.
+     * - `CANCELLED` — User cancelled via DELETE. Terminal state.
+     */
     phase: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+    /** Human-readable error message when phase is FAILED. */
     detail?: string;
+
     traits?: {
+      /**
+       * `true` for append-only streaming queries (e.g. SELECT on a stream).
+       * `false` for changelog/upsert queries that emit retractions.
+       * Determines how the UI buffers and displays rows.
+       */
       is_append_only?: boolean;
+      /**
+       * `true` for bounded (batch) queries that will eventually COMPLETE.
+       * `false` for unbounded (streaming) queries that run until cancelled.
+       */
       is_bounded?: boolean;
+      /** Result schema — column names and types, available once the statement starts running. */
       schema?: {
         columns?: Array<{
           name: string;
@@ -37,21 +89,28 @@ export interface StatementResponse {
   };
 }
 
+/** Response from the `/statements/{name}/results` endpoint. */
 export interface ResultsResponse {
   results?: {
+    /** Array of row objects. Each row's values are in positional order matching the schema columns. */
     data?: Array<{
       row: unknown[];
     }>;
   };
   metadata?: {
+    /** Cursor URL for the next page of results. Absent when no more data is available. */
     next?: string;
   };
 }
 
+/** Response from the `/statements/{name}/exceptions` endpoint — detailed error logs. */
 export interface StatementExceptionsResponse {
   data?: Array<{
+    /** Exception class name (e.g. "FlinkRuntimeException"). */
     name?: string;
+    /** Human-readable error message with stack trace details. */
     message?: string;
+    /** ISO-8601 timestamp when the exception occurred. */
     timestamp?: string;
   }>;
 }
@@ -117,7 +176,20 @@ const filterSessionProperties = (props?: Record<string, string>): Record<string,
 };
 
 /**
- * Execute a SQL statement
+ * Submit a SQL statement for execution on Confluent Cloud Flink.
+ *
+ * Sends a POST to `/statements` with the SQL text, compute pool, and session
+ * properties (catalog, database, scan mode, etc.). The server returns immediately
+ * with a `StatementResponse` whose phase is typically `PENDING` — you must then
+ * poll with {@link getStatementStatus} to track progress.
+ *
+ * @param sql - The Flink SQL text to execute (e.g. "SELECT * FROM orders").
+ * @param name - Optional custom statement name. If omitted, a memorable name is
+ *               auto-generated (e.g. "wobbling-penguin-a3f").
+ * @param sessionProperties - Optional key-value map of Flink session properties.
+ *               Only properties in the VALID_SESSION_PROPERTIES allowlist are sent.
+ * @returns The initial StatementResponse (phase will be PENDING or RUNNING).
+ * @throws ApiError on network or server errors (4xx/5xx).
  */
 export const executeSQL = async (sql: string, name?: string, sessionProperties?: Record<string, string>): Promise<StatementResponse> => {
   const statementName = name || generateStatementName();
@@ -145,7 +217,15 @@ export const executeSQL = async (sql: string, name?: string, sessionProperties?:
 };
 
 /**
- * Get statement status by name
+ * Poll the current status of a previously submitted statement.
+ *
+ * Typical polling pattern: call this in a loop (e.g. every 1s) until `status.phase`
+ * reaches a terminal state (`COMPLETED`, `FAILED`, or `CANCELLED`). While in
+ * `RUNNING`, streaming queries will stay in this phase until explicitly cancelled.
+ *
+ * @param statementName - The unique statement name returned by {@link executeSQL}.
+ * @returns The full StatementResponse including current phase, traits, and schema.
+ * @throws ApiError if the statement does not exist (404) or on server errors.
  */
 export const getStatementStatus = async (statementName: string): Promise<StatementResponse> => {
   try {
@@ -157,8 +237,22 @@ export const getStatementStatus = async (statementName: string): Promise<Stateme
 };
 
 /**
- * Get statement results with pagination support.
- * Pass a nextUrl to continue fetching from a previous cursor position.
+ * Fetch result rows for a completed or running statement, with cursor pagination.
+ *
+ * **First call**: pass only `statementName`. The API may return an empty first page
+ * with a `metadata.next` cursor — this function automatically follows it once to
+ * get the initial batch of rows.
+ *
+ * **Subsequent calls**: pass the `metadata.next` URL from the previous response as
+ * `nextUrl` to fetch the next page. For streaming queries, this acts as a long-poll:
+ * the server holds the connection until new rows are available or a timeout elapses.
+ *
+ * @param statementName - The unique statement name.
+ * @param nextUrl - Full cursor URL from a previous response's `metadata.next`.
+ *                  Omit on the first call.
+ * @returns ResultsResponse containing `results.data` (array of rows) and
+ *          `metadata.next` (cursor URL for the next page, if more data exists).
+ * @throws ApiError on network or server errors.
  */
 export const getStatementResults = async (
   statementName: string,
@@ -193,11 +287,19 @@ export const getStatementResults = async (
 };
 
 /**
- * Cancel/stop a statement using DELETE endpoint.
- * Per Confluent Flink SQL API: DELETE /statements/{name} → 202 Accepted
- * @param statementName - The name of the statement to cancel
- * @param _options - Deprecated, kept for backward compatibility (DELETE has no body)
- * @throws ApiError if the delete request fails (e.g., 409 Conflict if already in terminal state)
+ * Cancel a running or pending statement by issuing a DELETE request.
+ *
+ * The Confluent Flink SQL API uses DELETE (not PATCH/PUT) for cancellation.
+ * Returns 202 Accepted — the statement transitions to `CANCELLED` phase
+ * asynchronously, so a subsequent {@link getStatementStatus} call may still
+ * show `RUNNING` briefly before settling.
+ *
+ * Cancelling a streaming query is a normal workflow in Flink (not an error).
+ *
+ * @param statementName - The unique statement name to cancel.
+ * @param _options - Deprecated parameter kept for backward compatibility. Ignored.
+ * @throws ApiError on failure (e.g. 409 Conflict if already in a terminal state,
+ *         404 if statement not found).
  */
 export const cancelStatement = async (
   statementName: string,
@@ -239,13 +341,29 @@ export const getComputePoolStatus = async (): Promise<ComputePoolStatus> => {
 };
 
 /**
- * List all statements (follows pagination to collect all pages).
- * Pass onPage callback to receive results progressively as each page loads.
+ * List all statements from the Flink SQL gateway, following pagination automatically.
+ *
+ * Fetches pages sequentially, accumulating results. Use `onPage` for progressive
+ * loading — the callback fires after each page with all rows collected so far,
+ * letting the UI render partial results while loading continues.
+ *
+ * The server returns full URLs in `metadata.next`; this function extracts the
+ * path + query to route through the Vite proxy.
+ *
+ * @param pageSize - Number of statements per page (default: 100).
+ * @param onPage - Called after each page with a snapshot of all accumulated results.
+ *                 Useful for progressive rendering in the History panel.
+ * @param maxResults - Stop fetching once this many total results are collected.
+ * @param filterUniqueId - If set, only return statements whose name includes this
+ *                         string. Applied client-side after all pages are fetched.
+ * @returns Array of StatementResponse objects, optionally filtered and capped.
+ * @throws ApiError on network or server errors.
  */
 export const listStatements = async (
   pageSize?: number,
   onPage?: (accumulated: StatementResponse[]) => void,
-  maxResults?: number
+  maxResults?: number,
+  filterUniqueId?: string
 ): Promise<StatementResponse[]> => {
   try {
     const size = pageSize ?? 100;
@@ -262,7 +380,7 @@ export const listStatements = async (
         onPage([...allStatements]);
       }
 
-      // Stop if we've reached the max results limit
+      // Stop if we've reached the max results limit (before filtering)
       if (maxResults && allStatements.length >= maxResults) {
         break;
       }
@@ -278,7 +396,12 @@ export const listStatements = async (
       }
     }
 
-    return maxResults ? allStatements.slice(0, maxResults) : allStatements;
+    let filtered = allStatements;
+    if (filterUniqueId) {
+      filtered = allStatements.filter((s) => s.name.includes(filterUniqueId));
+    }
+
+    return maxResults ? filtered.slice(0, maxResults) : filtered;
   } catch (error) {
     throw handleApiError(error);
   }

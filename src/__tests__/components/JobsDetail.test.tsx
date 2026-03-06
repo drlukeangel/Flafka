@@ -169,7 +169,7 @@ describe('[@jobs-detail] JobsDetail', () => {
 
     render(<JobsDetail statement={completedStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
     fireEvent.click(screen.getByText('Load in Workspace'));
-    expect(addStatement).toHaveBeenCalledWith('SELECT count(*) FROM payments', undefined, 'stmt-completed-1-copy');
+    expect(addStatement).toHaveBeenCalledWith('SELECT count(*) FROM payments', undefined, 'stmt-completed-1', undefined);
     expect(setActiveNavItem).toHaveBeenCalledWith('workspace');
   });
 
@@ -220,5 +220,290 @@ describe('[@jobs-detail] JobsDetail', () => {
   it('shows error detail for failed statements', () => {
     render(<JobsDetail statement={failedStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
     expect(screen.getByText('Syntax error near BAD')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] JobsDetail — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] JobsDetail edge cases', () => {
+  const onBack = vi.fn();
+  const onCancelJob = vi.fn();
+  const onDeleteJob = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    useWorkspaceStore.setState({
+      jobStatements: [],
+      toasts: [],
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it('getStatusClass returns "unknown" for undefined phase', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-no-phase',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: {},
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    // Status dot should have 'unknown' class
+    const dot = document.querySelector('.status-dot.unknown');
+    expect(dot).toBeTruthy();
+  });
+
+  it('getStatusClass returns correct class for each phase', () => {
+    const phases = [
+      { phase: 'PENDING', cls: 'pending' },
+      { phase: 'CANCELLED', cls: 'cancelled' },
+      { phase: 'FAILED', cls: 'failed' },
+    ];
+    for (const { phase, cls } of phases) {
+      cleanup();
+      const stmt: StatementResponse = {
+        name: `stmt-${cls}`,
+        spec: { statement: 'SELECT 1', properties: {} },
+        status: { phase },
+      };
+      render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+      expect(document.querySelector(`.status-dot.${cls}`)).toBeTruthy();
+    }
+  });
+
+  it('getStatusClass returns "unknown" for unrecognized phase', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-weird',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'WEIRD_PHASE' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(document.querySelector('.status-dot.unknown')).toBeTruthy();
+  });
+
+  it('getStatusLabel returns "Stopped" for CANCELLED', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-cancelled',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'CANCELLED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.getByText('Stopped')).toBeTruthy();
+  });
+
+  it('getStatusLabel returns "Unknown" for undefined phase', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-undef',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: {},
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.getByText('Unknown')).toBeTruthy();
+  });
+
+  it('settings tab shows empty state when no properties', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-no-props',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    fireEvent.click(screen.getByText('Settings'));
+    expect(screen.getByText('No properties configured.')).toBeTruthy();
+  });
+
+  it('settings tab shows empty state when properties undefined', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-undef-props',
+      spec: { statement: 'SELECT 1' },
+      status: { phase: 'COMPLETED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    fireEvent.click(screen.getByText('Settings'));
+    expect(screen.getByText('No properties configured.')).toBeTruthy();
+  });
+
+  it('PENDING phase shows Stop button (canStop)', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-pending',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'PENDING' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.getByText('Stop')).toBeTruthy();
+  });
+
+  it('CANCELLED phase shows Delete button (canDelete)', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-cancelled',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'CANCELLED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.getByText('Delete')).toBeTruthy();
+  });
+
+  it('Load in Workspace with running statement resumes polling', () => {
+    const addStatement = vi.fn().mockReturnValue('new-stmt-id');
+    const resumeStatementPolling = vi.fn();
+    const setActiveNavItem = vi.fn();
+    useWorkspaceStore.setState({ addStatement, resumeStatementPolling, setActiveNavItem });
+
+    const stmt: StatementResponse = {
+      name: 'stmt-running-poll',
+      metadata: { created_at: '2026-01-01T00:00:00Z' },
+      spec: { statement: 'SELECT * FROM t', properties: {} },
+      status: { phase: 'RUNNING' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    fireEvent.click(screen.getByText('Load in Workspace'));
+
+    expect(addStatement).toHaveBeenCalledWith(
+      'SELECT * FROM t',
+      undefined,
+      'stmt-running-poll',
+      expect.objectContaining({ status: 'RUNNING', statementName: 'stmt-running-poll' })
+    );
+    expect(setActiveNavItem).toHaveBeenCalledWith('workspace');
+
+    // Advance past the 500ms setTimeout
+    vi.advanceTimersByTime(600);
+    expect(resumeStatementPolling).toHaveBeenCalledWith('new-stmt-id');
+  });
+
+  it('Load in Workspace with PENDING statement also resumes polling', () => {
+    const addStatement = vi.fn().mockReturnValue('new-stmt-id-2');
+    const resumeStatementPolling = vi.fn();
+    const setActiveNavItem = vi.fn();
+    useWorkspaceStore.setState({ addStatement, resumeStatementPolling, setActiveNavItem });
+
+    const stmt: StatementResponse = {
+      name: 'stmt-pending-poll',
+      spec: { statement: 'SELECT * FROM t', properties: {} },
+      status: { phase: 'PENDING' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    fireEvent.click(screen.getByText('Load in Workspace'));
+
+    vi.advanceTimersByTime(600);
+    expect(resumeStatementPolling).toHaveBeenCalledWith('new-stmt-id-2');
+  });
+
+  it('Load in Workspace button hidden when no SQL', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-no-sql',
+      spec: { properties: {} },
+      status: { phase: 'COMPLETED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.queryByText('Load in Workspace')).toBeNull();
+  });
+
+  it('not-found state has back button that calls onBack', () => {
+    render(<JobsDetail statement={undefined} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    fireEvent.click(screen.getByText('Back to list'));
+    expect(onBack).toHaveBeenCalled();
+  });
+
+  it('no auto-refresh for COMPLETED statement', () => {
+    render(<JobsDetail statement={completedStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    vi.advanceTimersByTime(10000);
+    expect(flinkApi.getStatementStatus).not.toHaveBeenCalled();
+  });
+
+  it('statement_type shown in status bar when present', () => {
+    render(<JobsDetail statement={runningStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.getByText('SELECT')).toBeTruthy();
+  });
+
+  it('statement_type not shown when absent', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-no-type',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    // Should not have extra separator dots for statement_type
+    const separators = document.querySelectorAll('.jobs-detail-separator');
+    // Only date separator if created_at missing — should be 0 separators
+    expect(separators.length).toBe(0);
+  });
+
+  it('auto-refresh stops when status becomes terminal', async () => {
+    (flinkApi.getStatementStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...runningStatement,
+      status: { phase: 'COMPLETED' },
+    });
+
+    useWorkspaceStore.setState({
+      jobStatements: [runningStatement],
+    });
+
+    render(<JobsDetail statement={runningStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+
+    // First tick — triggers refresh and gets COMPLETED
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(flinkApi.getStatementStatus).toHaveBeenCalledTimes(1);
+
+    // Clear to check next interval does NOT fire
+    (flinkApi.getStatementStatus as ReturnType<typeof vi.fn>).mockClear();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(flinkApi.getStatementStatus).not.toHaveBeenCalled();
+  });
+
+  it('auto-refresh silently ignores errors', async () => {
+    (flinkApi.getStatementStatus as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network fail'));
+
+    render(<JobsDetail statement={runningStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    // Should not throw
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(flinkApi.getStatementStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('formatDate returns em-dash for invalid date string', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-bad-date',
+      metadata: { created_at: 'not-a-date' },
+      spec: { statement: 'SELECT 1', statement_type: 'SELECT', properties: {} },
+      status: { phase: 'COMPLETED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    // The created_at is truthy so it renders, but formatDate returns em-dash
+    // We just verify the component renders without error
+    expect(screen.getByText('stmt-bad-date')).toBeTruthy();
+  });
+
+  it('error detail not shown when phase is not FAILED', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-running-detail',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'RUNNING', detail: 'Some info' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.queryByText('Some info')).toBeNull();
+  });
+
+  it('metadata grid hides items when properties are absent', () => {
+    const stmt: StatementResponse = {
+      name: 'stmt-no-meta',
+      spec: { statement: 'SELECT 1', properties: {} },
+      status: { phase: 'COMPLETED' },
+    };
+    render(<JobsDetail statement={stmt} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.queryByText('Compute Pool')).toBeNull();
+    expect(screen.queryByText('Catalog')).toBeNull();
+    expect(screen.queryByText('Database')).toBeNull();
+    expect(screen.queryByText('Scan Mode')).toBeNull();
+  });
+
+  it('scan mode shown when sql.tables.scan.startup.mode is set', () => {
+    render(<JobsDetail statement={runningStatement} onBack={onBack} onCancelJob={onCancelJob} onDeleteJob={onDeleteJob} />);
+    expect(screen.getByText('Scan Mode')).toBeTruthy();
+    expect(screen.getByText('earliest-offset')).toBeTruthy();
   });
 });

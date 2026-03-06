@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { StatementResponse } from '../../api/flink-api';
 import * as flinkApi from '../../api/flink-api';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { env } from '../../config/environment';
 import { FiArrowLeft, FiSquare, FiTrash2 } from 'react-icons/fi';
 
 interface JobsDetailProps {
@@ -50,6 +51,10 @@ export function JobsDetail({ statement, onBack, onCancelJob, onDeleteJob }: Jobs
   const resumeStatementPolling = useWorkspaceStore((s) => s.resumeStatementPolling);
   const setActiveNavItem = useWorkspaceStore((s) => s.setActiveNavItem);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Soft multi-tenancy check
+  const isOwner = statement?.name?.endsWith(`-${env.uniqueId}`);
+  const canManage = env.isAdmin || isOwner;
 
   // Auto-refresh for running/pending statements
   useEffect(() => {
@@ -135,7 +140,7 @@ export function JobsDetail({ statement, onBack, onCancelJob, onDeleteJob }: Jobs
           <FiArrowLeft size={16} />
         </button>
         <h2 className="jobs-detail-name" title={statement.name}>{statement.name}</h2>
-        {canStop && (
+        {canStop && canManage && (
           <button
             className="jobs-stop-btn-large"
             onClick={() => onCancelJob(statement.name)}
@@ -144,7 +149,7 @@ export function JobsDetail({ statement, onBack, onCancelJob, onDeleteJob }: Jobs
             <span>Stop</span>
           </button>
         )}
-        {canDelete && (
+        {canDelete && canManage && (
           <button
             className="jobs-delete-btn-large"
             onClick={() => { onDeleteJob(statement.name); onBack(); }}

@@ -218,3 +218,191 @@ describe('[@example-cards] getExampleCards', () => {
     expect(filterIdx).toBeLessThan(scalarIdx);
   });
 });
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] exampleCards — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] exampleCards edge cases', () => {
+  it('ZIP artifact used for python UDF card when present', () => {
+    const zipArt = makeArtifact({
+      id: 'art-zip-1',
+      content_format: 'ZIP',
+      class: 'my_module.my_func',
+      runtime_language: 'PYTHON',
+      versions: [{ version: 'ver-zip-1' }],
+    });
+    const cards = getExampleCards([zipArt]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(pyCard.sql).toContain('art-zip-1');
+    expect(pyCard.sql).toContain('ver-zip-1');
+  });
+
+  it('ZIP fallback to anyArtifact when no ZIP artifact but JAR exists', () => {
+    const jarArt = makeArtifact({
+      id: 'art-jar-only',
+      content_format: 'JAR',
+      versions: [{ version: 'ver-jar-1' }],
+    });
+    const cards = getExampleCards([jarArt]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    // zipId falls back to anyArtifact (the JAR)
+    expect(pyCard.sql).toContain('art-jar-only');
+    expect(pyCard.sql).toContain('ver-jar-1');
+  });
+
+  it('both JAR and ZIP artifacts resolve independently', () => {
+    const jarArt = makeArtifact({
+      id: 'art-jar-2',
+      content_format: 'JAR',
+      class: 'com.example.JavaUdf',
+      versions: [{ version: 'ver-j2' }],
+    });
+    const zipArt = makeArtifact({
+      id: 'art-zip-2',
+      content_format: 'ZIP',
+      class: 'python_module',
+      runtime_language: 'PYTHON',
+      versions: [{ version: 'ver-z2' }],
+    });
+    const cards = getExampleCards([jarArt, zipArt]);
+    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(javaCard.sql).toContain('art-jar-2');
+    expect(javaCard.sql).toContain('ver-j2');
+    expect(javaCard.sql).toContain("AS 'com.example.JavaUdf'");
+    expect(pyCard.sql).toContain('art-zip-2');
+    expect(pyCard.sql).toContain('ver-z2');
+    expect(pyCard.sql).toContain("AS 'python_module'");
+  });
+
+  it('deriveFnName converts CamelCase last segment to snake_case', () => {
+    const art = makeArtifact({ class: 'com.example.MaskEmailAddress' });
+    const cards = getExampleCards([art]);
+    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
+    expect(javaCard.sql).toContain('mask_email_address');
+  });
+
+  it('deriveFnName handles Python-style identifier (no dots)', () => {
+    const art = makeArtifact({
+      content_format: 'ZIP',
+      class: 'my_python_func',
+      runtime_language: 'PYTHON',
+    });
+    const cards = getExampleCards([art]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(pyCard.sql).toContain("AS 'my_python_func'");
+    // deriveFnName returns lowercase of valid identifier
+    expect(pyCard.sql).toContain('my_python_func');
+  });
+
+  it('deriveFnName returns fallback for non-identifier non-dotted class', () => {
+    // A class string with special chars that is not a valid identifier and has no dots
+    const art = makeArtifact({ class: '123-bad-class!' });
+    const cards = getExampleCards([art]);
+    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
+    // isUnresolvedClass returns false (not empty, not 'default'), so deriveFnName is called
+    // deriveFnName: no dots, regex test fails for '123-bad-class!' => returns fallback 'my_java_udf'
+    expect(javaCard.sql).toContain('my_java_udf');
+  });
+
+  it('isUnresolvedClass treats null/undefined as unresolved', () => {
+    const art = makeArtifact({ class: undefined as unknown as string });
+    const cards = getExampleCards([art]);
+    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
+    expect(javaCard.sql).toContain("AS '<entry-class>'");
+    expect(javaCard.sql).toContain('my_java_udf');
+  });
+
+  it('Coming Soon cards have comingSoon string and no onImport', () => {
+    const cards = getExampleCards([]);
+    const comingSoonIds = ['loan-dedup', 'loan-top-n', 'loan-aggregate-udf', 'loan-validation',
+      'loan-hop-window', 'loan-session-window', 'loan-pii-masking', 'loan-async-enrichment', 'loan-cdc-pipeline'];
+    for (const id of comingSoonIds) {
+      const card = cards.find((c) => c.id === id);
+      expect(card, `card ${id} should exist`).toBeDefined();
+      expect(typeof card!.comingSoon).toBe('string');
+      expect(card!.onImport).toBeUndefined();
+    }
+  });
+
+  it('snippet cards have no onImport', () => {
+    const cards = getExampleCards([]);
+    const snippetIds = ['hello-world', 'show-functions'];
+    for (const id of snippetIds) {
+      const card = cards.find((c) => c.id === id);
+      expect(card).toBeDefined();
+      expect(card!.category).toBe('snippet');
+      expect(card!.onImport).toBeUndefined();
+    }
+  });
+
+  it('kickstart cards with onImport have category kickstart', () => {
+    const cards = getExampleCards([]);
+    const kickstartIds = ['hello-flink', 'good-jokes', 'loan-filter', 'loan-aggregate',
+      'loan-join', 'loan-temporal-join', 'loan-scalar-extract', 'loan-tradeline-java'];
+    for (const id of kickstartIds) {
+      const card = cards.find((c) => c.id === id);
+      expect(card).toBeDefined();
+      expect(card!.category).toBe('kickstart');
+      expect(typeof card!.onImport).toBe('function');
+    }
+  });
+
+  it('python UDF description mentions display_name when ZIP artifact has valid class', () => {
+    const zipArt = makeArtifact({
+      display_name: 'MyPythonPackage',
+      content_format: 'ZIP',
+      class: 'my_module.process',
+      runtime_language: 'PYTHON',
+    });
+    const cards = getExampleCards([zipArt]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(pyCard.description).toContain('MyPythonPackage');
+    expect(pyCard.description).not.toContain('Replace <entry-class>');
+  });
+
+  it('python UDF description includes guidance when ZIP class is unresolved', () => {
+    const zipArt = makeArtifact({
+      display_name: 'MyZip',
+      content_format: 'ZIP',
+      class: '',
+    });
+    const cards = getExampleCards([zipArt]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(pyCard.description).toContain('MyZip');
+    expect(pyCard.description).toContain('Replace <entry-class>');
+  });
+
+  it('no artifacts: python UDF shows upload guidance', () => {
+    const cards = getExampleCards([]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(pyCard.description).toContain('Upload a ZIP artifact first');
+  });
+
+  it('JAR with empty versions uses <version-id> placeholder', () => {
+    const art = makeArtifact({ versions: [] });
+    const cards = getExampleCards([art]);
+    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
+    expect(javaCard.sql).toContain('<version-id>');
+  });
+
+  it('ZIP with empty versions falls back to anyArtifact version', () => {
+    const jarArt = makeArtifact({
+      content_format: 'JAR',
+      versions: [{ version: 'ver-fallback' }],
+    });
+    // No ZIP artifact — falls back to anyArtifact (JAR)
+    const cards = getExampleCards([jarArt]);
+    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
+    expect(pyCard.sql).toContain('ver-fallback');
+  });
+
+  it('all cards have non-empty id and title', () => {
+    const cards = getExampleCards([]);
+    for (const card of cards) {
+      expect(card.id.length).toBeGreaterThan(0);
+      expect(card.title.length).toBeGreaterThan(0);
+    }
+  });
+});

@@ -8,7 +8,7 @@ import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import { TabBar } from './components/TabBar/TabBar';
 import { env } from './config/environment';
-import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown, FiSquare, FiTrash2, FiSave, FiEdit3, FiChevronsRight, FiChevronsLeft } from 'react-icons/fi';
+import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown, FiSquare, FiTrash2, FiChevronsRight, FiChevronsLeft } from 'react-icons/fi';
 import { SplitButton } from './components/SplitButton/SplitButton';
 import { ComputePoolDashboard } from './components/ComputePoolDashboard/ComputePoolDashboard';
 import { NavRail } from './components/NavRail/NavRail';
@@ -18,14 +18,33 @@ import { SnippetsPanel } from './components/SnippetsPanel/SnippetsPanel';
 import { WorkspacesPanel } from './components/WorkspacesPanel/WorkspacesPanel';
 import ArtifactsPanel from './components/ArtifactsPanel/ArtifactsPanel';
 import { ExamplesPanel } from './components/ExamplesPanel/ExamplesPanel';
+import { ExampleDetailPage } from './components/ExampleDetailView/ExampleDetailPage';
 import { StreamsPanel } from './components/StreamsPanel/StreamsPanel';
 import { JobsPage } from './components/JobsPage/JobsPage';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
-import { generateFunName } from './utils/names';
 import { randomStarterJoke } from './store/workspaceStore';
 import './App.css';
 
-// Helper: map compute pool phase to dot CSS class
+/**
+ * Help text for common Flink SQL session properties
+ */
+const SESSION_PROPERTY_HELP: Record<string, string> = {
+  'sql.local-time-zone': 'Timezone for temporal functions (e.g., CURRENT_TIMESTAMP). Default: UTC',
+  'sql.execution.mode': 'Execution mode: "streaming" or "batch". Default: streaming',
+  'execution.checkpointing.mode': 'Checkpoint mode: "EXACTLY_ONCE" (slower, safer) or "AT_LEAST_ONCE" (faster). Default: EXACTLY_ONCE',
+  'sql.parallelism': 'Number of parallel tasks for SQL operators. Scales with your compute pool.',
+  'execution.checkpointing.interval': 'Checkpoint interval in milliseconds. Higher = faster but less recovery precision.',
+  'state.backend': 'State storage backend: "hashmap" (in-memory) or "rocksdb" (disk-backed). Default: hashmap',
+  'taskmanager.memory.managed.size': 'Managed memory for task manager (e.g., "512mb"). Leave empty for auto.',
+};
+
+/**
+ * Maps a Compute Pool lifecycle phase to a CSS class for the status indicator dot.
+ * - RUNNING / PROVISIONED => "running" (green dot)
+ * - PROVISIONING          => "provisioning" (amber dot)
+ * - anything else         => "error" (red dot)
+ * - null (not yet loaded) => "unknown"
+ */
 function getPoolDotClass(phase: string | null): string {
   if (!phase) return 'unknown';
   const p = phase.toUpperCase();
@@ -34,7 +53,11 @@ function getPoolDotClass(phase: string | null): string {
   return 'error';
 }
 
-// Helper: format display text for compute pool status
+/**
+ * Returns a human-readable status string for the Compute Pool header badge.
+ * Includes the phase name and, when available, the current/max CFU (Confluent Flink Units).
+ * Examples: "RUNNING . 4/8 CFU", "PROVISIONING", "Loading..."
+ */
 function getPoolStatusText(phase: string | null, cfu: number | null, maxCfu: number | null): string {
   if (!phase) return 'Loading...';
   if (phase === 'UNKNOWN') return 'Unknown';
@@ -43,12 +66,6 @@ function getPoolStatusText(phase: string | null, cfu: number | null, maxCfu: num
   }
   const cfuSuffix = cfu !== null && cfu > 0 ? ` \u00b7 ${cfu} CFU` : '';
   return `${phase}${cfuSuffix}`;
-}
-
-// Truncate long IDs for display
-function maskId(id: string): string {
-  if (!id) return '\u2014';
-  return id.length > 16 ? `${id.slice(0, 12)}\u2026` : id;
 }
 
 
@@ -91,6 +108,7 @@ function App() {
     dismissOnboardingHint,
     importWorkspace,
     addToast,
+    activeTabId,
     selectedSchemaSubject,
     streamsPanelOpen,
     toggleStreamsPanel,
@@ -98,13 +116,7 @@ function App() {
     toggleNavExpanded,
     workspaceName,
     saveCurrentWorkspace,
-    setWorkspaceName,
-    workspaceNotes,
-    workspaceNotesOpen,
-    toggleWorkspaceNotes,
-    setWorkspaceNotes,
-    savedWorkspaces,
-    updateSavedWorkspaceNotes,
+    selectedExampleId,
   } = useWorkspaceStore();
 
   const hasRunnableStatements = statements.some(
@@ -121,6 +133,12 @@ function App() {
 
   const showOnboardingHint = !hasSeenOnboardingHint && statements.length === 1 && statements[0].status === 'IDLE';
 
+  /**
+   * Parses a STARTER_JOKES string into its display parts.
+   * Each joke follows the format: "-- SQL comment\nresult line"
+   * This function strips the leading "-- " from the SQL line and splits
+   * out the result (if present) for separate rendering in the empty-workspace state.
+   */
   const parseJoke = (joke: string) => {
     const nl = joke.indexOf('\n');
     return {
@@ -129,23 +147,14 @@ function App() {
     };
   };
   const [emptyJoke, setEmptyJoke] = useState(() => parseJoke(randomStarterJoke()));
+  const [newPropertyKey, setNewPropertyKey] = useState('');
+
   useEffect(() => {
     if (statements.length === 0) setEmptyJoke(parseJoke(randomStarterJoke()));
-  }, [statements.length]);
+  }, [statements.length, activeTabId]);
 
   const [helpPanelOpen, setHelpPanelOpen] = useState(false);
   const [helpTopicId, setHelpTopicId] = useState<string | undefined>(undefined);
-
-  // Local notes state — synced from store (e.g., when workspace opened or Quick Start completes)
-  const [localNotes, setLocalNotes] = useState<string>(workspaceNotes ?? '');
-  useEffect(() => {
-    setLocalNotes(workspaceNotes ?? '');
-  }, [workspaceNotes]);
-
-  // Save workspace dialog state
-  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
-  const [saveNameValue, setSaveNameValue] = useState('');
-  const saveWorkspaceInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importConfirmation, setImportConfirmation] = useState<{
@@ -155,7 +164,13 @@ function App() {
 
   const totalRowsCached = statements.reduce((sum, s) => sum + (s.results?.length ?? 0), 0);
 
-  // ── Side-panel resize (drag handle) ────────────────────────────────────────
+  // ── Dual-panel drag-to-resize ──────────────────────────────────────────────
+  // The app has two independently resizable panels:
+  //   1. Side panel (left) — Tree navigator, history, schemas, etc.
+  //   2. Streams panel (right) — live stream cards.
+  // Both share a single mousemove/mouseup listener. The `isDragging` ref tracks
+  // which panel (if any) is being resized. The side panel grows with rightward
+  // drag; the streams panel grows with leftward drag (delta is inverted).
   const [sidePanelWidth, setSidePanelWidth] = useState<number | null>(null);
   const isDragging = useRef<'side' | 'stream' | false>(false);
   const dragStartX = useRef(0);
@@ -280,6 +295,20 @@ function App() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [helpPanelOpen, activeNavItem, setActiveNavItem]);
 
+  // Ctrl+S to save workspace
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (workspaceName && workspaceName !== 'Flafka') {
+          saveCurrentWorkspace(workspaceName);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [workspaceName, saveCurrentWorkspace]);
+
   const handleExportWorkspace = () => {
     const state = useWorkspaceStore.getState();
     const jsonStr = exportWorkspace({
@@ -365,33 +394,6 @@ function App() {
               <span className="logo-text">Flafka</span>
             </div>
           </div>
-          {workspaceName && workspaceName !== 'Flafka' && (
-            <>
-              <span className="header-workspace-sep" aria-hidden="true" />
-              <span className="header-workspace-name" title={workspaceName}>{workspaceName}</span>
-              <button
-                className="header-icon-btn"
-                onClick={() => {
-                  setSaveNameValue(workspaceName && workspaceName !== 'Flafka' ? workspaceName : generateFunName());
-                  setSaveDialogOpen(true);
-                  requestAnimationFrame(() => { saveWorkspaceInputRef.current?.select(); });
-                }}
-                title="Save workspace"
-                aria-label="Save workspace"
-              >
-                <FiSave size={13} />
-              </button>
-              <button
-                className={`header-icon-btn${workspaceNotesOpen ? ' header-icon-btn--active' : ''}`}
-                onClick={toggleWorkspaceNotes}
-                aria-label={workspaceNotesOpen ? 'Hide notes' : 'Show notes'}
-                title={workspaceNotesOpen ? 'Hide notes' : 'Show notes'}
-                aria-expanded={workspaceNotesOpen}
-              >
-                <FiEdit3 size={13} />
-              </button>
-            </>
-          )}
         </div>
         <div className="header-center">
           <button
@@ -554,9 +556,22 @@ function App() {
                   <div className="settings-section">
                     <span className="settings-section-title">Environment</span>
                     <div className="settings-row">
+                      <span className="settings-label">Unique ID</span>
+                      <span className="settings-value">
+                        <input
+                          id="settings-unique-id-input"
+                          type="text"
+                          className="settings-input"
+                          defaultValue={env.uniqueId || ''}
+                          placeholder={env.uniqueId || 'e.g., F696969'}
+                        />
+                      </span>
+                    </div>
+                    <div className="settings-row">
                       <span className="settings-label">Catalog</span>
                       <span className="settings-value">
                         <select
+                          id="settings-catalog-select"
                           className="settings-select"
                           value={catalog}
                           onChange={(e) => setCatalog(e.target.value)}
@@ -571,6 +586,7 @@ function App() {
                       <span className="settings-label">Database</span>
                       <span className="settings-value">
                         <select
+                          id="settings-database-select"
                           className="settings-select"
                           value={database}
                           onChange={(e) => setDatabase(e.target.value)}
@@ -580,34 +596,6 @@ function App() {
                           ))}
                         </select>
                       </span>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Cloud Provider</span>
-                      <span className="settings-value">{env.cloudProvider.toUpperCase() || '\u2014'}</span>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Region</span>
-                      <span className="settings-value">{env.cloudRegion || '\u2014'}</span>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Compute Pool ID</span>
-                      <span className="settings-value">{maskId(env.computePoolId)}</span>
-                    </div>
-                  </div>
-
-                  <div className="settings-section">
-                    <span className="settings-section-title">API</span>
-                    <div className="settings-row">
-                      <span className="settings-label">Flink Endpoint</span>
-                      <span className="settings-value">/api/flink</span>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Organization ID</span>
-                      <span className="settings-value">{maskId(env.orgId)}</span>
-                    </div>
-                    <div className="settings-row">
-                      <span className="settings-label">Environment ID</span>
-                      <span className="settings-value">{maskId(env.environmentId)}</span>
                     </div>
                   </div>
 
@@ -622,10 +610,10 @@ function App() {
                       <span className="settings-value">{totalRowsCached.toLocaleString()}</span>
                     </div>
                     <div className="settings-row settings-row--actions">
-                      <button className="settings-action-btn" onClick={handleExportWorkspace}>
+                      <button id="settings-export-workspace-btn" className="settings-action-btn" onClick={handleExportWorkspace}>
                         Export Workspace
                       </button>
-                      <button className="settings-action-btn" onClick={handleImportClick}>
+                      <button id="settings-import-workspace-btn" className="settings-action-btn" onClick={handleImportClick}>
                         Import Workspace
                       </button>
                     </div>
@@ -637,39 +625,99 @@ function App() {
                       Flink SQL session properties applied to all statements.
                     </p>
                     <div className="property-editor">
-                      {Object.entries(sessionProperties).map(([key, value]) => (
-                        <div key={key} className="property-row">
-                          <span className="property-key" title={key}>{key}</span>
+                      {newPropertyKey === '__NEW__' && (
+                        <div className="property-row property-row--new">
                           <input
+                            id="settings-new-property-key"
                             type="text"
-                            value={value}
-                            onChange={(e) => setSessionProperty(key, e.target.value)}
+                            className="property-key"
+                            placeholder="property key"
+                            autoFocus
+                            defaultValue=""
+                            onBlur={(e) => {
+                              if (!e.target.value.trim()) {
+                                setNewPropertyKey('');
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                setNewPropertyKey('');
+                              }
+                            }}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter' && (e.target as HTMLInputElement).value.trim()) {
+                                const valueInput = document.getElementById('settings-new-property-value') as HTMLInputElement;
+                                setSessionProperty((e.target as HTMLInputElement).value.trim(), valueInput?.value || '');
+                                setNewPropertyKey('');
+                              }
+                            }}
+                          />
+                          <input
+                            id="settings-new-property-value"
+                            type="text"
                             className="property-value"
                             placeholder="value"
+                            defaultValue=""
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const keyInput = document.getElementById('settings-new-property-key') as HTMLInputElement;
+                                if (keyInput?.value?.trim()) {
+                                  setSessionProperty(keyInput.value.trim(), e.currentTarget.value);
+                                  setNewPropertyKey('');
+                                }
+                              } else if (e.key === 'Escape') {
+                                setNewPropertyKey('');
+                              }
+                            }}
                           />
                           <button
-                            onClick={() => removeSessionProperty(key)}
                             className="property-delete-btn"
-                            title="Remove property"
+                            onClick={() => setNewPropertyKey('')}
+                            title="Cancel"
                           >
                             ×
                           </button>
+                        </div>
+                      )}
+                      {Object.entries(sessionProperties).map(([key, value]) => (
+                        <div key={key} className="property-row-group">
+                          <div className="property-row">
+                            <span className="property-key" title={SESSION_PROPERTY_HELP[key] || key}>{key}</span>
+                            <input
+                              id={`settings-session-property-${key.replace(/[^a-z0-9-]/gi, '-')}`}
+                              type="text"
+                              value={value}
+                              onChange={(e) => setSessionProperty(key, e.target.value)}
+                              className="property-value"
+                              placeholder="value"
+                            />
+                            <button
+                              id={`settings-session-property-delete-${key.replace(/[^a-z0-9-]/gi, '-')}`}
+                              onClick={() => removeSessionProperty(key)}
+                              className="property-delete-btn"
+                              title="Remove property"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {SESSION_PROPERTY_HELP[key] && (
+                            <div className="property-help">{SESSION_PROPERTY_HELP[key]}</div>
+                          )}
                         </div>
                       ))}
                     </div>
                     <div className="property-actions">
                       <button
+                        id="settings-add-property-btn"
                         onClick={() => {
-                          const newKey = prompt('Property key (e.g., sql.tables.scan.startup.mode):');
-                          if (newKey?.trim()) {
-                            setSessionProperty(newKey.trim(), '');
-                          }
+                          setNewPropertyKey('__NEW__');
                         }}
                         className="settings-action-btn"
                       >
                         + Add Property
                       </button>
                       <button
+                        id="settings-reset-properties-btn"
                         onClick={() => resetSessionProperties()}
                         className="settings-action-btn"
                       >
@@ -698,38 +746,10 @@ function App() {
         <main className="main-content">
           {activeNavItem === 'jobs' ? (
             <JobsPage />
+          ) : activeNavItem === 'examples' && selectedExampleId ? (
+            <ExampleDetailPage />
           ) : (
             <>
-              {/* Workspace Notes Panel — push-down above cells */}
-              <div
-                className={`workspace-notes-panel${workspaceNotesOpen ? ' workspace-notes-panel--open' : ''}`}
-                role="region"
-                aria-label="Workspace Notes"
-              >
-                <div className="workspace-notes-header">
-                  <span className="workspace-notes-label">Workspace Notes</span>
-                  <button
-                    className="workspace-notes-close"
-                    onClick={toggleWorkspaceNotes}
-                    aria-label="Close notes"
-                  >
-                    Close Notes
-                  </button>
-                </div>
-                <textarea
-                  className="workspace-notes-textarea"
-                  value={localNotes}
-                  onChange={(e) => setLocalNotes(e.target.value)}
-                  onBlur={() => {
-                    setWorkspaceNotes(localNotes || null);
-                    const savedId = savedWorkspaces.find((w) => w.name === workspaceName)?.id;
-                    if (savedId) updateSavedWorkspaceNotes(savedId, localNotes);
-                  }}
-                  placeholder="Add notes about this workspace..."
-                  aria-label="Workspace notes"
-                />
-              </div>
-
               {/* Editor Cells or Empty State */}
               {statements.length === 0 ? (
                 <div className="workspace-empty-state">
@@ -800,68 +820,6 @@ function App() {
         onChange={handleFileSelected}
         style={{ display: 'none' }}
       />
-
-      {/* Save Workspace Dialog */}
-      {saveDialogOpen && (
-        <div
-          className="import-confirm-overlay"
-          onClick={() => setSaveDialogOpen(false)}
-        >
-          <div
-            className="import-confirm-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="save-workspace-dialog-title"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setSaveDialogOpen(false);
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const name = saveNameValue.trim();
-                if (name) {
-                  saveCurrentWorkspace(name);
-                  setWorkspaceName(name);
-                  setSaveDialogOpen(false);
-                }
-              }
-            }}
-          >
-            <h3 id="save-workspace-dialog-title" className="import-confirm-title">Save Workspace</h3>
-            <div className="import-confirm-details">
-              <div className="import-confirm-row">
-                <label className="import-confirm-label" htmlFor="save-workspace-name">Name</label>
-                <input
-                  id="save-workspace-name"
-                  ref={saveWorkspaceInputRef}
-                  type="text"
-                  value={saveNameValue}
-                  onChange={(e) => setSaveNameValue(e.target.value)}
-                  className="settings-select"
-                  maxLength={80}
-                  autoFocus
-                  style={{ flex: 1, fontSize: 13 }}
-                />
-              </div>
-            </div>
-            <div className="import-confirm-actions">
-              <button className="import-confirm-btn import-confirm-btn--cancel" onClick={() => setSaveDialogOpen(false)}>Cancel</button>
-              <button
-                className="import-confirm-btn import-confirm-btn--confirm"
-                disabled={!saveNameValue.trim()}
-                onClick={() => {
-                  const name = saveNameValue.trim();
-                  if (!name) return;
-                  saveCurrentWorkspace(name);
-                  setWorkspaceName(name);
-                  setSaveDialogOpen(false);
-                }}
-              >
-                Save
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Import Confirmation Dialog */}
       {importConfirmation && (

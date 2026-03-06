@@ -1695,7 +1695,7 @@ describe('[@topic-detail] schema association', () => {
       expect(screen.getByText('orders-v1-value')).toBeInTheDocument()
     })
 
-    await user.click(screen.getByLabelText('Navigate to schema orders-v1-value'))
+    await user.click(screen.getByLabelText('View orders-v1-value in Schema Registry'))
 
     expect(mockNavigateToSchemaSubject).toHaveBeenCalledWith('orders-v1-value')
   })

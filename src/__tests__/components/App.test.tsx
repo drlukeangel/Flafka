@@ -95,12 +95,20 @@ vi.mock('../../components/ExamplesPanel/ExamplesPanel', () => ({
   ExamplesPanel: () => <div data-testid="stub-examples-panel" />,
 }))
 
+vi.mock('../../components/ExampleDetailView/ExampleDetailPage', () => ({
+  ExampleDetailPage: () => <div data-testid="stub-example-detail-page" />,
+}))
+
 vi.mock('../../components/StreamsPanel/StreamsPanel', () => ({
   StreamsPanel: () => <div data-testid="stub-streams-panel" />,
 }))
 
 vi.mock('../../components/JobsPage/JobsPage', () => ({
   JobsPage: () => <div data-testid="stub-jobs-page" />,
+}))
+
+vi.mock('../../components/TabBar/TabBar', () => ({
+  TabBar: () => <div data-testid="stub-tab-bar" />,
 }))
 
 // ---------------------------------------------------------------------------
@@ -145,9 +153,6 @@ const mockToggleComputePoolDashboard = vi.fn()
 const mockLoadStatementTelemetry = vi.fn().mockResolvedValue(undefined)
 const mockSaveCurrentWorkspace = vi.fn()
 const mockToggleStreamsPanel = vi.fn()
-const mockToggleWorkspaceNotes = vi.fn()
-const mockSetWorkspaceNotes = vi.fn()
-const mockUpdateSavedWorkspaceNotes = vi.fn()
 
 // Mutable store state — override in each describe group
 let mockStoreState = buildStoreState()
@@ -186,9 +191,7 @@ function defaultStoreState() {
     streamCards: [] as unknown[],
     selectedSchemaSubject: null as string | null,
     streamsPanelOpen: false,
-    workspaceNotes: '' as string | null,
-    workspaceNotesOpen: false,
-    savedWorkspaces: [] as unknown[],
+    selectedExampleId: null as string | null,
     loadCatalogs: mockLoadCatalogs,
     loadDatabases: mockLoadDatabases,
     loadComputePoolStatus: mockLoadComputePoolStatus,
@@ -218,9 +221,6 @@ function defaultStoreState() {
     loadStatementTelemetry: mockLoadStatementTelemetry,
     saveCurrentWorkspace: mockSaveCurrentWorkspace,
     toggleStreamsPanel: mockToggleStreamsPanel,
-    toggleWorkspaceNotes: mockToggleWorkspaceNotes,
-    setWorkspaceNotes: mockSetWorkspaceNotes,
-    updateSavedWorkspaceNotes: mockUpdateSavedWorkspaceNotes,
   }
 }
 
@@ -405,60 +405,25 @@ describe('[@app] settings side panel layout', () => {
 })
 
 // ---------------------------------------------------------------------------
-// [@app] 5. Workspace title editing
+// [@app] 5. Logo displays static "Flafka" text
 // ---------------------------------------------------------------------------
 
-describe('[@app] workspace title editing', () => {
+describe('[@app] logo title display', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockStoreState = buildStoreState({ workspaceName: 'My Workspace' })
+    mockStoreState = buildStoreState()
   })
 
-  it('enters edit mode (shows input) when workspace title is clicked', async () => {
-    const user = userEvent.setup()
+  it('displays the Flafka logo text', () => {
     renderApp()
-
-    // Title text should be visible before edit
-    expect(screen.getByText('My Workspace')).toBeInTheDocument()
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-
-    // Click the logo-title-group to enter edit mode
-    const titleGroup = screen.getByText('My Workspace').closest('.logo-title-group')!
-    await user.click(titleGroup)
-
-    // Input should now be visible
-    expect(screen.getByRole('textbox')).toBeInTheDocument()
+    expect(screen.getByText('Flafka')).toBeInTheDocument()
   })
 
-  it('saves new name and exits edit mode when Enter is pressed', async () => {
-    renderApp()
-
-    const titleGroup = screen.getByText('My Workspace').closest('.logo-title-group')!
-    fireEvent.click(titleGroup)
-
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: 'New Name' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
-    expect(mockSetWorkspaceName).toHaveBeenCalledWith('New Name')
-    // Edit mode should be exited (no input visible)
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-  })
-
-  it('cancels edit and exits edit mode without saving when Escape is pressed', () => {
-    renderApp()
-
-    const titleGroup = screen.getByText('My Workspace').closest('.logo-title-group')!
-    fireEvent.click(titleGroup)
-
-    const input = screen.getByRole('textbox')
-    fireEvent.change(input, { target: { value: 'Should Not Be Saved' } })
-    fireEvent.keyDown(input, { key: 'Escape' })
-
-    // setWorkspaceName must NOT have been called with the new value
-    expect(mockSetWorkspaceName).not.toHaveBeenCalledWith('Should Not Be Saved')
-    // Edit mode should be exited
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  it('logo-title-group contains "Flafka" text', () => {
+    const { container } = renderApp()
+    const titleGroup = container.querySelector('.logo-title-group')
+    expect(titleGroup).toBeInTheDocument()
+    expect(titleGroup!.textContent).toBe('Flafka')
   })
 })
 
@@ -646,31 +611,32 @@ describe('[@phase-12-app-layout] side panel shows settings when activeNavItem is
 })
 
 // ---------------------------------------------------------------------------
-// [@phase-12-app-layout] 5. Header only has theme toggle in header-right
+// [@phase-12-app-layout] 5. Header-right contains toolbar buttons when on workspace
 // ---------------------------------------------------------------------------
 
-describe('[@phase-12-app-layout] header-right contains only theme toggle', () => {
+describe('[@phase-12-app-layout] header-right toolbar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockStoreState = buildStoreState({ activeNavItem: 'workspace', theme: 'light' })
   })
 
-  it('header-right contains the theme toggle button', () => {
+  it('header-right contains toolbar buttons when activeNavItem is workspace', () => {
     const { container } = renderApp()
 
     const headerRight = container.querySelector('.header-right')
     expect(headerRight).toBeInTheDocument()
 
-    const themeBtn = headerRight!.querySelector('button[aria-label="Toggle dark/light theme"]')
-    expect(themeBtn).toBeInTheDocument()
+    // Should contain split buttons and add cell button
+    expect(screen.getByTestId('split-btn-run-all')).toBeInTheDocument()
+    expect(screen.getByTitle('Add Statement')).toBeInTheDocument()
   })
 
-  it('header-right contains only one button (the theme toggle)', () => {
-    const { container } = renderApp()
+  it('header-right does not contain toolbar buttons when activeNavItem is not workspace', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'settings', sessionProperties: {} })
+    renderApp()
 
-    const headerRight = container.querySelector('.header-right')
-    const buttons = headerRight!.querySelectorAll('button')
-    expect(buttons).toHaveLength(1)
+    expect(screen.queryByTestId('split-btn-run-all')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Add Statement')).not.toBeInTheDocument()
   })
 
   it('header-right does not contain history, help, or settings buttons', () => {
@@ -679,22 +645,10 @@ describe('[@phase-12-app-layout] header-right contains only theme toggle', () =>
     const headerRight = container.querySelector('.header-right')
     const headerRightText = headerRight!.textContent
 
-    // These buttons were moved to the NavRail — they must not be in header-right
     expect(screen.queryByRole('button', { name: /toggle settings panel/i })).not.toBeInTheDocument()
 
-    // The header-right should not contain any nav-specific text
     expect(headerRightText).not.toMatch(/history/i)
     expect(headerRightText).not.toMatch(/help/i)
-  })
-
-  it('theme toggle button calls toggleTheme when clicked', async () => {
-    const user = userEvent.setup()
-    renderApp()
-
-    const themeBtn = screen.getByRole('button', { name: 'Toggle dark/light theme' })
-    await user.click(themeBtn)
-
-    expect(mockToggleTheme).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -1154,7 +1108,7 @@ describe('[@app] toolbar buttons', () => {
   it('renders "Add Statement" button', () => {
     mockStoreState = buildStoreState()
     renderApp()
-    expect(screen.getByText('Add Statement')).toBeInTheDocument()
+    expect(screen.getByTitle('Add Statement')).toBeInTheDocument()
   })
 
   it('disables "Run All" when no runnable statements exist', () => {
@@ -1222,7 +1176,7 @@ describe('[@app] toolbar buttons', () => {
     mockStoreState = buildStoreState()
     renderApp()
 
-    const addBtn = screen.getByText('Add Statement').closest('button')!
+    const addBtn = screen.getByTitle('Add Statement')
     await user.click(addBtn)
 
     expect(mockAddStatement).toHaveBeenCalledTimes(1)
@@ -1231,61 +1185,30 @@ describe('[@app] toolbar buttons', () => {
 })
 
 // ---------------------------------------------------------------------------
-// [@app] 16. Workspace title editing - blur to save
+// [@app] 16. Ctrl+S save workspace keyboard shortcut
 // ---------------------------------------------------------------------------
 
-describe('[@app] workspace title editing - blur behavior', () => {
+describe('[@app] Ctrl+S save workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockStoreState = buildStoreState({ workspaceName: 'Test WS' })
   })
 
-  it('saves workspace name when input loses focus (blur)', async () => {
-    const user = userEvent.setup()
+  it('calls saveCurrentWorkspace when Ctrl+S is pressed with a valid workspace name', () => {
     renderApp()
 
-    const titleGroup = screen.getByText('Test WS').closest('.logo-title-group')!
-    await user.click(titleGroup)
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
 
-    const input = screen.getByRole('textbox')
-    await user.clear(input)
-    await user.type(input, 'Blurred Name')
-
-    // Tab away to trigger blur
-    await user.tab()
-
-    expect(mockSetWorkspaceName).toHaveBeenCalledWith('Blurred Name')
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(mockSaveCurrentWorkspace).toHaveBeenCalledWith('Test WS')
   })
 
-  it('does not save empty/whitespace-only name on blur', async () => {
-    const user = userEvent.setup()
+  it('does not save when workspace name is "Flafka" (default)', () => {
+    mockStoreState = buildStoreState({ workspaceName: 'Flafka' })
     renderApp()
 
-    const titleGroup = screen.getByText('Test WS').closest('.logo-title-group')!
-    await user.click(titleGroup)
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
 
-    const input = screen.getByRole('textbox')
-    await user.clear(input)
-    await user.type(input, '   ')
-    await user.tab()
-
-    // setWorkspaceName should not be called with whitespace
-    expect(mockSetWorkspaceName).not.toHaveBeenCalledWith('   ')
-  })
-
-  it('does not save empty name on Enter', async () => {
-    const user = userEvent.setup()
-    renderApp()
-
-    const titleGroup = screen.getByText('Test WS').closest('.logo-title-group')!
-    await user.click(titleGroup)
-
-    const input = screen.getByRole('textbox')
-    await user.clear(input)
-    await user.keyboard('{Enter}')
-
-    expect(mockSetWorkspaceName).not.toHaveBeenCalled()
+    expect(mockSaveCurrentWorkspace).not.toHaveBeenCalled()
   })
 })
 
@@ -1543,5 +1466,225 @@ describe('[@split-button-integration] split button toolbar', () => {
     await user.click(screen.getByTestId('split-btn-delete-all'))
     expect(mockClearWorkspace).toHaveBeenCalledTimes(1)
     expect(mockClearStreamCards).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] App.tsx — additional coverage for helper functions & branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] App helper functions via rendering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('compute pool badge shows "Loading..." when phase is null', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: null, computePoolCfu: null, computePoolMaxCfu: null })
+    renderApp()
+    expect(screen.getByText('Loading...')).toBeInTheDocument()
+  })
+
+  it('compute pool badge shows "Unknown" when phase is UNKNOWN', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'UNKNOWN', computePoolCfu: null, computePoolMaxCfu: null })
+    renderApp()
+    expect(screen.getByText('Unknown')).toBeInTheDocument()
+  })
+
+  it('compute pool badge shows CFU/MaxCFU when both positive', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'RUNNING', computePoolCfu: 5, computePoolMaxCfu: 10 })
+    renderApp()
+    expect(screen.getByText(/RUNNING.*5\/10 CFU/)).toBeInTheDocument()
+  })
+
+  it('compute pool badge shows phase + cfu suffix when only cfu > 0', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'PROVISIONING', computePoolCfu: 3, computePoolMaxCfu: null })
+    renderApp()
+    expect(screen.getByText(/PROVISIONING.*3 CFU/)).toBeInTheDocument()
+  })
+
+  it('compute pool badge shows just phase when cfu is 0', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'PROVISIONING', computePoolCfu: 0, computePoolMaxCfu: null })
+    renderApp()
+    expect(screen.getByText('PROVISIONING')).toBeInTheDocument()
+  })
+
+  it('pool status dot has "error" class for unknown phase like STOPPING', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'STOPPING' })
+    renderApp()
+    const dot = document.querySelector('.pool-status-dot')
+    expect(dot?.classList.contains('error')).toBe(true)
+  })
+
+  it('pool status dot has "running" class for PROVISIONED phase', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'PROVISIONED' })
+    renderApp()
+    const dot = document.querySelector('.pool-status-dot')
+    expect(dot?.classList.contains('running')).toBe(true)
+  })
+
+  it('pool status dot has "provisioning" class', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: 'PROVISIONING' })
+    renderApp()
+    const dot = document.querySelector('.pool-status-dot')
+    expect(dot?.classList.contains('provisioning')).toBe(true)
+  })
+
+  it('pool status dot has "unknown" class when phase is null', () => {
+    mockStoreState = buildStoreState({ computePoolPhase: null })
+    renderApp()
+    const dot = document.querySelector('.pool-status-dot')
+    expect(dot?.classList.contains('unknown')).toBe(true)
+  })
+})
+
+describe('[@coverage-boost] App empty state and joke display', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows empty state with joke when no statements', () => {
+    mockStoreState = buildStoreState({ statements: [] })
+    renderApp()
+    expect(document.querySelector('.workspace-empty-state')).toBeInTheDocument()
+    expect(document.querySelector('.workspace-empty-sql')).toBeInTheDocument()
+  })
+
+  it('add statement button in empty state calls addStatement and dismissOnboardingHint', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState({ statements: [] })
+    renderApp()
+    const addBtn = document.querySelector('.workspace-empty-state .add-cell-btn')
+    expect(addBtn).toBeInTheDocument()
+    await user.click(addBtn!)
+    expect(mockAddStatement).toHaveBeenCalled()
+    expect(mockDismissOnboardingHint).toHaveBeenCalled()
+  })
+})
+
+describe('[@coverage-boost] App Ctrl+S save workspace', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('Ctrl+S calls saveCurrentWorkspace when name is not Flafka', () => {
+    mockStoreState = buildStoreState({ workspaceName: 'MyWorkspace' })
+    renderApp()
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(mockSaveCurrentWorkspace).toHaveBeenCalledWith('MyWorkspace')
+  })
+
+  it('Ctrl+S does not call saveCurrentWorkspace when name is Flafka', () => {
+    mockStoreState = buildStoreState({ workspaceName: 'Flafka' })
+    renderApp()
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(mockSaveCurrentWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('Ctrl+S does not call saveCurrentWorkspace when name is empty', () => {
+    mockStoreState = buildStoreState({ workspaceName: '' })
+    renderApp()
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(mockSaveCurrentWorkspace).not.toHaveBeenCalled()
+  })
+})
+
+describe('[@coverage-boost] App import file handling', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('import file too large shows error toast', async () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'settings' })
+    renderApp()
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput).toBeInTheDocument()
+    const bigFile = new File(['x'], 'big.json', { type: 'application/json' })
+    Object.defineProperty(bigFile, 'size', { value: 10 * 1024 * 1024 })
+    await simulateFileChange(fileInput, bigFile)
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', message: expect.stringContaining('File too large') })
+    )
+  })
+
+  it('import invalid JSON shows error toast', async () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'settings' })
+    renderApp()
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const badFile = new File(['not json'], 'bad.json', { type: 'application/json' })
+    await simulateFileChange(fileInput, badFile)
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error', message: expect.stringContaining('Import failed') })
+    )
+  })
+
+  it('valid JSON triggers confirmation dialog', async () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'settings' })
+    renderApp()
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const validFile = new File([JSON.stringify({ workspaceName: 'Test', statements: [], catalog: 'c', database: 'd' })], 'ws.json', { type: 'application/json' })
+    await simulateFileChange(fileInput, validFile)
+    // Confirmation dialog should appear
+    expect(screen.getByText('Import Workspace?')).toBeInTheDocument()
+  })
+
+  it('import confirm calls importWorkspace and shows success toast', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState({ activeNavItem: 'settings' })
+    renderApp()
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const validFile = new File([JSON.stringify({ workspaceName: 'Test', statements: [{ id: 'a', code: '' }], catalog: 'c', database: 'd' })], 'ws.json', { type: 'application/json' })
+    await simulateFileChange(fileInput, validFile)
+    expect(screen.getByText('Import Workspace?')).toBeInTheDocument()
+    // Click confirm
+    await user.click(screen.getByText('Confirm Import'))
+    expect(mockImportWorkspace).toHaveBeenCalled()
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'success', message: 'Workspace imported successfully' })
+    )
+  })
+
+  it('import cancel closes dialog without importing', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState({ activeNavItem: 'settings' })
+    renderApp()
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const validFile = new File([JSON.stringify({ workspaceName: 'Test', statements: [], catalog: 'c', database: 'd' })], 'ws.json', { type: 'application/json' })
+    await simulateFileChange(fileInput, validFile)
+    await user.click(screen.getByText('Cancel'))
+    expect(mockImportWorkspace).not.toHaveBeenCalled()
+    expect(screen.queryByText('Import Workspace?')).not.toBeInTheDocument()
+  })
+})
+
+describe('[@coverage-boost] App streams panel handle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('stream panel handle button calls toggleStreamsPanel', async () => {
+    const user = userEvent.setup()
+    mockStoreState = buildStoreState()
+    renderApp()
+    const handle = screen.getByLabelText(/^(open|close) streams panel$/i)
+    await user.click(handle)
+    expect(mockToggleStreamsPanel).toHaveBeenCalled()
+  })
+})
+
+describe('[@coverage-boost] App jobs page rendering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders jobs page when activeNavItem is jobs', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'jobs' })
+    renderApp()
+    expect(screen.getByTestId('stub-jobs-page')).toBeInTheDocument()
+  })
+
+  it('renders example detail page when activeNavItem is examples and selectedExampleId set', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'examples', selectedExampleId: 'hello-world' })
+    renderApp()
+    expect(screen.getByTestId('stub-example-detail-page')).toBeInTheDocument()
   })
 })

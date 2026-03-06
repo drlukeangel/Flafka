@@ -280,14 +280,14 @@ describe('[@workspaces] NavRail — workspaces item', () => {
     expect(screen.getByRole('button', { name: /workspaces/i })).toBeInTheDocument();
   });
 
-  it('Workspaces is in workspace section (before Jobs)', () => {
+  it('Workspaces is in tools section (after Jobs)', () => {
     render(<NavRail />);
     const items = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
     const wsIdx = items.indexOf('Workspaces');
     const jobsIdx = items.indexOf('Jobs');
     expect(wsIdx).toBeGreaterThan(-1);
     expect(jobsIdx).toBeGreaterThan(-1);
-    expect(wsIdx).toBeLessThan(jobsIdx);
+    expect(wsIdx).toBeGreaterThan(jobsIdx);
   });
 });
 

@@ -8,14 +8,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ---------------------------------------------------------------------------
 // Mock flink-api — must be hoisted
 // ---------------------------------------------------------------------------
-const { mockExecuteSQL, mockPollForResults } = vi.hoisted(() => ({
+const { mockExecuteSQL, mockPollForResults, mockGetStatementStatus } = vi.hoisted(() => ({
   mockExecuteSQL: vi.fn().mockResolvedValue({ name: 'stmt-001' }),
   mockPollForResults: vi.fn().mockResolvedValue(undefined),
+  mockGetStatementStatus: vi.fn().mockResolvedValue({ status: { phase: 'COMPLETED' } }),
 }));
 
 vi.mock('../../api/flink-api', () => ({
   executeSQL: (...args: unknown[]) => mockExecuteSQL(...args),
   pollForResults: (...args: unknown[]) => mockPollForResults(...args),
+  getStatementStatus: (...args: unknown[]) => mockGetStatementStatus(...args),
 }));
 
 // Mock names so runId is deterministic
@@ -88,14 +90,16 @@ describe('[@example-runner] runKickstarterExample', () => {
     vi.clearAllMocks();
     mockExecuteSQL.mockResolvedValue({ name: 'stmt-001' });
     mockPollForResults.mockResolvedValue(undefined);
+    mockGetStatementStatus.mockResolvedValue({ status: { phase: 'COMPLETED' } });
   });
 
-  it('calls executeSQL + pollForResults N times for N tables', async () => {
+  it('calls executeSQL + getStatementStatus N times for N tables', async () => {
     const store = makeStore();
     await runKickstarterExample(simpleDef, store, vi.fn());
     // 2 tables → 2 DDL executions
     expect(mockExecuteSQL).toHaveBeenCalledTimes(2);
-    expect(mockPollForResults).toHaveBeenCalledTimes(2);
+    // createTable polls getStatementStatus (not pollForResults)
+    expect(mockGetStatementStatus).toHaveBeenCalledTimes(2);
   });
 
   it('calls store.addStatement once per SQL cell', async () => {

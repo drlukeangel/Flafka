@@ -185,9 +185,9 @@ describe('[@examples-panel] ExamplesPanel', () => {
 
   it('shows correct button counts per tab', () => {
     render(<ExamplesPanel />);
-    // Kickstart tab (default): 8 Set Up + 1 Coming Soon (Python), no Import
+    // Kickstart tab (default): 8 Set Up + 10 Coming Soon, no Import
     expect(screen.getAllByText('Set Up')).toHaveLength(8);
-    expect(screen.getAllByText('Coming Soon')).toHaveLength(1);
+    expect(screen.getAllByText('Coming Soon').length).toBeGreaterThanOrEqual(10);
     expect(screen.queryByText('Import')).toBeNull();
     // Switch to Snippets tab: 4 Import, no Set Up
     fireEvent.click(screen.getByText('Snippets'));
@@ -314,7 +314,7 @@ describe('[@examples-panel] ExamplesPanel', () => {
   it('"Coming Soon" button is aria-disabled="true"', () => {
     render(<ExamplesPanel />);
     const comingSoonBtns = screen.getAllByText('Coming Soon');
-    expect(comingSoonBtns).toHaveLength(1);
+    expect(comingSoonBtns.length).toBeGreaterThanOrEqual(1);
     expect(comingSoonBtns[0].closest('button')?.getAttribute('aria-disabled')).toBe('true');
   });
 

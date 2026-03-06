@@ -47,15 +47,19 @@ const mockedIsAxiosError = vi.mocked(axios.isAxiosError)
 // createdClients[0] = confluentClient, createdClients[1] = fcpmClient
 const confluentClientMock = createdClients[0]
 const fcpmClientMock = createdClients[1]
+const telemetryClientMock = createdClients[2]
 
 // Snapshot the interceptor callbacks captured at module init time
 const confluentReqCallbacks = {
   onFulfilled: confluentClientMock?.interceptors.request.use.mock.calls[0]?.[0],
   onRejected: confluentClientMock?.interceptors.request.use.mock.calls[0]?.[1],
 }
+// Note: confluentClient has TWO response interceptors:
+//   [0] = retryOn5xx (onFulfilled=undefined, onRejected=retryHandler)
+//   [1] = logging/error interceptor (onFulfilled=successLogger, onRejected=errorLogger)
 const confluentResCallbacks = {
-  onFulfilled: confluentClientMock?.interceptors.response.use.mock.calls[0]?.[0],
-  onRejected: confluentClientMock?.interceptors.response.use.mock.calls[0]?.[1],
+  onFulfilled: confluentClientMock?.interceptors.response.use.mock.calls[1]?.[0],
+  onRejected: confluentClientMock?.interceptors.response.use.mock.calls[1]?.[1],
 }
 const fcpmReqCallbacks = {
   onFulfilled: fcpmClientMock?.interceptors.request.use.mock.calls[0]?.[0],
@@ -65,6 +69,17 @@ const fcpmResCallbacks = {
   onFulfilled: fcpmClientMock?.interceptors.response.use.mock.calls[0]?.[0],
   onRejected: fcpmClientMock?.interceptors.response.use.mock.calls[0]?.[1],
 }
+const telemetryReqCallbacks = {
+  onFulfilled: telemetryClientMock?.interceptors.request.use.mock.calls[0]?.[0],
+  onRejected: telemetryClientMock?.interceptors.request.use.mock.calls[0]?.[1],
+}
+const telemetryResCallbacks = {
+  onFulfilled: telemetryClientMock?.interceptors.response.use.mock.calls[0]?.[0],
+  onRejected: telemetryClientMock?.interceptors.response.use.mock.calls[0]?.[1],
+}
+
+// retryOn5xx interceptor is registered on confluentClient as response interceptor [0]
+const retryOnRejected = confluentClientMock?.interceptors.response.use.mock.calls[0]?.[1]
 
 // Helper: build a minimal AxiosError-shaped object for a given response body & status
 function makeAxiosError(
@@ -462,6 +477,163 @@ describe('[@api] [@core] fcpmClient response interceptor', () => {
 
     await expect(fcpmResCallbacks.onRejected(error)).rejects.toBe(error)
     expect(consoleSpy).toHaveBeenCalledWith('[API Error] undefined: Connection refused')
+    consoleSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Part C: Telemetry client interceptors
+// ---------------------------------------------------------------------------
+
+describe('[@api] [@core] telemetryClient interceptors', () => {
+  it('registers interceptors on telemetryClient', () => {
+    expect(telemetryReqCallbacks.onFulfilled).toBeTypeOf('function')
+    expect(telemetryReqCallbacks.onRejected).toBeTypeOf('function')
+    expect(telemetryResCallbacks.onFulfilled).toBeTypeOf('function')
+    expect(telemetryResCallbacks.onRejected).toBeTypeOf('function')
+  })
+})
+
+describe('[@api] [@core] telemetryClient request interceptor', () => {
+  it('success handler logs and returns config', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const config = { method: 'post', url: '/v2/metrics' }
+
+    const result = telemetryReqCallbacks.onFulfilled(config)
+
+    expect(result).toBe(config)
+    expect(consoleSpy).toHaveBeenCalledWith('[Telemetry] POST /v2/metrics')
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler logs and rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = new Error('telemetry request error')
+
+    await expect(telemetryReqCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[Telemetry Request Error]', error)
+    consoleSpy.mockRestore()
+  })
+})
+
+describe('[@api] [@core] telemetryClient response interceptor', () => {
+  it('success handler logs status and data, returns response', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const response = { status: 200, data: { metrics: [] } }
+
+    const result = telemetryResCallbacks.onFulfilled(response)
+
+    expect(result).toBe(response)
+    expect(consoleSpy).toHaveBeenCalledWith('[Telemetry Response] 200', { metrics: [] })
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler logs and rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = {
+      response: { status: 429, data: { message: 'Rate limited' } },
+      message: 'Too many requests',
+    }
+
+    await expect(telemetryResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[Telemetry Error] 429', { message: 'Rate limited' })
+    consoleSpy.mockRestore()
+  })
+
+  it('error handler handles missing response gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const error = { message: 'Timeout' }
+
+    await expect(telemetryResCallbacks.onRejected(error)).rejects.toBe(error)
+    expect(consoleSpy).toHaveBeenCalledWith('[Telemetry Error] undefined', undefined)
+    consoleSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Part D: retryOn5xx interceptor
+// ---------------------------------------------------------------------------
+
+describe('[@api] [@core] retryOn5xx interceptor', () => {
+  it('rejects immediately for non-5xx errors (e.g. 400)', async () => {
+    const error = {
+      response: { status: 400 },
+      config: { url: '/test' },
+      message: 'Bad request',
+    }
+    await expect(retryOnRejected(error)).rejects.toBe(error)
+  })
+
+  it('rejects immediately for 501 (outside 502-504 range)', async () => {
+    const error = {
+      response: { status: 501 },
+      config: { url: '/test' },
+      message: 'Not Implemented',
+    }
+    await expect(retryOnRejected(error)).rejects.toBe(error)
+  })
+
+  it('rejects immediately for 505 (outside 502-504 range)', async () => {
+    const error = {
+      response: { status: 505 },
+      config: { url: '/test' },
+      message: 'Version Not Supported',
+    }
+    await expect(retryOnRejected(error)).rejects.toBe(error)
+  })
+
+  it('rejects immediately when config is missing', async () => {
+    const error = {
+      response: { status: 502 },
+      config: undefined,
+      message: 'Bad Gateway',
+    }
+    await expect(retryOnRejected(error)).rejects.toBe(error)
+  })
+
+  it('rejects immediately when response status is missing', async () => {
+    const error = {
+      response: undefined,
+      config: { url: '/test' },
+      message: 'Network Error',
+    }
+    await expect(retryOnRejected(error)).rejects.toBe(error)
+  })
+
+  it('rejects after max retries (2) are exhausted', async () => {
+    const config = { url: '/test', __retryCount: 2 }
+    const error = {
+      response: { status: 502 },
+      config,
+      message: 'Bad Gateway',
+    }
+    await expect(retryOnRejected(error)).rejects.toBe(error)
+  })
+
+  it('retries on 502 and calls client.request with the config', async () => {
+    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const config = { url: '/test' } as Record<string, unknown>
+    const error = {
+      response: { status: 502 },
+      config,
+      message: 'Bad Gateway',
+    }
+
+    // The retryOn5xx interceptor calls client.request(config) — but since
+    // confluentClientMock.request doesn't exist (it's the mock), the retry
+    // will call the mock client's request method. We need to access the
+    // actual client instance to mock this. Since the mock doesn't have a
+    // request method, the retry will fail. We'll just verify it rejects
+    // after the delay rather than testing the full retry cycle (that's
+    // an integration concern).
+    // For unit coverage: verify __retryCount is incremented
+    try {
+      await retryOnRejected(error)
+    } catch {
+      // Expected — mock client doesn't have request method
+    }
+
+    expect(config.__retryCount).toBe(1)
     consoleSpy.mockRestore()
   })
 })

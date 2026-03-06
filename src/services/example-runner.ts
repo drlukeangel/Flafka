@@ -86,6 +86,109 @@ const TABLE_SCHEMAS: Record<string, DDLFactory | string> = {
   rating STRING
 )`,
   'good-jokes': 'jokes',
+  // --- New example schemas ---
+  'loans-deduped': 'loans-standard',
+  'loans-top3': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  window_start STRING,
+  window_end STRING,
+  loan_id STRING,
+  amount DOUBLE,
+  status STRING,
+  txn_id STRING,
+  customer_id STRING,
+  rank_num BIGINT
+)`,
+  'loans-hop-stats': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  window_start STRING,
+  window_end STRING,
+  status STRING,
+  loan_count BIGINT,
+  total_amount DOUBLE,
+  avg_amount DOUBLE
+)`,
+  'loans-sessions': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  session_start STRING,
+  session_end STRING,
+  loan_count BIGINT,
+  total_amount DOUBLE,
+  avg_amount DOUBLE
+)`,
+  'customers-latest': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  name STRING,
+  credit_score INT,
+  state STRING,
+  risk_score INT,
+  risk_level STRING
+)`,
+  'pattern-alerts': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  first_txn STRING,
+  last_txn STRING,
+  app_count BIGINT,
+  total_amount DOUBLE,
+  avg_amount DOUBLE,
+  first_time STRING,
+  last_time STRING
+)`,
+  'running-stats': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  txn_id STRING,
+  amount DOUBLE,
+  status STRING,
+  running_count BIGINT,
+  running_total DOUBLE,
+  running_avg DOUBLE
+)`,
+  'status-changes': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  txn_id STRING,
+  loan_id STRING,
+  amount DOUBLE,
+  prev_status STRING,
+  current_status STRING,
+  prev_amount DOUBLE,
+  amount_change DOUBLE
+)`,
+  'interval-joined': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  txn_id STRING,
+  loan_id STRING,
+  amount DOUBLE,
+  status STRING,
+  customer_name STRING,
+  credit_score INT
+)`,
+  'stream-enriched': 'interval-joined',
+  'customers-stream': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  customer_id STRING,
+  name STRING,
+  credit_score INT,
+  state STRING
+)`,
+  // --- Schemaless topic example (21) ---
+  'raw-events': (n) => `CREATE TABLE \`${n}\` (
+  \`val\` VARBINARY
+)`,
+  'raw-events-parsed': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  event_id STRING,
+  event_type STRING,
+  user_id STRING,
+  amount DOUBLE,
+  currency STRING,
+  event_ts BIGINT
+)`,
 };
 
 function resolveDDL(key: string, tableName: string): string {
@@ -433,11 +536,62 @@ export function generateJokes(count: number): Record<string, unknown>[] {
   }));
 }
 
+export function generateCustomerCdcEvents(count: number): Record<string, unknown>[] {
+  // Generates ~10 unique customers with 3 versions each (simulates CDC updates)
+  const uniqueCustomers = Math.max(3, Math.floor(count / 3));
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < uniqueCustomers; i++) {
+    const customerId = `C-${String(i + 1).padStart(3, '0')}`;
+    const name = `${pickFrom(FIRST_NAMES)} ${pickFrom(LAST_NAMES)}`;
+    const state = pickFrom(US_STATES);
+    const versions = Math.floor(Math.random() * 3) + 2; // 2–4 versions per customer
+    for (let v = 0; v < versions; v++) {
+      const score = Math.floor(Math.random() * 99) + 1;
+      const creditScore = Math.floor(Math.random() * 241) + 580;
+      rows.push({
+        customer_id: customerId,
+        name,
+        credit_score: creditScore,
+        state: v > 0 && Math.random() < 0.3 ? pickFrom(US_STATES) : state,
+        risk_score: score,
+        risk_level: riskLevel(score),
+      });
+    }
+  }
+  return rows;
+}
+
+export function generateCustomerStreamEvents(count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, i) => ({
+    customer_id: `C-${String((i % 10) + 1).padStart(3, '0')}`,
+    name: `${pickFrom(FIRST_NAMES)} ${pickFrom(LAST_NAMES)}`,
+    credit_score: Math.floor(Math.random() * 241) + 580,
+    state: pickFrom(US_STATES),
+  }));
+}
+
+export function generateRawJsonEvents(count: number): Record<string, unknown>[] {
+  const eventTypes = ['PAYMENT', 'REFUND', 'TRANSFER', 'DEPOSIT', 'WITHDRAWAL'];
+  const currencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    event_id: `EVT-${Math.random().toString(16).slice(2, 8).toUpperCase()}`,
+    event_type: i % 6 === 0 ? null : pickFrom(eventTypes), // 1/6 will have null type (for filtering)
+    user_id: `USR-${String((i % 20) + 1).padStart(3, '0')}`,
+    amount: Math.round(Math.random() * 5000 * 100) / 100, // 0–5000
+    currency: pickFrom(currencies),
+    timestamp: now - (count - i) * 10 * 1000, // spread over time in ms
+  }));
+}
+
 const DATA_GENERATORS: Record<string, (count: number) => Record<string, unknown>[]> = {
   'flat-loans': generateFlatLoans,
   'customers-risk': generateCustomerRiskProfiles,
   'customers-credit': generateCustomerCreditProfiles,
+  'customers-cdc': generateCustomerCdcEvents,
+  'customers-stream': generateCustomerStreamEvents,
   'flat-jokes': generateJokes,
+  'raw-json-events': generateRawJsonEvents,
 };
 
 // ---------------------------------------------------------------------------
@@ -475,10 +629,11 @@ export async function runKickstarterExample(
 ): Promise<{ runId: string }> {
   const rid = generateFunName();
 
-  // Resolve table names: "LOANS" → "LOANS-{rid}"
+  // Resolve table names: "LOANS" → "loans-{rid}"
+  // Confluent API requires lowercase alphanumeric + hyphens for resource names
   const names: Record<string, string> = {};
   for (const t of def.tables) {
-    names[t.name] = `${t.name}-${rid}`;
+    names[t.name] = `${t.name.toLowerCase()}-${rid}`;
   }
 
   // Create all tables

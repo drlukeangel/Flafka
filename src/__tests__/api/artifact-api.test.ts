@@ -152,57 +152,60 @@ describe('[@artifact-api] getPresignedUploadUrl', () => {
 });
 
 describe('[@artifact-api] uploadFileToPresignedUrl', () => {
-  it('builds FormData with S3 fields + file and POSTs to upload_url', async () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    globalThis.fetch = mockFetch;
+    mockFetch.mockReset();
+  });
+
+  it('builds FormData with S3 fields + file and POSTs to upload_url via native fetch', async () => {
     const presigned = makePresigned();
     const file = new File(['jar-content'], 'test.jar', { type: 'application/java-archive' });
-    mockAxiosPost.mockResolvedValue({ status: 204 });
+    mockFetch.mockResolvedValue({ ok: false, status: 0 });
 
     await uploadFileToPresignedUrl(presigned, file);
 
-    expect(mockAxiosPost).toHaveBeenCalledTimes(1);
-    const [url, formData, config] = mockAxiosPost.mock.calls[0];
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, options] = mockFetch.mock.calls[0];
     expect(url).toBe('https://s3.amazonaws.com/bucket');
-    expect(formData).toBeInstanceOf(FormData);
-    expect(config.headers['Content-Type']).toBe('multipart/form-data');
+    expect(options.method).toBe('POST');
+    expect(options.mode).toBe('no-cors');
+    expect(options.body).toBeInstanceOf(FormData);
   });
 
-  it('calls onProgress callback', async () => {
+  it('accepts onProgress param without error (param is unused in no-cors mode)', async () => {
     const presigned = makePresigned();
     const file = new File(['content'], 'test.jar');
     const onProgress = vi.fn();
-
-    mockAxiosPost.mockImplementation((_url: string, _data: FormData, config: { onUploadProgress?: (e: { loaded: number; total: number }) => void }) => {
-      config.onUploadProgress?.({ loaded: 50, total: 100 });
-      return Promise.resolve({ status: 204 });
-    });
+    mockFetch.mockResolvedValue({ ok: false, status: 0 });
 
     await uploadFileToPresignedUrl(presigned, file, onProgress);
-    expect(onProgress).toHaveBeenCalledWith(50);
+
+    // onProgress is accepted but not called — no-cors fetch cannot track progress
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to proxy on CORS/network error', async () => {
+  it('passes abortSignal to fetch when provided', async () => {
     const presigned = makePresigned();
     const file = new File(['content'], 'test.jar');
+    const controller = new AbortController();
+    mockFetch.mockResolvedValue({ ok: false, status: 0 });
 
-    mockAxiosPost
-      .mockRejectedValueOnce({ code: 'ERR_NETWORK' })
-      .mockResolvedValueOnce({ status: 204 });
+    await uploadFileToPresignedUrl(presigned, file, undefined, controller.signal);
 
-    await uploadFileToPresignedUrl(presigned, file);
-
-    expect(mockAxiosPost).toHaveBeenCalledTimes(2);
-    expect(mockAxiosPost.mock.calls[1][0]).toBe('/api/artifact-upload-proxy');
+    const [, options] = mockFetch.mock.calls[0];
+    expect(options.signal).toBe(controller.signal);
   });
 
-  it('rethrows non-CORS errors', async () => {
+  it('rejects when fetch throws (e.g., network error)', async () => {
     const presigned = makePresigned();
     const file = new File(['content'], 'test.jar');
-
-    mockAxiosPost.mockRejectedValue({ response: { status: 500 }, code: 'ERR_BAD_RESPONSE' });
+    mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
 
     await expect(
       uploadFileToPresignedUrl(presigned, file)
-    ).rejects.toBeTruthy();
+    ).rejects.toThrow('Failed to fetch');
   });
 });
 

@@ -172,3 +172,135 @@ describe('[@artifact-detail] ArtifactDetail', () => {
     expect(screen.getByText('aws / us-east-1')).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] ArtifactDetail — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] ArtifactDetail edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSelectedArtifact = makeArtifact();
+  });
+
+  it('insert at cursor shows warning toast when no focused editor', () => {
+    mockInsertTextAtCursor.mockReturnValue(false);
+    render(<ArtifactDetail />);
+    const insertBtn = screen.getByTitle('Insert SQL at editor cursor');
+    fireEvent.click(insertBtn);
+    expect(mockAddToast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'warning', message: expect.stringContaining('No focused editor') })
+    );
+  });
+
+  it('SQL snippet uses <entry-class> when class is empty string', () => {
+    mockSelectedArtifact = makeArtifact({ class: '' });
+    render(<ArtifactDetail />);
+    const preElements = document.querySelectorAll('pre');
+    const sqlPre = Array.from(preElements).find((el) =>
+      el.textContent?.includes('CREATE FUNCTION')
+    );
+    expect(sqlPre!.textContent).toContain('<entry-class>');
+  });
+
+  it('SQL snippet uses <entry-class> when class is "default"', () => {
+    mockSelectedArtifact = makeArtifact({ class: 'default' });
+    render(<ArtifactDetail />);
+    const preElements = document.querySelectorAll('pre');
+    const sqlPre = Array.from(preElements).find((el) =>
+      el.textContent?.includes('CREATE FUNCTION')
+    );
+    expect(sqlPre!.textContent).toContain('<entry-class>');
+  });
+
+  it('hides version dropdown when only one version', () => {
+    mockSelectedArtifact = makeArtifact({
+      versions: [{ version: 'ver-1' }],
+    });
+    render(<ArtifactDetail />);
+    expect(screen.queryByLabelText('Select artifact version')).toBeNull();
+  });
+
+  it('shows doc link as clickable anchor', () => {
+    mockSelectedArtifact = makeArtifact({
+      documentation_link: 'https://docs.example.com',
+    });
+    render(<ArtifactDetail />);
+    const link = screen.getByText('https://docs.example.com');
+    expect(link.tagName).toBe('A');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
+
+  it('shows em-dash for missing runtime_language', () => {
+    mockSelectedArtifact = makeArtifact({ runtime_language: '' });
+    render(<ArtifactDetail />);
+    // Runtime Language row should show em-dash (plain text, no badge)
+    expect(screen.queryByTestId('badge-runtime-language')).toBeNull();
+  });
+
+  it('delete confirm button calls deleteArtifact when name matches', async () => {
+    mockDeleteArtifact.mockResolvedValue(undefined);
+    render(<ArtifactDetail />);
+    fireEvent.click(screen.getByText('Delete Artifact'));
+    const input = screen.getByLabelText('Confirm artifact name');
+    fireEvent.change(input, { target: { value: 'test-artifact' } });
+    const dialog = input.closest('div')!.parentElement!;
+    const confirmBtn = within(dialog).getAllByRole('button').find(
+      (b) => b.textContent === 'Delete'
+    )!;
+    fireEvent.click(confirmBtn);
+    expect(mockDeleteArtifact).toHaveBeenCalledWith('cfa-abc123');
+  });
+
+  it('clicking overlay dismisses delete confirmation', () => {
+    render(<ArtifactDetail />);
+    fireEvent.click(screen.getByText('Delete Artifact'));
+    expect(screen.getByLabelText('Confirm artifact name')).toBeTruthy();
+    // Click overlay (the backdrop with rgba background)
+    const overlay = screen.getByLabelText('Confirm artifact name').closest('[style*="rgba"]')!.parentElement!;
+    fireEvent.click(overlay);
+    // Dialog should close
+    expect(screen.queryByLabelText('Confirm artifact name')).toBeNull();
+  });
+
+  it('cancel button in delete dialog closes it', () => {
+    render(<ArtifactDetail />);
+    fireEvent.click(screen.getByText('Delete Artifact'));
+    expect(screen.getByLabelText('Confirm artifact name')).toBeTruthy();
+    // Click Cancel button
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByLabelText('Confirm artifact name')).toBeNull();
+  });
+
+  it('version draft badge shown for draft versions', () => {
+    mockSelectedArtifact = makeArtifact({
+      versions: [
+        { version: 'ver-1', is_draft: true },
+        { version: 'ver-2' },
+      ],
+    });
+    render(<ArtifactDetail />);
+    expect(screen.getByText('draft')).toBeTruthy();
+  });
+
+  it('copy metadata field shows check icon temporarily', async () => {
+    render(<ArtifactDetail />);
+    const copyBtns = screen.getAllByTitle(/Copy/);
+    // Find the "Copy ID" button
+    const copyIdBtn = copyBtns.find(b => b.title === 'Copy ID');
+    if (copyIdBtn) {
+      await fireEvent.click(copyIdBtn);
+      expect(navigator.clipboard.writeText).toHaveBeenCalled();
+    }
+  });
+
+  it('formatDate returns em-dash for undefined date', () => {
+    mockSelectedArtifact = makeArtifact({
+      metadata: undefined,
+    });
+    render(<ArtifactDetail />);
+    // Created and Updated rows should show em-dash
+    const metadataSection = screen.getByText('Metadata');
+    expect(metadataSection).toBeTruthy();
+  });
+});

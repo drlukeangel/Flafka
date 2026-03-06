@@ -4,8 +4,18 @@ import { StreamCard } from '../../components/StreamsPanel/StreamCard';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
 import * as topicApi from '../../api/topic-api';
+import * as flinkApi from '../../api/flink-api';
 
 vi.mock('../../api/schema-registry-api');
+vi.mock('../../api/flink-api', () => ({
+  getTableSchema: vi.fn(),
+  executeStatement: vi.fn(),
+  getStatementStatus: vi.fn(),
+  getStatementResults: vi.fn(),
+  listStatements: vi.fn(),
+  cancelStatement: vi.fn(),
+  deleteStatement: vi.fn(),
+}));
 vi.mock('../../api/topic-api', () => ({
   listTopics: vi.fn(),
   getTopicDetail: vi.fn(),
@@ -93,24 +103,21 @@ describe('[@stream-card] StreamCard', () => {
 
     expect(executeSpy).toHaveBeenCalledWith(
       'test-topic',
-      expect.stringContaining('$rowtime AS _ts')
+      expect.stringContaining('SELECT * FROM'),
+      'earliest-offset',
+      'test-topic'
     );
     expect(executeSpy).toHaveBeenCalledWith(
       'test-topic',
-      expect.stringContaining('$partition AS _partition')
-    );
-    expect(executeSpy).toHaveBeenCalledWith(
-      'test-topic',
-      expect.stringContaining('$offset AS _offset')
-    );
-    expect(executeSpy).toHaveBeenCalledWith(
-      'test-topic',
-      expect.stringContaining('$key AS _key')
+      expect.stringContaining('test-topic'),
+      expect.any(String),
+      expect.any(String)
     );
   });
 
   it('schema not found shows inline error and does NOT start producer', async () => {
     vi.mocked(schemaRegistryApi.getSchemaDetail).mockRejectedValue(new Error('Not found'));
+    vi.mocked(flinkApi.getTableSchema).mockResolvedValue([]);
 
     render(<StreamCard cardId="test-topic" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={vi.fn()} />);
     // Switch to Produce mode first
@@ -121,7 +128,7 @@ describe('[@stream-card] StreamCard', () => {
       fireEvent.click(playBtn);
     });
 
-    expect(screen.getByText('No schema found.')).toBeTruthy();
+    expect(screen.getByText('Could not get table schema. Check that the table exists.')).toBeTruthy();
     // Producer should NOT have started
     expect(topicApi.produceRecord).not.toHaveBeenCalled();
   });
@@ -158,13 +165,10 @@ describe('[@stream-card] StreamCard', () => {
   });
 
   it('auto-stop on produce error', async () => {
-    vi.mocked(schemaRegistryApi.getSchemaDetail).mockResolvedValue({
-      subject: 'test-topic-value',
-      version: 1,
-      id: 1,
-      schemaType: 'AVRO',
-      schema: '{"type":"record","name":"T","fields":[{"name":"v","type":"int"}]}',
-    });
+    vi.mocked(schemaRegistryApi.getSchemaDetail).mockRejectedValue(new Error('Not found'));
+    vi.mocked(flinkApi.getTableSchema).mockResolvedValue([
+      { name: 'v', type: 'INT' },
+    ]);
     vi.mocked(topicApi.produceRecord).mockRejectedValue(new Error('Network error'));
 
     render(<StreamCard cardId="test-topic" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={vi.fn()} />);

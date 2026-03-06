@@ -30,6 +30,13 @@ const PYTHON_EXTRACT_CLASS = 'loan_detail_udf.extractor.loan_detail_extract';
 const PYTHON_EXPLODE_CLASS = 'loan_detail_udf.exploder.loan_detail_explode';
 const BASE_PYTHON_EXTRACT_FN = 'loan_detail_extract';
 const BASE_PYTHON_EXPLODE_FN = 'LoanDetailExplode';
+
+// UDF classes for additional examples
+const WEIGHTED_AVG_CLASS = 'com.fm.flink.udf.WeightedAvg';
+const LOAN_VALIDATOR_CLASS = 'com.fm.flink.udf.LoanValidator';
+const PII_MASK_CLASS = 'com.fm.flink.udf.PiiMask';
+const CREDIT_BUREAU_ENRICH_CLASS = 'com.fm.flink.udf.CreditBureauEnrich';
+
 // No separate topic creation — CREATE TABLE handles both table + backing Kafka topic
 
 // ---- Store interface (minimal) ----
@@ -218,6 +225,197 @@ FROM \`${inputTopic}\`,
   LATERAL TABLE(\`${explodeFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.tradelines')) AS t`;
 }
 
+// ---- DDL / SQL builders for additional UDF examples ----
+
+function aggregateOutputDDL(topicName: string): string {
+  return `CREATE TABLE \`${topicName}\` (
+  \`key\` BYTES,
+  window_start STRING,
+  window_end STRING,
+  loan_count BIGINT,
+  total_amount BIGINT,
+  avg_credit_score INT,
+  weighted_avg_credit_score INT
+)`;
+}
+
+function validatedOutputDDL(topicName: string): string {
+  return `CREATE TABLE \`${topicName}\` (
+  \`key\` BYTES,
+  loan_id STRING,
+  applicant_name STRING,
+  loan_type STRING,
+  amount_requested STRING,
+  credit_score STRING,
+  risk_level STRING,
+  validation_status STRING
+)`;
+}
+
+function deadLetterOutputDDL(topicName: string): string {
+  return `CREATE TABLE \`${topicName}\` (
+  \`key\` BYTES,
+  loan_id STRING,
+  json_payload STRING,
+  rejection_reasons STRING,
+  credit_score STRING,
+  dti_ratio STRING,
+  fraud_result STRING
+)`;
+}
+
+function maskedOutputDDL(topicName: string): string {
+  return `CREATE TABLE \`${topicName}\` (
+  \`key\` BYTES,
+  loan_id STRING,
+  applicant_name STRING,
+  applicant_email STRING,
+  applicant_phone STRING,
+  applicant_ssn STRING,
+  loan_type STRING,
+  amount_requested STRING,
+  credit_score STRING,
+  risk_level STRING
+)`;
+}
+
+function enrichedOutputDDL(topicName: string): string {
+  return `CREATE TABLE \`${topicName}\` (
+  \`key\` BYTES,
+  loan_id STRING,
+  applicant_name STRING,
+  loan_type STRING,
+  amount_requested STRING,
+  credit_score STRING,
+  risk_level STRING,
+  dti_ratio STRING,
+  score_band STRING,
+  approval_probability STRING,
+  recommended_rate STRING,
+  max_approved_amount STRING,
+  risk_tier STRING
+)`;
+}
+
+function aggregateUdfSQL(extractFn: string, weightedAvgFn: string, inputTopic: string, outputTopic: string): string {
+  return `INSERT INTO \`${outputTopic}\` (
+  \`key\`, window_start, window_end, loan_count, total_amount,
+  avg_credit_score, weighted_avg_credit_score
+)
+SELECT
+  CAST('portfolio' AS BYTES) as \`key\`,
+  DATE_FORMAT(window_start, 'yyyy-MM-dd HH:mm:ss') as window_start,
+  DATE_FORMAT(window_end, 'yyyy-MM-dd HH:mm:ss') as window_end,
+  COUNT(*) as loan_count,
+  SUM(CAST(\`${extractFn}\`(json_payload, 'loan_details.amount_requested') AS BIGINT)) as total_amount,
+  AVG(CAST(\`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') AS INT)) as avg_credit_score,
+  \`${weightedAvgFn}\`(
+    CAST(\`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') AS INT),
+    CAST(\`${extractFn}\`(json_payload, 'loan_details.amount_requested') AS INT)
+  ) as weighted_avg_credit_score
+FROM TABLE(
+  TUMBLE(TABLE \`${inputTopic}\`, DESCRIPTOR($rowtime), INTERVAL '30' SECOND)
+)
+GROUP BY window_start, window_end`;
+}
+
+function validationValidSQL(extractFn: string, validatorFn: string, inputTopic: string, outputTopic: string): string {
+  return `INSERT INTO \`${outputTopic}\`
+SELECT
+  CAST(loan_id AS BYTES) as \`key\`,
+  loan_id,
+  \`${extractFn}\`(json_payload, 'applicant.personal.name.first') as applicant_name,
+  \`${extractFn}\`(json_payload, 'loan_details.type') as loan_type,
+  \`${extractFn}\`(json_payload, 'loan_details.amount_requested') as amount_requested,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.overall_risk') as risk_level,
+  'VALID' as validation_status
+FROM \`${inputTopic}\`
+WHERE \`${validatorFn}\`(json_payload) = 'VALID'`;
+}
+
+function validationDeadLetterSQL(extractFn: string, validatorFn: string, inputTopic: string, outputTopic: string): string {
+  return `INSERT INTO \`${outputTopic}\`
+SELECT
+  CAST(loan_id AS BYTES) as \`key\`,
+  loan_id,
+  json_payload,
+  \`${validatorFn}\`(json_payload) as rejection_reasons,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio') as dti_ratio,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.fraud_screening.result') as fraud_result
+FROM \`${inputTopic}\`
+WHERE \`${validatorFn}\`(json_payload) <> 'VALID'`;
+}
+
+function piiMaskingSQL(extractFn: string, maskFn: string, inputTopic: string, outputTopic: string): string {
+  return `INSERT INTO \`${outputTopic}\` (
+  \`key\`, loan_id, applicant_name, applicant_email, applicant_phone,
+  applicant_ssn, loan_type, amount_requested, credit_score, risk_level
+)
+SELECT
+  CAST(loan_id AS BYTES) as \`key\`,
+  loan_id,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.personal.name.first'), 'name') as applicant_name,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.contact.email'), 'email') as applicant_email,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.contact.phone'), 'phone') as applicant_phone,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.personal.ssn_last_four'), 'ssn') as applicant_ssn,
+  \`${extractFn}\`(json_payload, 'loan_details.type') as loan_type,
+  \`${extractFn}\`(json_payload, 'loan_details.amount_requested') as amount_requested,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.overall_risk') as risk_level
+FROM \`${inputTopic}\``;
+}
+
+function asyncEnrichmentSQL(extractFn: string, enrichFn: string, inputTopic: string, outputTopic: string): string {
+  return `INSERT INTO \`${outputTopic}\` (
+  \`key\`, loan_id, applicant_name, loan_type, amount_requested,
+  credit_score, risk_level, dti_ratio,
+  score_band, approval_probability, recommended_rate,
+  max_approved_amount, risk_tier
+)
+SELECT
+  CAST(loan_id AS BYTES) as \`key\`,
+  loan_id,
+  \`${extractFn}\`(json_payload, 'applicant.personal.name.first') as applicant_name,
+  \`${extractFn}\`(json_payload, 'loan_details.type') as loan_type,
+  \`${extractFn}\`(json_payload, 'loan_details.amount_requested') as amount_requested,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.overall_risk') as risk_level,
+  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio') as dti_ratio,
+  \`${extractFn}\`(
+    \`${enrichFn}\`(
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
+      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+    ), 'score_band') as score_band,
+  \`${extractFn}\`(
+    \`${enrichFn}\`(
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
+      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+    ), 'approval_probability') as approval_probability,
+  \`${extractFn}\`(
+    \`${enrichFn}\`(
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
+      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+    ), 'recommended_rate') as recommended_rate,
+  \`${extractFn}\`(
+    \`${enrichFn}\`(
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
+      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+    ), 'max_approved_amount') as max_approved_amount,
+  \`${extractFn}\`(
+    \`${enrichFn}\`(
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
+      \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
+      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+    ), 'risk_tier') as risk_tier
+FROM \`${inputTopic}\``;
+}
+
 // ===========================================================================
 // Part A: Java Scalar Extract Setup
 // ===========================================================================
@@ -397,6 +595,250 @@ export async function setupJavaTableExplodeExample(
   // Cell 3: LATERAL TABLE query
   store.addStatement(tableExplodeJavaSQL(extractFn, explodeFn, inputTopic, outputTopic), undefined, `exec-udf-${rid}`);
   // Cell 4: View output
+  store.addStatement(`SELECT * FROM \`${outputTopic}\` LIMIT 50`, undefined, `view-output-${rid}`);
+
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
+}
+
+// ===========================================================================
+// Part D: Aggregate UDF — Portfolio Stats with WeightedAvg
+// ===========================================================================
+
+export async function setupAggregateUdfExample(
+  store: StoreSlice,
+  onProgress: (step: string) => void,
+): Promise<{ runId: string }> {
+  const rid = generateRunId();
+  const extractFn = `${rid}_LoanDetailExtract`;
+  const weightedAvgFn = `${rid}_WeightedAvg`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const outputTopic = `LOAN-PORTFOLIO-STATS-${rid}`;
+
+  // Step 1: Upload artifacts (reuses existing by class if available)
+  const extractArtifact = await uploadArtifact(
+    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+  const weightedAvgArtifact = await uploadArtifact(
+    store, `WeightedAvg UDF (${rid})`, WEIGHTED_AVG_CLASS,
+    '/udf/credit-bureau-enrich-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+
+  // Step 2: Create tables
+  await createTable(inputTopic, inputTableDDL(inputTopic), onProgress);
+  await createTable(outputTopic, aggregateOutputDDL(outputTopic), onProgress);
+
+  // Step 3: Generate dataset
+  onProgress('Generating test data...');
+  const records = generateLoanApplicationDataset(200);
+  const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
+  store.addSchemaDataset({
+    id: datasetId,
+    name: `${BASE_INPUT_TOPIC}-${rid}`,
+    schemaSubject: `${inputTopic}-value`,
+    records: records as unknown as Record<string, unknown>[],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Step 4: Add workspace cells
+  const extractVer = extractArtifact.versions?.[0]?.version;
+  const weightedAvgVer = weightedAvgArtifact.versions?.[0]?.version;
+  if (!extractVer) throw new Error(`Artifact ${extractArtifact.id} has no versions yet — try again in a moment`);
+  if (!weightedAvgVer) throw new Error(`Artifact ${weightedAvgArtifact.id} has no versions yet — try again in a moment`);
+
+  onProgress('Adding queries to workspace...');
+  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, extractArtifact.id, extractVer), undefined, `fn-extract-${rid}`);
+  store.addStatement(createFunctionSQL(weightedAvgFn, WEIGHTED_AVG_CLASS, weightedAvgArtifact.id, weightedAvgVer), undefined, `fn-weighted-avg-${rid}`);
+  store.addStatement(aggregateUdfSQL(extractFn, weightedAvgFn, inputTopic, outputTopic), undefined, `exec-udf-${rid}`);
+  store.addStatement(`SELECT * FROM \`${outputTopic}\` LIMIT 50`, undefined, `view-output-${rid}`);
+
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
+}
+
+// ===========================================================================
+// Part E: Validation — Valid + Dead Letter Routing
+// ===========================================================================
+
+export async function setupValidationExample(
+  store: StoreSlice,
+  onProgress: (step: string) => void,
+): Promise<{ runId: string }> {
+  const rid = generateRunId();
+  const extractFn = `${rid}_LoanDetailExtract`;
+  const validatorFn = `${rid}_LoanValidator`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const validatedTopic = `LOANS-VALIDATED-${rid}`;
+  const deadLetterTopic = `LOANS-DEAD-LETTER-${rid}`;
+
+  // Step 1: Upload artifacts
+  const extractArtifact = await uploadArtifact(
+    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+  const validatorArtifact = await uploadArtifact(
+    store, `Loan Validator UDF (${rid})`, LOAN_VALIDATOR_CLASS,
+    '/udf/loan-validator-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+
+  // Step 2: Create tables (input + 2 outputs)
+  await createTable(inputTopic, inputTableDDL(inputTopic), onProgress);
+  await createTable(validatedTopic, validatedOutputDDL(validatedTopic), onProgress);
+  await createTable(deadLetterTopic, deadLetterOutputDDL(deadLetterTopic), onProgress);
+
+  // Step 3: Generate dataset
+  onProgress('Generating test data...');
+  const records = generateLoanApplicationDataset(200);
+  const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
+  store.addSchemaDataset({
+    id: datasetId,
+    name: `${BASE_INPUT_TOPIC}-${rid}`,
+    schemaSubject: `${inputTopic}-value`,
+    records: records as unknown as Record<string, unknown>[],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Step 4: Add workspace cells (2 CREATE FUNCTION + 2 INSERT INTO + 2 SELECT)
+  const extractVer = extractArtifact.versions?.[0]?.version;
+  const validatorVer = validatorArtifact.versions?.[0]?.version;
+  if (!extractVer) throw new Error(`Artifact ${extractArtifact.id} has no versions yet — try again in a moment`);
+  if (!validatorVer) throw new Error(`Artifact ${validatorArtifact.id} has no versions yet — try again in a moment`);
+
+  onProgress('Adding queries to workspace...');
+  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, extractArtifact.id, extractVer), undefined, `fn-extract-${rid}`);
+  store.addStatement(createFunctionSQL(validatorFn, LOAN_VALIDATOR_CLASS, validatorArtifact.id, validatorVer), undefined, `fn-validator-${rid}`);
+  store.addStatement(validationValidSQL(extractFn, validatorFn, inputTopic, validatedTopic), undefined, `exec-valid-${rid}`);
+  store.addStatement(validationDeadLetterSQL(extractFn, validatorFn, inputTopic, deadLetterTopic), undefined, `exec-dead-letter-${rid}`);
+  store.addStatement(`SELECT * FROM \`${validatedTopic}\` LIMIT 50`, undefined, `view-validated-${rid}`);
+  store.addStatement(`SELECT * FROM \`${deadLetterTopic}\` LIMIT 50`, undefined, `view-dead-letter-${rid}`);
+
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
+}
+
+// ===========================================================================
+// Part F: PII Masking
+// ===========================================================================
+
+export async function setupPiiMaskingExample(
+  store: StoreSlice,
+  onProgress: (step: string) => void,
+): Promise<{ runId: string }> {
+  const rid = generateRunId();
+  const extractFn = `${rid}_LoanDetailExtract`;
+  const maskFn = `${rid}_PiiMask`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const outputTopic = `LOANS-MASKED-${rid}`;
+
+  // Step 1: Upload artifacts
+  const extractArtifact = await uploadArtifact(
+    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+  const maskArtifact = await uploadArtifact(
+    store, `PII Mask UDF (${rid})`, PII_MASK_CLASS,
+    '/udf/pii-mask-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+
+  // Step 2: Create tables
+  await createTable(inputTopic, inputTableDDL(inputTopic), onProgress);
+  await createTable(outputTopic, maskedOutputDDL(outputTopic), onProgress);
+
+  // Step 3: Generate dataset
+  onProgress('Generating test data...');
+  const records = generateLoanApplicationDataset(200);
+  const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
+  store.addSchemaDataset({
+    id: datasetId,
+    name: `${BASE_INPUT_TOPIC}-${rid}`,
+    schemaSubject: `${inputTopic}-value`,
+    records: records as unknown as Record<string, unknown>[],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Step 4: Add workspace cells
+  const extractVer = extractArtifact.versions?.[0]?.version;
+  const maskVer = maskArtifact.versions?.[0]?.version;
+  if (!extractVer) throw new Error(`Artifact ${extractArtifact.id} has no versions yet — try again in a moment`);
+  if (!maskVer) throw new Error(`Artifact ${maskArtifact.id} has no versions yet — try again in a moment`);
+
+  onProgress('Adding queries to workspace...');
+  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, extractArtifact.id, extractVer), undefined, `fn-extract-${rid}`);
+  store.addStatement(createFunctionSQL(maskFn, PII_MASK_CLASS, maskArtifact.id, maskVer), undefined, `fn-pii-mask-${rid}`);
+  store.addStatement(piiMaskingSQL(extractFn, maskFn, inputTopic, outputTopic), undefined, `exec-udf-${rid}`);
+  store.addStatement(`SELECT * FROM \`${outputTopic}\` LIMIT 50`, undefined, `view-output-${rid}`);
+
+  store.setStreamsPanelOpen(true);
+  store.addStreamCard(inputTopic, 'produce-consume', datasetId, { type: 'loan-applications', count: 200 });
+
+  return { runId: rid };
+}
+
+// ===========================================================================
+// Part G: Async Enrichment — Credit Bureau Enrich
+// ===========================================================================
+
+export async function setupAsyncEnrichmentExample(
+  store: StoreSlice,
+  onProgress: (step: string) => void,
+): Promise<{ runId: string }> {
+  const rid = generateRunId();
+  const extractFn = `${rid}_LoanDetailExtract`;
+  const enrichFn = `${rid}_CreditBureauEnrich`;
+  const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
+  const outputTopic = `LOANS-ENRICHED-V2-${rid}`;
+
+  // Step 1: Upload artifacts
+  const extractArtifact = await uploadArtifact(
+    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+  const enrichArtifact = await uploadArtifact(
+    store, `Credit Bureau Enrich UDF (${rid})`, CREDIT_BUREAU_ENRICH_CLASS,
+    '/udf/credit-bureau-enrich-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  );
+
+  // Step 2: Create tables
+  await createTable(inputTopic, inputTableDDL(inputTopic), onProgress);
+  await createTable(outputTopic, enrichedOutputDDL(outputTopic), onProgress);
+
+  // Step 3: Generate dataset
+  onProgress('Generating test data...');
+  const records = generateLoanApplicationDataset(200);
+  const now = new Date().toISOString();
+  const datasetId = crypto.randomUUID();
+  store.addSchemaDataset({
+    id: datasetId,
+    name: `${BASE_INPUT_TOPIC}-${rid}`,
+    schemaSubject: `${inputTopic}-value`,
+    records: records as unknown as Record<string, unknown>[],
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Step 4: Add workspace cells
+  const extractVer = extractArtifact.versions?.[0]?.version;
+  const enrichVer = enrichArtifact.versions?.[0]?.version;
+  if (!extractVer) throw new Error(`Artifact ${extractArtifact.id} has no versions yet — try again in a moment`);
+  if (!enrichVer) throw new Error(`Artifact ${enrichArtifact.id} has no versions yet — try again in a moment`);
+
+  onProgress('Adding queries to workspace...');
+  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, extractArtifact.id, extractVer), undefined, `fn-extract-${rid}`);
+  store.addStatement(createFunctionSQL(enrichFn, CREDIT_BUREAU_ENRICH_CLASS, enrichArtifact.id, enrichVer), undefined, `fn-enrich-${rid}`);
+  store.addStatement(asyncEnrichmentSQL(extractFn, enrichFn, inputTopic, outputTopic), undefined, `exec-udf-${rid}`);
   store.addStatement(`SELECT * FROM \`${outputTopic}\` LIMIT 50`, undefined, `view-output-${rid}`);
 
   store.setStreamsPanelOpen(true);

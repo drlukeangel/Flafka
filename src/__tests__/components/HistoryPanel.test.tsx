@@ -256,9 +256,10 @@ describe('[@history-panel] HistoryPanel component', () => {
 
       render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
 
+      // onRefresh is also called on mount when history is empty, so expect 2 calls
       await user.click(screen.getByRole('button', { name: /retry/i }))
 
-      expect(onRefresh).toHaveBeenCalledTimes(1)
+      expect(onRefresh).toHaveBeenCalledTimes(2)
     })
   })
 
@@ -551,9 +552,10 @@ describe('[@history-panel] HistoryPanel component', () => {
 
       render(<HistoryPanel onClose={onClose} onRefresh={onRefresh} />)
 
+      // onRefresh is also called on mount when history is empty, so expect 2 calls
       await user.click(screen.getByTitle('Refresh history'))
 
-      expect(onRefresh).toHaveBeenCalledTimes(1)
+      expect(onRefresh).toHaveBeenCalledTimes(2)
     })
 
     it('clicking close button calls onClose', async () => {

@@ -1,3 +1,9 @@
+/**
+ * Stream card — real-time Kafka topic consumer/producer. Each card connects
+ * to one topic and can consume messages (via background Flink SQL statements)
+ * or produce synthetic/dataset records (via Kafka REST API).
+ */
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
@@ -10,7 +16,57 @@ import { FiPlay, FiSquare, FiChevronDown, FiChevronUp, FiX, FiRefreshCw, FiCopy 
 import type { BackgroundStatement, ProduceRecord } from '../../types';
 import './StreamCard.css';
 
-/** Generate a simple random value for a Flink SQL column type */
+/**
+ * Fetch the key schema for a topic (upsert/changelog tables).
+ * Returns null for append-only tables that have no key schema.
+ */
+async function fetchKeySchema(topicName: string): Promise<{
+  schema: string; schemaType: string; id: number; fields: string[];
+} | null> {
+  try {
+    const ks = await schemaRegistryApi.getSchemaDetail(`${topicName}-key`, 'latest');
+    const parsed = JSON.parse(ks.schema);
+    const fields: string[] = parsed.fields
+      ? parsed.fields.map((f: { name: string }) => f.name)
+      : [];
+    return { schema: ks.schema, schemaType: ks.schemaType, id: ks.id, fields };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Serialize the Kafka key from a record using the pre-fetched key schema info.
+ * Confluent's binary serialization format (magic byte + 4-byte schema ID + payload)
+ * is required when producing to topics that use Schema Registry (Avro/Protobuf/JSON Schema).
+ * Falls back to plain JSON if binary serialization is not possible.
+ */
+function buildRecordKey(
+  record: Record<string, unknown>,
+  keyInfo: { schema: string; schemaType: string; id: number; fields: string[] },
+): { type: 'BINARY'; data: string } | { type: 'JSON'; data: unknown } {
+  const keyData: Record<string, unknown> = {};
+  for (const f of keyInfo.fields) {
+    if (f in record) keyData[f] = record[f];
+  }
+  const binaryKey = serializeToConfluentBinary(
+    keyData, keyInfo.schema, keyInfo.schemaType, keyInfo.id
+  );
+  if (binaryKey) return { type: 'BINARY', data: binaryKey };
+  // Fallback to JSON key
+  return { type: 'JSON', data: keyData };
+}
+
+/** Default random key for append-only tables */
+function randomKey(): { type: 'JSON'; data: unknown } {
+  return { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } };
+}
+
+/**
+ * Generate a random test value matching a Flink SQL column type.
+ * Used when producing synthetic records to a topic — each column gets a
+ * plausible random value based on its declared type (INT, BOOLEAN, TIMESTAMP, etc.).
+ */
 function generateValueForType(type: string): unknown {
   const t = type.toUpperCase();
   if (t.includes('INT') || t === 'BIGINT' || t === 'SMALLINT' || t === 'TINYINT')
@@ -187,6 +243,9 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
         // No schema registered — will fall back to Flink DESCRIBE
       }
 
+      // Fetch key schema for upsert/changelog tables
+      const keyInfo = await fetchKeySchema(topicName);
+
       let produceOne: () => Promise<void>;
 
       if (schemaDetail) {
@@ -200,7 +259,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
             data, schemaDetail!.schema, schemaDetail!.schemaType, schemaDetail!.id
           );
           const record: ProduceRecord = {
-            key: { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } },
+            key: keyInfo ? buildRecordKey(data, keyInfo) : randomKey(),
             value: binaryData
               ? { type: 'BINARY', data: binaryData }
               : { type: 'JSON', data },
@@ -223,7 +282,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
             data[col.name] = generateValueForType(col.type);
           }
           const record: ProduceRecord = {
-            key: { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } },
+            key: keyInfo ? buildRecordKey(data, keyInfo) : randomKey(),
             value: { type: 'JSON', data },
           };
           const result = await topicApi.produceRecord(topicName, record);
@@ -285,6 +344,9 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
       // No schema registered — will produce records as raw JSON
     }
 
+    // Fetch key schema for upsert/changelog tables
+    const keyInfo = await fetchKeySchema(topicName);
+
     setIsProducing(true);
     setDatasetProgress({ sent: 0, total: selectedDataset.records.length });
 
@@ -302,7 +364,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
                 )
               : null;
             const record: ProduceRecord = {
-              key: { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } },
+              key: keyInfo ? buildRecordKey(rec, keyInfo) : randomKey(),
               value: binaryData
                 ? { type: 'BINARY', data: binaryData }
                 : { type: 'JSON', data: rec },
@@ -347,7 +409,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
               )
             : null;
           const record: ProduceRecord = {
-            key: { type: 'JSON', data: { key: `${Date.now()}-${Math.random()}` } },
+            key: keyInfo ? buildRecordKey(rec, keyInfo) : randomKey(),
             value: binaryData
               ? { type: 'BINARY', data: binaryData }
               : { type: 'JSON', data: rec },

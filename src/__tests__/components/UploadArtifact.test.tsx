@@ -229,3 +229,274 @@ describe('[@upload-artifact] UploadArtifact', () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] UploadArtifact — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] UploadArtifact edge cases', () => {
+  const onClose = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('switching format from JAR to ZIP clears selected file and changes accepted extension', () => {
+    render(<UploadArtifact onClose={onClose} />);
+    // Select a JAR file first
+    const fileInput = screen.getByLabelText(/JAR File/);
+    const jarFile = new File(['jar'], 'test.jar');
+    fireEvent.change(fileInput, { target: { files: [jarFile] } });
+    expect(screen.getByText(/test.jar/)).toBeTruthy();
+
+    // Switch to ZIP format
+    fireEvent.click(screen.getByText('ZIP (Python)'));
+    // File should be cleared, label should now be "ZIP File"
+    expect(screen.getByLabelText(/ZIP File/)).toBeTruthy();
+    expect(screen.queryByText(/test.jar/)).toBeNull();
+  });
+
+  it('Escape during requesting-url step does not show cancel confirm (only uploading step does)', async () => {
+    mockGetPresignedUploadUrl.mockImplementation(
+      () => new Promise(() => {}) // Never resolves — stuck in requesting-url
+    );
+    render(<UploadArtifact onClose={onClose} />);
+
+    // Fill form
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'Test' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    const file = new File(['jar'], 'test.jar');
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    // Click upload
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    // Wait for requesting-url step
+    await waitFor(() => {
+      expect(screen.getByText('Requesting upload URL...')).toBeTruthy();
+    });
+
+    // Press Escape — at requesting-url step, this does NOT show cancel confirm
+    // (cancel confirm only appears at 'uploading' step)
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByText('Upload in progress. Cancel?')).toBeNull();
+  });
+
+  it('cancel upload during progress resets to form state', async () => {
+    mockGetPresignedUploadUrl.mockImplementation(
+      () => new Promise(() => {}) // Never resolves
+    );
+    render(<UploadArtifact onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'Test' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    const file = new File(['jar'], 'test.jar');
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Requesting upload URL...')).toBeTruthy();
+    });
+
+    // Click cancel button in progress view
+    fireEvent.click(screen.getByText('Cancel'));
+    // Should show cancel confirmation
+    expect(screen.getByText('Upload in progress. Cancel?')).toBeTruthy();
+
+    // Click Cancel Upload
+    fireEvent.click(screen.getByText('Cancel Upload'));
+    expect(mockSetArtifactUploading).toHaveBeenCalledWith(false);
+  });
+
+  it('close button hidden during upload', async () => {
+    mockGetPresignedUploadUrl.mockImplementation(
+      () => new Promise(() => {})
+    );
+    render(<UploadArtifact onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'Test' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    const file = new File(['jar'], 'test.jar');
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Requesting upload URL...')).toBeTruthy();
+    });
+
+    // Close button should not be visible during upload
+    expect(screen.queryByLabelText('Close')).toBeNull();
+  });
+
+  it('done state shows success message and Done button calls onClose', async () => {
+    mockGetPresignedUploadUrl.mockResolvedValue({
+      upload_url: 'https://s3.test/bucket',
+      upload_id: 'upload-123',
+      upload_form_data: { key: 'test.jar', policy: 'p' },
+    });
+    mockUploadFileToPresignedUrl.mockResolvedValue(undefined);
+    mockCreateArtifact.mockResolvedValue({ id: 'cfa-new' });
+
+    render(<UploadArtifact onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'TestUdf' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    const file = new File(['jar'], 'test.jar');
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Artifact created successfully.')).toBeTruthy();
+    });
+
+    // Click Done
+    fireEvent.click(screen.getByText('Done'));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('Escape in done state calls onClose', async () => {
+    mockGetPresignedUploadUrl.mockResolvedValue({
+      upload_url: 'https://s3.test/bucket',
+      upload_id: 'upload-123',
+      upload_form_data: {},
+    });
+    mockUploadFileToPresignedUrl.mockResolvedValue(undefined);
+    mockCreateArtifact.mockResolvedValue({ id: 'cfa-new' });
+
+    render(<UploadArtifact onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'TestUdf' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    fireEvent.change(fileInput, { target: { files: [new File(['j'], 'test.jar')] } });
+
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Artifact created successfully.')).toBeTruthy();
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('Escape in error state calls onClose', async () => {
+    mockGetPresignedUploadUrl.mockRejectedValue(new Error('fail'));
+
+    render(<UploadArtifact onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'Test' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    fireEvent.change(fileInput, { target: { files: [new File(['j'], 'test.jar')] } });
+
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('fail')).toBeTruthy();
+    });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('accepts valid Java fully-qualified class name', () => {
+    render(<UploadArtifact onClose={onClose} />);
+    const input = screen.getByPlaceholderText('com.example.MyUdf');
+    fireEvent.change(input, { target: { value: 'com.example.MyUdf' } });
+    expect(screen.queryByText(/Must be a valid Java class name/)).toBeNull();
+  });
+
+  it('no file selected does nothing on file change', () => {
+    render(<UploadArtifact onClose={onClose} />);
+    const fileInput = screen.getByLabelText(/JAR File/);
+    fireEvent.change(fileInput, { target: { files: [] } });
+    // Should not show any error
+    expect(screen.queryByText(/File too large/)).toBeNull();
+    expect(screen.queryByText(/Only/)).toBeNull();
+  });
+
+  it('overlay click does not close during upload', async () => {
+    mockGetPresignedUploadUrl.mockImplementation(() => new Promise(() => {}));
+    render(<UploadArtifact onClose={onClose} />);
+
+    fireEvent.change(screen.getByPlaceholderText('my-udf-artifact'), {
+      target: { value: 'Test' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('com.example.MyUdf'), {
+      target: { value: 'com.test.Udf' },
+    });
+    const fileInput = screen.getByLabelText(/JAR File/);
+    fireEvent.change(fileInput, { target: { files: [new File(['j'], 'test.jar')] } });
+
+    const uploadBtns = screen.getAllByText('Upload');
+    const actionBtn = uploadBtns.find(
+      (btn) => btn.closest('button')?.getAttribute('disabled') === null
+    );
+    if (actionBtn) fireEvent.click(actionBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Requesting upload URL...')).toBeTruthy();
+    });
+
+    // Click overlay - should NOT close
+    const overlay = screen.getByRole('dialog').parentElement!;
+    fireEvent.click(overlay);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});

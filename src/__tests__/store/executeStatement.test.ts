@@ -36,6 +36,7 @@ vi.mock('../../api/flink-api', () => ({
   executeSQL: vi.fn(),
   getStatementStatus: vi.fn(),
   getStatementResults: vi.fn(),
+  getStatementErrorDetail: vi.fn(),
   cancelStatement: vi.fn(),
   listStatements: vi.fn(),
   getCatalogs: vi.fn(),
@@ -210,6 +211,9 @@ describe('[@store] [@execute] executeStatement - polling loop', () => {
         makeStatusResponse('FAILED', 'Syntax error in line 5')
       )
 
+      // getStatementErrorDetail returns the detail when provided
+      vi.mocked(flinkApi.getStatementErrorDetail).mockResolvedValueOnce('Syntax error in line 5')
+
       const execPromise = useWorkspaceStore.getState().executeStatement('stmt-1')
 
       // Drain microtasks for executeSQL and the first status poll
@@ -242,6 +246,9 @@ describe('[@store] [@execute] executeStatement - polling loop', () => {
       vi.mocked(flinkApi.getStatementStatus).mockResolvedValueOnce(
         makeStatusResponse('FAILED')
       )
+
+      // getStatementErrorDetail falls back to 'Query failed' when no detail
+      vi.mocked(flinkApi.getStatementErrorDetail).mockResolvedValueOnce('Query failed')
 
       const execPromise = useWorkspaceStore.getState().executeStatement('stmt-1')
       await flushPromises()

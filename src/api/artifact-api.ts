@@ -10,7 +10,7 @@ import type {
 /**
  * List all Flink artifacts for the current environment.
  */
-export async function listArtifacts(): Promise<FlinkArtifact[]> {
+export async function listArtifacts(filterUniqueId?: string): Promise<FlinkArtifact[]> {
   const response = await artifactClient.get<FlinkArtifactListResponse>(
     '/v1/flink-artifacts',
     {
@@ -21,7 +21,11 @@ export async function listArtifacts(): Promise<FlinkArtifact[]> {
       },
     }
   );
-  return response.data.data ?? [];
+  const artifacts = response.data.data ?? [];
+  if (filterUniqueId) {
+    return artifacts.filter(a => a.display_name?.includes(filterUniqueId));
+  }
+  return artifacts;
 }
 
 /**

@@ -1,3 +1,9 @@
+/**
+ * Left sidebar navigation rail — switches between workspace panels
+ * (Editor, Topics, Schemas, Jobs, etc). Supports collapsed (icons only)
+ * and expanded (icons + labels) modes.
+ */
+
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type { NavItem } from '../../types';
 import {
@@ -54,6 +60,7 @@ export function NavRail() {
   const theme = useWorkspaceStore((s) => s.theme);
   const toggleTheme = useWorkspaceStore((s) => s.toggleTheme);
 
+
   // Group items by section
   const sections = ['workspace', 'data', 'tools', 'settings'] as const;
   const grouped = sections.map((section) => ({
@@ -70,6 +77,7 @@ export function NavRail() {
       setActiveNavItem(item);
     }
   };
+
 
   return (
     <nav
@@ -102,6 +110,7 @@ export function NavRail() {
       ))}
 
       <div className="nav-rail-section">
+
         <button
           className="nav-rail-item"
           onClick={toggleTheme}

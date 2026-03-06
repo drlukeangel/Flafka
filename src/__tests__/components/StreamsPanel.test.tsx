@@ -17,7 +17,7 @@ describe('[@stream-panel] StreamsPanel', () => {
   beforeEach(() => {
     useWorkspaceStore.setState({
       streamsPanelOpen: true,
-      streamsSelectedTopics: [],
+      streamCards: [],
       backgroundStatements: [],
       topicList: [
         { topic_name: 'orders', is_internal: false, replication_factor: 3, partitions_count: 6 },
@@ -35,20 +35,16 @@ describe('[@stream-panel] StreamsPanel', () => {
     cleanup();
   });
 
-  it('renders Streams title', () => {
+  it('renders Streams label in search header', () => {
     render(<StreamsPanel />);
-    expect(screen.getByText('Streams')).toBeTruthy();
+    // "Streams" appears in both the search label and the empty state heading
+    const allStreams = screen.getAllByText('Streams');
+    expect(allStreams.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('close button calls toggleStreamsPanel', () => {
-    const originalToggle = useWorkspaceStore.getState().toggleStreamsPanel;
-    const toggleSpy = vi.fn(originalToggle);
-    useWorkspaceStore.setState({ toggleStreamsPanel: toggleSpy });
+  it('empty state shows when 0 stream cards exist', () => {
     render(<StreamsPanel />);
-    const closeBtn = screen.getByLabelText('Close streams panel');
-    fireEvent.click(closeBtn);
-    expect(toggleSpy).toHaveBeenCalled();
-    useWorkspaceStore.setState({ toggleStreamsPanel: originalToggle });
+    expect(screen.getByText('Select a topic above to start streaming')).toBeTruthy();
   });
 
   it('topic list with checkboxes renders from topicList', () => {
@@ -57,20 +53,23 @@ describe('[@stream-panel] StreamsPanel', () => {
     expect(checkboxes.length).toBe(6);
   });
 
-  it('checking topic adds to streamsSelectedTopics', () => {
+  it('checking topic adds a stream card', () => {
     render(<StreamsPanel />);
     const checkboxes = screen.getAllByRole('checkbox');
     fireEvent.click(checkboxes[0]); // orders
-    expect(useWorkspaceStore.getState().streamsSelectedTopics).toContain('orders');
+    // After clicking, a streamCard should be added for 'orders'
+    const cards = useWorkspaceStore.getState().streamCards;
+    expect(cards.some((c: { topicName: string }) => c.topicName === 'orders')).toBe(true);
   });
 
-  it('unchecking topic removes from streamsSelectedTopics', () => {
-    useWorkspaceStore.setState({ streamsSelectedTopics: ['orders'] });
+  it('unchecking topic removes stream cards for that topic', () => {
+    useWorkspaceStore.setState({ streamCards: [{ id: 'card-1', topicName: 'orders' }] });
     render(<StreamsPanel />);
     const checkboxes = screen.getAllByRole('checkbox');
     // The first checkbox (orders) should be checked — click to uncheck
     fireEvent.click(checkboxes[0]);
-    expect(useWorkspaceStore.getState().streamsSelectedTopics).not.toContain('orders');
+    const cards = useWorkspaceStore.getState().streamCards;
+    expect(cards.some((c: { topicName: string }) => c.topicName === 'orders')).toBe(false);
   });
 
   it('search input filters topic list', () => {
@@ -82,26 +81,33 @@ describe('[@stream-panel] StreamsPanel', () => {
     expect(screen.getByText('payments')).toBeTruthy();
   });
 
-  it('max 5 enforcement: 6th checkbox is disabled with title', () => {
-    useWorkspaceStore.setState({
-      streamsSelectedTopics: ['orders', 'payments', 'users', 'inventory', 'shipping'],
-    });
+  it('max 10 enforcement: 11th checkbox is disabled with title', () => {
+    // Create 10 stream cards
+    const tenCards = Array.from({ length: 10 }, (_, i) => ({
+      id: `card-${i}`,
+      topicName: `topic-${i}`,
+    }));
+    useWorkspaceStore.setState({ streamCards: tenCards });
     render(<StreamsPanel />);
     const checkboxes = screen.getAllByRole('checkbox');
-    // 'returns' is not selected, should be disabled
-    const returnsCheckbox = checkboxes.find((cb) => !cb.closest('label')?.textContent?.match(/orders|payments|users|inventory|shipping/));
-    expect(returnsCheckbox).toBeTruthy();
-    expect(returnsCheckbox?.hasAttribute('disabled')).toBe(true);
-    expect(returnsCheckbox?.getAttribute('title')).toBe('Max 5 streams');
+    // None of the 10 cards match the 6 topics in topicList, so all 6 checkboxes should be disabled
+    const disabledCheckboxes = checkboxes.filter((cb) => (cb as HTMLInputElement).disabled);
+    expect(disabledCheckboxes.length).toBe(6);
+    expect(disabledCheckboxes[0]?.getAttribute('title')).toBe('Max 10 streams');
   });
 
-  it('empty state visible when 0 topics selected', () => {
+  it('empty state visible when 0 stream cards', () => {
     render(<StreamsPanel />);
-    expect(screen.getByText('Select topics above to start monitoring')).toBeTruthy();
+    expect(screen.getByText('Select a topic above to start streaming')).toBeTruthy();
   });
 
-  it('renders StreamCard for each selected topic', () => {
-    useWorkspaceStore.setState({ streamsSelectedTopics: ['orders', 'payments'] });
+  it('renders StreamCard for each stream card entry', () => {
+    useWorkspaceStore.setState({
+      streamCards: [
+        { id: 'card-orders', topicName: 'orders' },
+        { id: 'card-payments', topicName: 'payments' },
+      ],
+    });
     render(<StreamsPanel />);
     expect(screen.getByTestId('stream-card-orders')).toBeTruthy();
     expect(screen.getByTestId('stream-card-payments')).toBeTruthy();

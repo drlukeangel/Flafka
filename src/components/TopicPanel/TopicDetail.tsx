@@ -1030,6 +1030,10 @@ const TopicDetail: React.FC = () => {
   const addConfigAuditEntry = useWorkspaceStore((s) => s.addConfigAuditEntry);
   const getConfigAuditLogForTopic = useWorkspaceStore((s) => s.getConfigAuditLogForTopic);
 
+  // Soft multi-tenancy check
+  const isOwner = selectedTopic?.topic_name.endsWith(`-${env.uniqueId}`);
+  const canManage = env.isAdmin || isOwner;
+
   // Local config state (component-scoped, not store-level)
   const [configs, setConfigs] = useState<TopicConfig[]>([]);
   const [configsLoading, setConfigsLoading] = useState(false);
@@ -1540,12 +1544,13 @@ const TopicDetail: React.FC = () => {
         {/* Delete button */}
         <button
           onClick={() => setShowDeleteConfirm(true)}
-          title="Delete topic"
+          title={canManage ? "Delete topic" : `Only the owner or admin can delete this topic (required suffix: -${env.uniqueId})`}
           aria-label="Delete topic"
+          disabled={!canManage}
           style={{
             border: '1px solid var(--color-error)',
             background: 'transparent',
-            cursor: 'pointer',
+            cursor: canManage ? 'pointer' : 'not-allowed',
             padding: 5,
             display: 'flex',
             alignItems: 'center',
@@ -1553,9 +1558,11 @@ const TopicDetail: React.FC = () => {
             color: 'var(--color-error)',
             borderRadius: 4,
             transition: 'background var(--transition-fast)',
+            opacity: canManage ? 1 : 0.4,
+            filter: canManage ? 'none' : 'grayscale(1)',
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-error-badge-bg)';
+            if (canManage) (e.currentTarget as HTMLButtonElement).style.background = 'var(--color-error-badge-bg)';
           }}
           onMouseLeave={(e) => {
             (e.currentTarget as HTMLButtonElement).style.background = 'transparent';

@@ -1,25 +1,55 @@
+/**
+ * Configuration sourced from Vite environment variables (VITE_* in .env).
+ * These connect the app to Confluent Cloud services: Flink SQL, Schema Registry, and Kafka.
+ */
 export interface EnvironmentConfig {
+  /** Confluent Cloud organization ID */
   orgId: string;
+  /** Confluent Cloud environment ID */
   environmentId: string;
+  /** Flink Compute Pool ID — determines where SQL statements execute */
   computePoolId: string;
+  /** API key for Flink SQL REST API (Basic Auth username) */
   flinkApiKey: string;
+  /** API secret for Flink SQL REST API (Basic Auth password) */
   flinkApiSecret: string;
+  /** API key for the Confluent Cloud Metrics API */
   metricsKey: string;
+  /** API secret for the Confluent Cloud Metrics API */
   metricsSecret: string;
+  /** Default Flink catalog (usually matches the Confluent environment name) */
   flinkCatalog: string;
+  /** Default Flink database within the catalog */
   flinkDatabase: string;
+  /** Cloud provider hosting the environment (e.g. "aws", "gcp", "azure") */
   cloudProvider: string;
+  /** Cloud region (e.g. "us-east-1") */
   cloudRegion: string;
+  /** Schema Registry URL (optional — enables schema browsing panel) */
   schemaRegistryUrl?: string;
+  /** Schema Registry API key (optional) */
   schemaRegistryKey?: string;
+  /** Schema Registry API secret (optional) */
   schemaRegistrySecret?: string;
+  /** Kafka cluster ID — used for topic management APIs */
   kafkaClusterId: string;
+  /** Kafka REST Proxy endpoint URL */
   kafkaRestEndpoint: string;
+  /** API key for the Kafka REST Proxy */
   kafkaApiKey: string;
+  /** API secret for the Kafka REST Proxy */
   kafkaApiSecret: string;
-  employeeId: string;
+  /** Unique user/session identifier — used to tag all created resources (see names.ts) */
+  uniqueId: string;
+  /** Whether this session has admin privileges (unlocks destructive operations) */
+  isAdmin: boolean;
 }
 
+/**
+ * Reads configuration from Vite's `import.meta.env` (populated from .env files at build time).
+ * Validates that required variables are present and logs an error for any missing ones.
+ * Returns an EnvironmentConfig with empty-string defaults for missing optional values.
+ */
 export const getEnv = (): EnvironmentConfig => {
   const requiredVars = [
     'VITE_ORG_ID',
@@ -59,7 +89,8 @@ export const getEnv = (): EnvironmentConfig => {
     kafkaRestEndpoint: import.meta.env.VITE_KAFKA_REST_ENDPOINT || '',
     kafkaApiKey: import.meta.env.VITE_KAFKA_API_KEY || '',
     kafkaApiSecret: import.meta.env.VITE_KAFKA_API_SECRET || '',
-    employeeId: import.meta.env.VITE_EMPLOYEE_ID || '',
+    uniqueId: import.meta.env.VITE_UNIQUE_ID || '',
+    isAdmin: import.meta.env.VITE_ADMIN_SECRET === 'FLAFKA',
   };
 };
 

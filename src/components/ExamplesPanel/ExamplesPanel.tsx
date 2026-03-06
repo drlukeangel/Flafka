@@ -40,6 +40,8 @@ export function ExamplesPanel() {
   const setWorkspaceNotes = useWorkspaceStore((s) => s.setWorkspaceNotes);
   const clearWorkspace = useWorkspaceStore((s) => s.clearWorkspace);
   const statementCount = useWorkspaceStore((s) => s.statements.length);
+  const selectedExampleId = useWorkspaceStore((s) => s.selectedExampleId);
+  const navigateToExampleDetail = useWorkspaceStore((s) => s.navigateToExampleDetail);
 
   // Load artifacts on mount if not already loaded (needed for dynamic ID resolution)
   useEffect(() => {
@@ -83,7 +85,16 @@ export function ExamplesPanel() {
         // Navigate to SQL editor — notes panel auto-expands above cells
         setActiveNavItem('workspace');
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
+        let msg: string;
+        if (err instanceof Error) {
+          msg = err.message;
+        } else if (err && typeof err === 'object' && 'message' in err) {
+          // ApiError { status, message, details } from handleApiError
+          const apiErr = err as { status?: number; message?: string; details?: string };
+          msg = `${apiErr.message}${apiErr.status ? ` (${apiErr.status})` : ''}${apiErr.details ? `: ${apiErr.details}` : ''}`;
+        } else {
+          msg = String(err);
+        }
         addToast({ type: 'error', message: `Setup failed: ${msg}` });
       } finally {
         setSetupRunning(null);
@@ -172,22 +183,47 @@ export function ExamplesPanel() {
           const isComingSoon = !!card.comingSoon;
           const isRunning = setupRunning === card.id;
           const isConfirming = confirmCardId === card.id;
+          const hasDoc = !!card.documentation;
           return (
           <div
             key={card.id}
             data-testid={`example-card-${card.id}`}
+            tabIndex={hasDoc ? 0 : undefined}
+            role={hasDoc ? 'button' : undefined}
+            aria-label={hasDoc ? `View details for ${card.title}` : undefined}
+            onClick={hasDoc ? () => navigateToExampleDetail(card.id) : undefined}
+            onKeyDown={hasDoc ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigateToExampleDetail(card.id); } } : undefined}
             onMouseEnter={() => setHoveredId(card.id)}
             onMouseLeave={() => setHoveredId(null)}
             style={{
               margin: '0 12px 10px',
-              border: `1px solid ${hoveredId === card.id ? 'var(--color-primary)' : 'var(--color-border)'}`,
+              border: `1px solid ${selectedExampleId === card.id ? 'var(--color-primary)' : hoveredId === card.id ? 'var(--color-primary)' : 'var(--color-border)'}`,
               borderLeft: (isQuickStart || isComingSoon) ? '3px solid var(--color-primary)' : undefined,
               borderRadius: 6,
               overflow: 'hidden',
               background: 'var(--color-surface)',
-              transition: 'border-color 0.15s ease',
+              transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+              cursor: hasDoc ? 'pointer' : undefined,
+              boxShadow: hasDoc && hoveredId === card.id ? 'var(--shadow-sm)' : undefined,
             }}
           >
+            {/* Stateful banner */}
+            {card.stateful && (
+              <div style={{
+                background: 'linear-gradient(90deg, #7c3aed, #6d28d9)',
+                color: '#fff',
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase',
+                padding: '3px 10px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}>
+                <span style={{ fontSize: 12 }}>&#9679;</span> Stateful — Uses Managed State
+              </div>
+            )}
             {/* Card header */}
             <div style={{ padding: '8px 10px 4px' }}>
               <div
@@ -223,7 +259,7 @@ export function ExamplesPanel() {
               )}
             </div>
 
-            {/* SQL preview */}
+            {/* SQL preview — shorter for kickstarter cards with docs */}
             <pre
               style={{
                 margin: '6px 10px',
@@ -237,7 +273,7 @@ export function ExamplesPanel() {
                 overflow: 'hidden',
                 whiteSpace: 'pre-wrap',
                 overflowWrap: 'break-word',
-                maxHeight: 80,
+                maxHeight: hasDoc ? 40 : 80,
               }}
             >
               {card.sql}
@@ -273,7 +309,7 @@ export function ExamplesPanel() {
               </div>
 
               {/* Action buttons */}
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={() => handleCopy(card.sql, card.id)}
                   title="Copy SQL to clipboard"
@@ -363,6 +399,7 @@ export function ExamplesPanel() {
             {/* Workspace clear confirmation */}
             {isConfirming && (
               <div
+                onClick={(e) => e.stopPropagation()}
                 style={{
                   padding: '6px 10px 8px',
                   background: 'var(--color-bg-hover)',
@@ -404,6 +441,20 @@ export function ExamplesPanel() {
                     Cancel
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Learn More cue for cards with documentation */}
+            {hasDoc && !isConfirming && !isRunning && (
+              <div
+                style={{
+                  padding: '2px 10px 6px',
+                  fontSize: 10,
+                  color: 'var(--color-primary)',
+                  fontWeight: 500,
+                }}
+              >
+                Learn More &rarr;
               </div>
             )}
 

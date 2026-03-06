@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { executeSQL, getStatementStatus, getStatementResults, pollForResults, cancelStatement, listStatements, getComputePoolStatus } from '../../api/flink-api'
+import { executeSQL, getStatementStatus, getStatementResults, pollForResults, cancelStatement, listStatements, getComputePoolStatus, getCatalogs, getDatabases, getTables, getViews, getFunctions, getTableSchema, getStatementExceptions, getStatementErrorDetail } from '../../api/flink-api'
 import * as flinkApi from '../../api/flink-api'
 import { confluentClient, fcpmClient } from '../../api/confluent-client'
 
@@ -58,7 +58,7 @@ describe('[@api] [@core] flink-api', () => {
       const [_url, payload] = call as [string, unknown]
 
       expect(payload).toMatchObject({
-        name: expect.stringMatching(/^[a-z]+-[a-z]+-\d{3}$/),
+        name: expect.stringMatching(/^[a-z]+-[a-z]+-[a-z0-9]*$/i),
         spec: {
           statement: 'SELECT * FROM table',
           compute_pool_id: expect.any(String),
@@ -157,7 +157,7 @@ describe('[@api] [@core] flink-api', () => {
   })
 
   describe('[@api] statement name generation', () => {
-    it('should generate word-word-number names with shared session number', async () => {
+    it('should generate word-word-uniqueId names with shared unique ID suffix', async () => {
       const names: string[] = []
 
       for (let i = 0; i < 5; i++) {
@@ -171,19 +171,17 @@ describe('[@api] [@core] flink-api', () => {
 
       expect(names).toHaveLength(5)
       for (const name of names) {
-        // name format: <adjective>-<noun>-<sessionNumber>
-        const parts = name.split('-')
-        expect(parts).toHaveLength(3)
-        expect(parts[0].length).toBeGreaterThan(1) // adjective
-        expect(parts[1].length).toBeGreaterThan(1) // noun
-        const num = Number(parts[2])
-        expect(num).toBeGreaterThanOrEqual(100)
-        expect(num).toBeLessThanOrEqual(999)
+        // name format: <adjective>-<noun>-<uniqueId>
+        // uniqueId can be alphanumeric (e.g. 'f696969') or empty string
+        expect(name).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]*$/i)
       }
 
-      // All names share the same session number (3rd part)
-      const numbers = names.map((n) => n.split('-')[2])
-      expect(new Set(numbers).size).toBe(1)
+      // All names share the same unique ID suffix (last segment after second hyphen)
+      const suffixes = names.map((n) => {
+        const parts = n.split('-')
+        return parts.slice(2).join('-')
+      })
+      expect(new Set(suffixes).size).toBe(1)
     })
   })
 
@@ -340,7 +338,7 @@ describe('[@api] [@core] flink-api', () => {
       expect(calledUrl).toContain('page_size=25')
     })
 
-    it('calls API without page_size when not provided', async () => {
+    it('defaults to page_size=100 when not provided', async () => {
       vi.mocked(confluentClient.get).mockResolvedValueOnce({
         data: { data: [] },
       })
@@ -348,7 +346,7 @@ describe('[@api] [@core] flink-api', () => {
       await listStatements()
 
       const calledUrl = vi.mocked(confluentClient.get).mock.calls[0][0] as string
-      expect(calledUrl).not.toContain('page_size')
+      expect(calledUrl).toContain('page_size=100')
     })
 
     it('returns response.data.data array when present', async () => {
@@ -372,6 +370,486 @@ describe('[@api] [@core] flink-api', () => {
       })
 
       const result = await listStatements()
+
+      expect(result).toEqual([])
+    })
+  })
+
+  describe('[@api] executeSQL with session properties', () => {
+    it('filters out invalid session properties', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-props', status: { phase: 'PENDING' as const } },
+      })
+
+      await executeSQL('SELECT 1', 'stmt-props', {
+        'sql.current-catalog': 'my-catalog',
+        'sql.current-database': 'my-db',
+        'invalid.property': 'should-be-filtered',
+        'sql.local-time-zone': 'UTC',
+      })
+
+      const [, payload] = vi.mocked(confluentClient.post).mock.calls[0] as [string, any]
+      expect(payload.spec.properties['sql.current-catalog']).toBe('my-catalog')
+      expect(payload.spec.properties['sql.current-database']).toBe('my-db')
+      expect(payload.spec.properties['sql.local-time-zone']).toBe('UTC')
+      expect(payload.spec.properties['invalid.property']).toBeUndefined()
+    })
+
+    it('handles undefined session properties', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-no-props', status: { phase: 'PENDING' as const } },
+      })
+
+      await executeSQL('SELECT 1', 'stmt-no-props', undefined)
+
+      const [, payload] = vi.mocked(confluentClient.post).mock.calls[0] as [string, any]
+      expect(payload.spec.properties).toBeDefined()
+    })
+  })
+
+  describe('[@api] getStatementExceptions', () => {
+    it('returns formatted exceptions when present', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          data: [
+            { name: 'FlinkError', message: 'Column not found' },
+            { name: 'ValidationError', message: 'Invalid syntax' },
+          ],
+        },
+      })
+
+      const result = await getStatementExceptions('stmt-exc')
+
+      expect(result).toBe('FlinkError: Column not found\n\nValidationError: Invalid syntax')
+    })
+
+    it('returns null when no exceptions exist', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      const result = await getStatementExceptions('stmt-no-exc')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null when data array is missing', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {},
+      })
+
+      const result = await getStatementExceptions('stmt-missing')
+
+      expect(result).toBeNull()
+    })
+
+    it('returns null on API error (catches silently)', async () => {
+      vi.mocked(confluentClient.get).mockRejectedValueOnce(new Error('500'))
+
+      const result = await getStatementExceptions('stmt-err')
+
+      expect(result).toBeNull()
+    })
+
+    it('formats exceptions with only message (no name)', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          data: [{ message: 'Something broke' }],
+        },
+      })
+
+      const result = await getStatementExceptions('stmt-msg-only')
+
+      expect(result).toBe('Something broke')
+    })
+
+    it('formats exceptions with only name (no message)', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          data: [{ name: 'ErrorName' }],
+        },
+      })
+
+      const result = await getStatementExceptions('stmt-name-only')
+
+      expect(result).toBe('ErrorName')
+    })
+  })
+
+  describe('[@api] getStatementErrorDetail', () => {
+    it('returns provided detail immediately if it exists', async () => {
+      const result = await getStatementErrorDetail('stmt', 'Provided detail')
+
+      expect(result).toBe('Provided detail')
+      // Should not call any API
+      expect(confluentClient.get).not.toHaveBeenCalled()
+    })
+
+    it('falls back to exceptions endpoint when detail is undefined', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          data: [{ name: 'Error', message: 'From exceptions' }],
+        },
+      })
+
+      const result = await getStatementErrorDetail('stmt-detail')
+
+      expect(result).toBe('Error: From exceptions')
+    })
+
+    it('returns generic message when both detail and exceptions are empty', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      const result = await getStatementErrorDetail('stmt-generic')
+
+      expect(result).toBe('Query failed')
+    })
+  })
+
+  describe('[@api] getStatementResults - edge cases', () => {
+    it('does NOT auto-fetch next page when nextUrl parameter is provided', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          results: { data: [] },
+          metadata: { next: 'https://api.confluent.cloud/some/other/path' },
+        },
+      })
+
+      const result = await getStatementResults('stmt-next', 'https://api.confluent.cloud/first/path')
+
+      // Should only make one call (uses the provided nextUrl, does not follow auto-fetch logic)
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT auto-fetch when first response has data (even with metadata.next)', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          results: { data: [{ row: ['value'] }] },
+          metadata: { next: 'https://api.confluent.cloud/next' },
+        },
+      })
+
+      const result = await getStatementResults('stmt-has-data')
+
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(1)
+      expect(result.results?.data).toEqual([{ row: ['value'] }])
+    })
+
+    it('does NOT auto-fetch when first response has no data and no next URL', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          results: { data: [] },
+          metadata: {},
+        },
+      })
+
+      const result = await getStatementResults('stmt-no-next')
+
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT auto-fetch when results is undefined and metadata.next is absent', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: { metadata: {} },
+      })
+
+      const result = await getStatementResults('stmt-no-results')
+
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws on API failure', async () => {
+      vi.mocked(confluentClient.get).mockRejectedValueOnce(new Error('Connection error'))
+
+      await expect(getStatementResults('stmt-fail')).rejects.toThrow()
+    })
+  })
+
+  describe('[@api] listStatements - pagination', () => {
+    it('follows pagination across multiple pages', async () => {
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({
+          data: {
+            data: [{ name: 'stmt-1' }],
+            metadata: { next: 'https://api.confluent.cloud/sql/v1/statements?page_token=tok2' },
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            data: [{ name: 'stmt-2' }],
+            metadata: {},
+          },
+        })
+
+      const result = await listStatements(10)
+
+      expect(result).toEqual([{ name: 'stmt-1' }, { name: 'stmt-2' }])
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(2)
+    })
+
+    it('calls onPage callback with accumulated results', async () => {
+      const onPage = vi.fn()
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({
+          data: {
+            data: [{ name: 'stmt-1' }],
+            metadata: { next: 'https://api.confluent.cloud/sql/v1/statements?page_token=tok2' },
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            data: [{ name: 'stmt-2' }],
+            metadata: {},
+          },
+        })
+
+      await listStatements(10, onPage)
+
+      expect(onPage).toHaveBeenCalledTimes(2)
+      expect(onPage).toHaveBeenNthCalledWith(1, [{ name: 'stmt-1' }])
+      expect(onPage).toHaveBeenNthCalledWith(2, [{ name: 'stmt-1' }, { name: 'stmt-2' }])
+    })
+
+    it('does not call onPage for empty pages', async () => {
+      const onPage = vi.fn()
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: { data: [] },
+      })
+
+      await listStatements(10, onPage)
+
+      expect(onPage).not.toHaveBeenCalled()
+    })
+
+    it('respects maxResults limit', async () => {
+      vi.mocked(confluentClient.get).mockResolvedValueOnce({
+        data: {
+          data: [{ name: 'stmt-1' }, { name: 'stmt-2' }, { name: 'stmt-3' }],
+          metadata: { next: 'https://api.confluent.cloud/sql/v1/statements?page_token=tok2' },
+        },
+      })
+
+      const result = await listStatements(10, undefined, 2)
+
+      // Should slice to maxResults
+      expect(result).toHaveLength(2)
+      expect(result).toEqual([{ name: 'stmt-1' }, { name: 'stmt-2' }])
+      // Should not follow pagination since maxResults was reached
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(1)
+    })
+
+    it('stops pagination when empty page is returned even with next URL', async () => {
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({
+          data: {
+            data: [{ name: 'stmt-1' }],
+            metadata: { next: 'https://api.confluent.cloud/sql/v1/statements?page_token=tok2' },
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            data: [],
+            metadata: { next: 'https://api.confluent.cloud/sql/v1/statements?page_token=tok3' },
+          },
+        })
+
+      const result = await listStatements(10)
+
+      // Stops because page.length === 0 even though there's a next URL
+      expect(vi.mocked(confluentClient.get)).toHaveBeenCalledTimes(2)
+      expect(result).toEqual([{ name: 'stmt-1' }])
+    })
+
+    it('throws on API failure', async () => {
+      vi.mocked(confluentClient.get).mockRejectedValueOnce(new Error('Server error'))
+
+      await expect(listStatements()).rejects.toThrow()
+    })
+  })
+
+  describe('[@api] getCatalogs', () => {
+    it('returns catalog names from SHOW CATALOGS result', async () => {
+      // executeSQL call
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-cat', status: { phase: 'PENDING' } },
+      })
+      // pollForResults: first poll returns COMPLETED
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-cat', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: { results: { data: [{ row: ['catalog1'] }, { row: ['catalog2'] }] }, metadata: {} },
+        })
+
+      const result = await getCatalogs()
+
+      expect(result).toEqual(['catalog1', 'catalog2'])
+    })
+
+    it('returns fallback catalog on error', async () => {
+      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await getCatalogs()
+
+      // Should return the env default catalog
+      expect(Array.isArray(result)).toBe(true)
+      expect(result).toHaveLength(1)
+    })
+  })
+
+  describe('[@api] getDatabases', () => {
+    it('returns database names from SHOW DATABASES result', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-db', status: { phase: 'PENDING' } },
+      })
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-db', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: { results: { data: [{ row: ['db1'] }, { row: ['db2'] }] }, metadata: {} },
+        })
+
+      const result = await getDatabases('my-catalog')
+
+      expect(result).toEqual(['db1', 'db2'])
+    })
+
+    it('returns fallback database on error', async () => {
+      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await getDatabases('my-catalog')
+
+      expect(Array.isArray(result)).toBe(true)
+      expect(result).toHaveLength(1)
+    })
+  })
+
+  describe('[@api] getTables', () => {
+    it('returns table names from SHOW TABLES result', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-tbl', status: { phase: 'PENDING' } },
+      })
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-tbl', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: { results: { data: [{ row: ['table1'] }, { row: ['table2'] }] }, metadata: {} },
+        })
+
+      const result = await getTables('cat', 'db')
+
+      expect(result).toEqual(['table1', 'table2'])
+    })
+
+    it('returns empty array on error', async () => {
+      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await getTables('cat', 'db')
+
+      expect(result).toEqual([])
+    })
+  })
+
+  describe('[@api] getViews', () => {
+    it('returns view names from SHOW VIEWS result', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-view', status: { phase: 'PENDING' } },
+      })
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-view', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: { results: { data: [{ row: ['view1'] }] }, metadata: {} },
+        })
+
+      const result = await getViews('cat', 'db')
+
+      expect(result).toEqual(['view1'])
+    })
+
+    it('returns empty array on error', async () => {
+      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await getViews('cat', 'db')
+
+      expect(result).toEqual([])
+    })
+  })
+
+  describe('[@api] getFunctions', () => {
+    it('returns function names from SHOW USER FUNCTIONS result', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-func', status: { phase: 'PENDING' } },
+      })
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-func', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: { results: { data: [{ row: ['func1'] }, { row: ['func2'] }] }, metadata: {} },
+        })
+
+      const result = await getFunctions('cat', 'db')
+
+      expect(result).toEqual(['func1', 'func2'])
+    })
+
+    it('returns empty array on error', async () => {
+      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await getFunctions('cat', 'db')
+
+      expect(result).toEqual([])
+    })
+  })
+
+  describe('[@api] getTableSchema', () => {
+    it('returns columns from DESCRIBE result', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-desc', status: { phase: 'PENDING' } },
+      })
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-desc', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: {
+            results: {
+              data: [
+                { row: ['col1', 'STRING', 'YES'] },
+                { row: ['col2', 'INT', 'NO'] },
+              ],
+            },
+            metadata: {},
+          },
+        })
+
+      const result = await getTableSchema('cat', 'db', 'tbl')
+
+      expect(result).toEqual([
+        { name: 'col1', type: 'STRING', nullable: true },
+        { name: 'col2', type: 'INT', nullable: true },
+      ])
+    })
+
+    it('defaults type to STRING when missing from result', async () => {
+      vi.mocked(confluentClient.post).mockResolvedValueOnce({
+        data: { name: 'stmt-desc2', status: { phase: 'PENDING' } },
+      })
+      vi.mocked(confluentClient.get)
+        .mockResolvedValueOnce({ data: { name: 'stmt-desc2', status: { phase: 'COMPLETED' } } })
+        .mockResolvedValueOnce({
+          data: {
+            results: {
+              data: [{ row: ['col1'] }],
+            },
+            metadata: {},
+          },
+        })
+
+      const result = await getTableSchema('cat', 'db', 'tbl')
+
+      expect(result[0].type).toBe('STRING')
+    })
+
+    it('returns empty array on error', async () => {
+      vi.mocked(confluentClient.post).mockRejectedValueOnce(new Error('Failed'))
+
+      const result = await getTableSchema('cat', 'db', 'tbl')
 
       expect(result).toEqual([])
     })

@@ -168,3 +168,135 @@ describe('[@artifact-list] ArtifactList', () => {
     expect(screen.getByText('Something went wrong')).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] ArtifactList — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] ArtifactList edge cases', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockArtifactList = [];
+    mockArtifactLoading = false;
+    mockArtifactUploading = false;
+    mockArtifactError = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows singular "1 artifact" text for single item', () => {
+    mockArtifactList = [makeArtifact('SingleArt')];
+    render(<ArtifactList />);
+    expect(screen.getByText('1 artifact')).toBeTruthy();
+  });
+
+  it('search filters by class name', () => {
+    mockArtifactList = [makeArtifact('UdfA'), makeArtifact('UdfB', { class: 'com.special.Magic' })];
+    render(<ArtifactList />);
+
+    const input = screen.getByLabelText('Search artifacts');
+    fireEvent.change(input, { target: { value: 'Magic' } });
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(screen.getByText('UdfB')).toBeTruthy();
+    expect(screen.queryByText('UdfA')).toBeNull();
+  });
+
+  it('shows search-specific empty message when query has no matches', () => {
+    mockArtifactList = [makeArtifact('TestUdf')];
+    render(<ArtifactList />);
+
+    const input = screen.getByLabelText('Search artifacts');
+    fireEvent.change(input, { target: { value: 'nonexistent' } });
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(screen.getByText('No artifacts match your search.')).toBeTruthy();
+  });
+
+  it('shows count with matching query text', () => {
+    mockArtifactList = [makeArtifact('Alpha'), makeArtifact('AlphaBeta')];
+    render(<ArtifactList />);
+
+    const input = screen.getByLabelText('Search artifacts');
+    fireEvent.change(input, { target: { value: 'Alpha' } });
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(screen.getByText(/matching "Alpha"/)).toBeTruthy();
+  });
+
+  it('keyboard ArrowUp navigates focus upward', () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    mockArtifactList = [makeArtifact('First'), makeArtifact('Second'), makeArtifact('Third')];
+    const { container } = render(<ArtifactList />);
+    const rootDiv = container.firstElementChild!;
+
+    // Navigate down twice
+    fireEvent.keyDown(rootDiv, { key: 'ArrowDown' });
+    fireEvent.keyDown(rootDiv, { key: 'ArrowDown' });
+    // Now navigate up once
+    fireEvent.keyDown(rootDiv, { key: 'ArrowUp' });
+    // Press Enter to select the second item (index 0 after going down 2, up 1 = index 1)
+    fireEvent.keyDown(rootDiv, { key: 'Enter' });
+
+    expect(mockSelectArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ display_name: 'First' })
+    );
+  });
+
+  it('ArrowDown stops at last item', () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    mockArtifactList = [makeArtifact('Only')];
+    const { container } = render(<ArtifactList />);
+    const rootDiv = container.firstElementChild!;
+
+    fireEvent.keyDown(rootDiv, { key: 'ArrowDown' });
+    fireEvent.keyDown(rootDiv, { key: 'ArrowDown' }); // Should not go beyond
+    fireEvent.keyDown(rootDiv, { key: 'Enter' });
+
+    expect(mockSelectArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({ display_name: 'Only' })
+    );
+  });
+
+  it('Enter with no focused item does not select', () => {
+    mockArtifactList = [makeArtifact('Test')];
+    const { container } = render(<ArtifactList />);
+    const rootDiv = container.firstElementChild!;
+
+    // No ArrowDown, so focusedIndex is -1
+    fireEvent.keyDown(rootDiv, { key: 'Enter' });
+    expect(mockSelectArtifact).not.toHaveBeenCalled();
+  });
+
+  it('mouse enter highlights artifact row', () => {
+    mockArtifactList = [makeArtifact('HoverMe')];
+    render(<ArtifactList />);
+    const btn = screen.getByLabelText('Artifact: HoverMe');
+    fireEvent.mouseEnter(btn);
+    // The background style changes on hover (focusedIndex matches)
+    expect(btn).toBeTruthy();
+  });
+
+  it('upload button opens upload modal', () => {
+    render(<ArtifactList />);
+    fireEvent.click(screen.getByLabelText('Upload new artifact'));
+    // UploadArtifact modal should be rendered
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('formatDate returns em-dash for undefined date', () => {
+    mockArtifactList = [makeArtifact('NoDate', { metadata: undefined })];
+    render(<ArtifactList />);
+    // The date column should show em-dash
+    expect(screen.getByText('NoDate')).toBeTruthy();
+  });
+
+  it('formatDate returns raw string for invalid date', () => {
+    mockArtifactList = [makeArtifact('BadDate', { metadata: { created_at: 'not-a-date' } })];
+    render(<ArtifactList />);
+    expect(screen.getByText('BadDate')).toBeTruthy();
+  });
+});

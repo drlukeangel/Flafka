@@ -6,12 +6,14 @@ import {
   registerSchema,
   validateCompatibility,
   getCompatibilityMode,
+  getCompatibilityModeWithSource,
   setCompatibilityMode,
   deleteSubject,
   deleteSchemaVersion,
   getSubjectsForSchemaId,
 } from '../../api/schema-registry-api'
 import { schemaRegistryClient } from '../../api/schema-registry-client'
+import { env } from '../../config/environment'
 
 vi.mock('../../api/schema-registry-client', () => ({
   schemaRegistryClient: {
@@ -65,6 +67,17 @@ describe('[@schema-registry-api] schema-registry-api', () => {
 
       expect(schemaRegistryClient.get).toHaveBeenCalledWith('/subjects')
       expect(result).toEqual(['subject-a', 'subject-b', 'subject-c'])
+    })
+
+    it('filters by uniqueId when provided', async () => {
+      const testId = 'TEST-123';
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({
+        data: [`subject-a-${testId}`, 'subject-b', `subject-c-${testId}`],
+      })
+
+      const result = await listSubjects(testId)
+
+      expect(result).toEqual([`subject-a-${testId}`, `subject-c-${testId}`])
     })
 
     it('returns an empty array when no subjects exist', async () => {
@@ -236,37 +249,41 @@ describe('[@schema-registry-api] schema-registry-api', () => {
   // ==========================================================================
 
   describe('[@schema-registry-api] registerSchema', () => {
-    it('posts schema and returns the assigned id', async () => {
+    it('posts schema and returns the assigned id with tagged subject', async () => {
       vi.mocked(schemaRegistryClient.post).mockResolvedValueOnce({ data: { id: 101 } })
+      const taggedSubject = `user-value-${env.uniqueId}`
 
       const schemaStr = '{"type":"record","name":"User","fields":[]}'
       const result = await registerSchema('user-value', schemaStr, 'AVRO')
 
       expect(schemaRegistryClient.post).toHaveBeenCalledWith(
-        `/subjects/${encodeURIComponent('user-value')}/versions`,
+        `/subjects/${encodeURIComponent(taggedSubject)}/versions`,
         { schema: schemaStr, schemaType: 'AVRO' }
       )
       expect(result).toEqual({ id: 101 })
     })
 
-    it('sends the correct schemaType in the request body', async () => {
+    it('sends the correct schemaType in the request body with tagged subject', async () => {
       vi.mocked(schemaRegistryClient.post).mockResolvedValueOnce({ data: { id: 202 } })
+      const taggedSubject = `msg-value-${env.uniqueId}`
 
       const schemaStr = 'syntax = "proto3"; message Msg {}'
       await registerSchema('msg-value', schemaStr, 'PROTOBUF')
 
-      const [, payload] = vi.mocked(schemaRegistryClient.post).mock.calls[0] as [string, { schema: string; schemaType: string }]
+      const [url, payload] = vi.mocked(schemaRegistryClient.post).mock.calls[0] as [string, { schema: string; schemaType: string }]
+      expect(url).toContain(encodeURIComponent(taggedSubject))
       expect(payload.schemaType).toBe('PROTOBUF')
       expect(payload.schema).toBe(schemaStr)
     })
 
-    it('URL-encodes the subject name', async () => {
+    it('URL-encodes the subject name and tags it', async () => {
       vi.mocked(schemaRegistryClient.post).mockResolvedValueOnce({ data: { id: 1 } })
+      const taggedSubject = `my topic/value-${env.uniqueId}`
 
       await registerSchema('my topic/value', '{}', 'JSON')
 
       const [calledUrl] = vi.mocked(schemaRegistryClient.post).mock.calls[0] as [string, unknown]
-      expect(calledUrl).toContain(encodeURIComponent('my topic/value'))
+      expect(calledUrl).toContain(encodeURIComponent(taggedSubject))
     })
 
     it('throws on 409 Conflict (schema already registered)', async () => {
@@ -666,6 +683,96 @@ describe('[@schema-registry-api] schema-registry-api', () => {
       vi.mocked(schemaRegistryClient.get).mockRejectedValueOnce(error)
 
       await expect(getSubjectsForSchemaId(42)).rejects.toThrow('500 Internal Server Error')
+    })
+  })
+
+  // ==========================================================================
+  // getCompatibilityModeWithSource
+  // ==========================================================================
+
+  describe('[@schema-registry-api] getCompatibilityModeWithSource', () => {
+    it('returns subject-level compatibility with isGlobal=false', async () => {
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({
+        data: { compatibilityLevel: 'FULL' },
+      })
+
+      const result = await getCompatibilityModeWithSource('test-subject')
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        `/config/${encodeURIComponent('test-subject')}`
+      )
+      expect(result).toEqual({ level: 'FULL', isGlobal: false })
+    })
+
+    it('falls back to global /config on 404 with isGlobal=true', async () => {
+      const notFoundError = { response: { status: 404 } }
+      vi.mocked(schemaRegistryClient.get)
+        .mockRejectedValueOnce(notFoundError)
+        .mockResolvedValueOnce({ data: { compatibilityLevel: 'BACKWARD' } })
+
+      const result = await getCompatibilityModeWithSource('unknown-subject')
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ level: 'BACKWARD', isGlobal: true })
+    })
+
+    it('re-throws non-404 errors without falling back', async () => {
+      const serverError = { response: { status: 500 }, message: '500 Internal Server Error' }
+      vi.mocked(schemaRegistryClient.get).mockRejectedValueOnce(serverError)
+
+      await expect(getCompatibilityModeWithSource('test-subject')).rejects.toMatchObject({ response: { status: 500 } })
+      expect(schemaRegistryClient.get).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-throws network errors (no response object) without falling back', async () => {
+      const networkError = new Error('Network Error')
+      vi.mocked(schemaRegistryClient.get).mockRejectedValueOnce(networkError)
+
+      await expect(getCompatibilityModeWithSource('test-subject')).rejects.toThrow('Network Error')
+      expect(schemaRegistryClient.get).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  // ==========================================================================
+  // getSchemaDetail — AbortSignal support
+  // ==========================================================================
+
+  describe('[@schema-registry-api] getSchemaDetail - signal support', () => {
+    it('passes abort signal when provided', async () => {
+      const detail = makeSchemaSubject()
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({ data: detail })
+      const controller = new AbortController()
+
+      await getSchemaDetail('test-subject', 'latest', { signal: controller.signal })
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        expect.stringContaining('test-subject'),
+        { signal: controller.signal }
+      )
+    })
+
+    it('does not pass signal config when options are undefined', async () => {
+      const detail = makeSchemaSubject()
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({ data: detail })
+
+      await getSchemaDetail('test-subject', 'latest')
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        expect.stringContaining('test-subject'),
+        undefined
+      )
+    })
+
+    it('does not pass signal config when signal is undefined in options', async () => {
+      const detail = makeSchemaSubject()
+      vi.mocked(schemaRegistryClient.get).mockResolvedValueOnce({ data: detail })
+
+      await getSchemaDetail('test-subject', 'latest', {})
+
+      expect(schemaRegistryClient.get).toHaveBeenCalledWith(
+        expect.stringContaining('test-subject'),
+        undefined
+      )
     })
   })
 

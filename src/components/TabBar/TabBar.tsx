@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type { WorkspaceState } from '../../store/workspaceStore';
-import { FiPlus, FiX } from 'react-icons/fi';
+import { FiPlus, FiX, FiSave, FiEdit3 } from 'react-icons/fi';
 import './TabBar.css';
 
 const MAX_TABS = 8;
@@ -15,6 +15,11 @@ export function TabBar() {
   const closeTab = useWorkspaceStore((s: WorkspaceState) => s.closeTab);
   const renameTab = useWorkspaceStore((s: WorkspaceState) => s.renameTab);
   const reorderTabs = useWorkspaceStore((s: WorkspaceState) => s.reorderTabs);
+  const saveCurrentWorkspace = useWorkspaceStore((s: WorkspaceState) => s.saveCurrentWorkspace);
+  const toggleWorkspaceNotes = useWorkspaceStore((s: WorkspaceState) => s.toggleWorkspaceNotes);
+  const setWorkspaceNotes = useWorkspaceStore((s: WorkspaceState) => s.setWorkspaceNotes);
+  const savedWorkspaces = useWorkspaceStore((s: WorkspaceState) => s.savedWorkspaces);
+  const updateSavedWorkspaceNotes = useWorkspaceStore((s: WorkspaceState) => s.updateSavedWorkspaceNotes);
 
   // Active tab info for right side
   const activeTab = tabs[activeTabId];
@@ -41,12 +46,31 @@ export function TabBar() {
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const dragSrcIdx = useRef<number | null>(null);
 
+  // Notes local state
+  const [localNotes, setLocalNotes] = useState('');
+
   useEffect(() => {
     if (renamingTabId) {
       renameInputRef.current?.focus();
       renameInputRef.current?.select();
     }
   }, [renamingTabId]);
+
+  // Sync local notes from active tab
+  useEffect(() => {
+    setLocalNotes(activeTab?.workspaceNotes || '');
+  }, [activeTabId, activeTab?.workspaceNotes]);
+
+  const handleNotesSave = useCallback(() => {
+    setWorkspaceNotes(localNotes || null);
+    // If this workspace is saved, update saved copy too
+    if (activeTab) {
+      const saved = savedWorkspaces.find(w => w.name === activeTab.workspaceName);
+      if (saved) {
+        updateSavedWorkspaceNotes(saved.id, localNotes);
+      }
+    }
+  }, [localNotes, setWorkspaceNotes, activeTab, savedWorkspaces, updateSavedWorkspaceNotes]);
 
   const handleDoubleClick = useCallback((tabId: string) => {
     const tab = tabs[tabId];
@@ -101,7 +125,7 @@ export function TabBar() {
         ? (idx + 1) % tabOrder.length
         : (idx - 1 + tabOrder.length) % tabOrder.length;
       switchTab(tabOrder[nextIdx]);
-      // Focus the new tab button
+      // Focus the new tab
       const tabEl = document.querySelector(`[data-tab-id="${tabOrder[nextIdx]}"]`) as HTMLElement;
       tabEl?.focus();
     } else if (e.key === 'Home') {
@@ -141,8 +165,62 @@ export function TabBar() {
     setDragOverIdx(null);
   }, []);
 
+  // Notes panel resize
+  const [notesHeight, setNotesHeight] = useState(200);
+  const resizingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startHeightRef = useRef(0);
+
+  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    startYRef.current = e.clientY;
+    startHeightRef.current = notesHeight;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const delta = startYRef.current - ev.clientY;
+      const newHeight = Math.min(Math.max(startHeightRef.current + delta, 80), window.innerHeight * 0.6);
+      setNotesHeight(newHeight);
+    };
+
+    const onMouseUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [notesHeight]);
+
   return (
     <>
+      {activeTab?.workspaceNotesOpen && (
+        <div className="tab-bar__notes-panel" role="region" aria-label="Workspace Notes" style={{ height: notesHeight }}>
+          <div className="tab-bar__notes-resize-handle" onMouseDown={onResizeMouseDown} title="Drag to resize" />
+          <div className="tab-bar__notes-header">
+            <span className="tab-bar__notes-label">Notes</span>
+            <button className="tab-bar__notes-close" onClick={toggleWorkspaceNotes} aria-label="Close notes">
+              Close
+            </button>
+          </div>
+          <textarea
+            className="tab-bar__notes-textarea"
+            value={localNotes}
+            onChange={(e) => setLocalNotes(e.target.value)}
+            onBlur={handleNotesSave}
+            onKeyDown={(e) => { if (e.key === 'Escape') { handleNotesSave(); toggleWorkspaceNotes(); } }}
+            placeholder="Add notes about this workspace..."
+            aria-label="Workspace notes"
+          />
+        </div>
+      )}
+
       <div className="tab-bar" role="tablist" aria-label="Workspace tabs">
         {tabOrder.map((tabId, idx) => {
           const tab = tabs[tabId];
@@ -152,7 +230,7 @@ export function TabBar() {
           const hasLiveStreams = tab.backgroundStatements.some(s => s.status === 'RUNNING' || s.status === 'PENDING');
 
           return (
-            <button
+            <div
               key={tabId}
               role="tab"
               data-tab-id={tabId}
@@ -170,6 +248,9 @@ export function TabBar() {
             >
               {(hasRunning || hasLiveStreams) && (
                 <span className="tab-bar__running-dot" title="Has running statements" />
+              )}
+              {tab.workspaceNotes && (
+                <span className="tab-bar__notes-dot" aria-label="Has notes" title="Has notes" />
               )}
               {renamingTabId === tabId ? (
                 <input
@@ -191,16 +272,37 @@ export function TabBar() {
                   {tab.workspaceName}
                 </span>
               )}
-              <span
+              {isActive && (
+                <>
+                  <button
+                    className="tab-bar__save-btn"
+                    onClick={(e) => { e.stopPropagation(); saveCurrentWorkspace(tab.workspaceName); }}
+                    title="Save workspace (Ctrl+S)"
+                    aria-label="Save workspace"
+                    tabIndex={0}
+                  >
+                    <FiSave size={12} />
+                  </button>
+                  <button
+                    className={`tab-bar__notes-btn${tab.workspaceNotesOpen ? ' tab-bar__notes-btn--active' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); toggleWorkspaceNotes(); }}
+                    title={tab.workspaceNotesOpen ? 'Close notes' : 'Open notes'}
+                    aria-label={tab.workspaceNotesOpen ? 'Close notes' : 'Open notes'}
+                    tabIndex={0}
+                  >
+                    <FiEdit3 size={12} />
+                  </button>
+                </>
+              )}
+              <button
                 className="tab-bar__close"
-                role="button"
                 aria-label={`Close ${tab.workspaceName}`}
                 onClick={(e) => handleCloseClick(e, tabId)}
                 tabIndex={-1}
               >
                 <FiX size={12} />
-              </span>
-            </button>
+              </button>
+            </div>
           );
         })}
 

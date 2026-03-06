@@ -364,6 +364,53 @@ export interface ExampleCompletionModal {
   steps: ExampleCompletionStep[];
 }
 
+// Example Documentation Types (detail pages for kickstarter cards)
+interface ExampleDocTopic {
+  name: string;
+  type: 'input' | 'output';
+  description: string;
+}
+
+interface ExampleDocConcept {
+  term: string;
+  explanation: string;
+}
+
+interface DataFlowNode {
+  id: string;
+  label: string;
+  type: 'source' | 'processor' | 'sink';
+}
+
+interface DataFlowEdge {
+  from: string;
+  to: string;
+  animated?: boolean;
+  filterLabel?: string;
+  dropColor?: string;
+}
+
+export interface DataFlowDef {
+  layout: 'linear' | 'fan-in' | 'fan-out' | 'windowed';
+  nodes: DataFlowNode[];
+  edges: DataFlowEdge[];
+}
+
+export interface ExampleDocumentation {
+  subtitle: string;
+  businessContext?: string;
+  sqlBlocks?: { label: string; sql: string }[];
+  ddlBlocks?: { label: string; sql: string }[];
+  dataFlow?: DataFlowDef;
+  topics?: ExampleDocTopic[];
+  concepts?: ExampleDocConcept[];
+  useCases?: string[];
+  whatHappensIf?: { question: string; answer: string }[];
+  exampleInput?: string[];
+  expectedOutput?: string[];
+  crossReference?: { cardId: string; label: string; description: string };
+}
+
 // Example card for the Examples panel
 export interface ExampleCard {
   id: string;
@@ -375,6 +422,8 @@ export interface ExampleCard {
   completionModal?: Omit<ExampleCompletionModal, 'title'>; // title injected from card.title at runtime
   onImport?: (onProgress: (step: string) => void) => Promise<{ runId: string }>;
   comingSoon?: string; // If set: show disabled "Coming Soon" button; no Set Up button
+  stateful?: boolean; // If true: show "Stateful" badge — uses changelog, upsert, temporal join, CDC, etc.
+  documentation?: ExampleDocumentation;
 }
 
 // Schema test datasets

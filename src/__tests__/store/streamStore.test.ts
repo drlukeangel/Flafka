@@ -108,13 +108,13 @@ describe('[@stream-store] Stream Panel Store', () => {
       expect(mockCancel).toHaveBeenCalledWith('bg-old-ctx1');
     });
 
-    it('names statement with bg- prefix', async () => {
+    it('names statement with a generated fun name (adjective-noun pattern)', async () => {
       vi.mocked(flinkApi.executeSQL).mockResolvedValue({
-        name: 'bg-test',
+        name: 'test-stmt',
         status: { phase: 'COMPLETED' },
       } as any);
       vi.mocked(flinkApi.getStatementStatus).mockResolvedValue({
-        name: 'bg-test',
+        name: 'test-stmt',
         status: { phase: 'COMPLETED' },
       } as any);
       vi.mocked(flinkApi.getStatementResults).mockResolvedValue({
@@ -125,7 +125,8 @@ describe('[@stream-store] Stream Panel Store', () => {
 
       const bgStmts = useWorkspaceStore.getState().backgroundStatements;
       expect(bgStmts.length).toBeGreaterThan(0);
-      expect(bgStmts[0].statementName).toMatch(/^bg-/);
+      // generateStatementName produces "adjective-noun-uniqueId" pattern
+      expect(bgStmts[0].statementName).toMatch(/^[a-z]+-[a-z]+-/);
     });
   });
 

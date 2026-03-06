@@ -30,13 +30,33 @@ vi.mock('../../api/schema-registry-api', () => ({
 }))
 
 vi.mock('../../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (s: unknown) => unknown) => {
-    const state = {
-      addToast: vi.fn(),
-      schemaCompatCache: {},
+  useWorkspaceStore: Object.assign(
+    (selector: (s: unknown) => unknown) => {
+      const state = {
+        addToast: vi.fn(),
+        schemaCompatCache: {},
+        selectedSchemaSubject: null,
+        schemaRegistryLoading: false,
+        clearSelectedSchema: vi.fn(),
+        loadSchemaDetail: vi.fn(),
+        navigateToTopic: vi.fn(),
+        loadSchemaRegistrySubjects: vi.fn(),
+        topicList: [],
+        loadTopics: vi.fn(),
+        schemaInitialView: null,
+        clearSchemaInitialView: vi.fn(),
+        schemaDatasets: [],
+        deleteSchemaDataset: vi.fn(),
+      }
+      return typeof selector === 'function' ? selector(state) : state
+    },
+    {
+      getState: () => ({
+        schemaDatasets: [],
+        deleteSchemaDataset: vi.fn(),
+      }),
     }
-    return typeof selector === 'function' ? selector(state) : state
-  },
+  ),
 }))
 
 vi.mock('../../config/environment', () => ({

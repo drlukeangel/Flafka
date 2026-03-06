@@ -1,3 +1,17 @@
+/**
+ * workspaceStore.ts — The single Zustand store for the entire application.
+ *
+ * ALL app state lives here: SQL statements, sidebar navigation, compute pool status,
+ * schema registry data, topic management, stream cards, artifacts, and settings.
+ *
+ * Architecture:
+ *  - Uses a per-tab model: each tab has its own statements, tree data, and editor state
+ *    (see `tabs` / `activeTabId` / `tabOrder` in the state interface).
+ *  - Selected fields are persisted to localStorage via Zustand's `persist` middleware
+ *    (configured with `partialize` at the bottom of this file).
+ *  - Runtime-only fields (compute pool status, history, schema registry data, topics)
+ *    are excluded from persistence and reset on page reload.
+ */
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import * as flinkApi from '../api/flink-api';
@@ -9,8 +23,10 @@ import * as artifactApi from '../api/artifact-api';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 import * as schemaRegistryApi from '../api/schema-registry-api';
 import * as topicApi from '../api/topic-api';
-import { generateFunName, generateTopicStatementName, generateStatementName } from '../utils/names';
+import { generateFunName, generateTopicStatementName, generateStatementName, getSessionTag } from '../utils/names';
 
+// Humorous SQL-themed jokes displayed in the empty workspace state.
+// Format: "-- SQL comment\nresult line" (parsed by App.tsx's parseJoke()).
 const STARTER_JOKES = [
   "-- SELECT * FROM regrets WHERE action = 'DELETE ALL'\n-- Result: 1 row returned",
   "-- ROLLBACK\n-- ERROR: no transaction in progress. it's too late.",
@@ -60,30 +76,28 @@ export function randomStarterJoke(): string {
 import type { SchemaSubject, KafkaTopic } from '../types';
 
 export interface WorkspaceState {
-  // Catalog & Database
+  // ── Catalog & Database ──────────────────────────────────────────────────────
   catalog: string;
   database: string;
   catalogs: string[];
   databases: string[];
 
-  // Tab infrastructure
+  // ── Tab Infrastructure (per-tab state) ──────────────────────────────────────
   tabs: Record<string, TabState>;
   activeTabId: string;
   tabOrder: string[];
 
-  // UI State
+  // ── UI / Toast Notifications ────────────────────────────────────────────────
   toasts: Toast[];
   sidebarCollapsed: boolean;
 
-  // Navigation Rail
+  // ── Sidebar / Navigation ────────────────────────────────────────────────────
   activeNavItem: NavItem;
   navExpanded: boolean;
 
-  // Compute Pool Status (runtime only, not persisted)
+  // ── Compute Pool (runtime only, not persisted) ───────────────────────────────
   computePoolPhase: string | null;
   computePoolCfu: number | null;
-
-  // Compute Pool Dashboard (runtime only, not persisted)
   computePoolMaxCfu: number | null;
   computePoolDashboardOpen: boolean;
   statementTelemetry: StatementTelemetry[];
@@ -92,21 +106,17 @@ export interface WorkspaceState {
   telemetryLastUpdated: Date | null;
   dashboardHeight: number;
 
-  // Statement History (runtime only, not persisted)
+  // ── Statement History (runtime only, not persisted) ──────────────────────────
   statementHistory: StatementResponse[];
   historyLoading: boolean;
   historyError: string | null;
 
-  // Theme
+  // ── Settings ─────────────────────────────────────────────────────────────────
   theme: 'light' | 'dark';
-
-  // Onboarding
   hasSeenOnboardingHint: boolean;
-
-  // Session Properties
   sessionProperties: Record<string, string>;
 
-  // Schema Registry (runtime only, not persisted)
+  // ── Schema Registry (runtime only, not persisted) ──────────────────────────
   schemaRegistrySubjects: string[];
   selectedSchemaSubject: SchemaSubject | null;
   schemaRegistryLoading: boolean;
@@ -116,7 +126,7 @@ export interface WorkspaceState {
   // Phase 12.6 F2: Lazy cache of subject name → compatibilityLevel (populated on first click)
   schemaCompatCache: Record<string, string>;
 
-  // Topics (runtime only, NOT persisted)
+  // ── Topics (runtime only, not persisted) ─────────────────────────────────────
   topicList: KafkaTopic[];
   selectedTopic: KafkaTopic | null;
   topicLoading: boolean;
@@ -127,7 +137,7 @@ export interface WorkspaceState {
   isBulkMode: boolean;
   bulkSelectedTopics: string[];
 
-  // Actions
+  // ── Actions ──────────────────────────────────────────────────────────────────
   setCatalog: (catalog: string) => void;
   setDatabase: (database: string) => void;
   setFocusedStatementId: (id: string | null) => void;
@@ -235,12 +245,14 @@ export interface WorkspaceState {
   jobsLoading: boolean;
   jobsError: string | null;
   selectedJobName: string | null;
+  selectedExampleId: string | null;
 
   // Jobs actions
   loadJobs: () => Promise<void>;
   cancelJob: (statementName: string) => Promise<void>;
   deleteJob: (statementName: string) => Promise<void>;
   navigateToJobDetail: (statementName: string) => void;
+  navigateToExampleDetail: (cardId: string | null) => void;
 
   // Artifacts (runtime only, NOT persisted)
   artifactList: FlinkArtifact[];
@@ -297,6 +309,11 @@ export interface WorkspaceState {
   runAllStreamsSignal: number;
   stopAllStreamsSignal: number;
   runAllStreams: () => void;
+
+  // Resource Filtering (soft multi-tenancy)
+  resourceFilterMode: 'unique' | 'all';
+  setResourceFilterMode: (mode: 'unique' | 'all') => void;
+  toggleResourceFilterMode: () => void;
 
   // Tab actions
   addTab: (name?: string) => string;
@@ -388,15 +405,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       // Tab infrastructure — build initial tab first so mirrors can reference same objects
       ...(() => {
         const _initialTab: TabState = {
-          statements: [
-            {
-              id: generateId(),
-              code: `SELECT * FROM \`${env.flinkCatalog}\`.\`${env.flinkDatabase}\`.\`EOT-PLATFORM-EXAMPLES-LOANS-v1\`;`,
-              status: 'IDLE',
-              createdAt: new Date(),
-              label: generateFunName(),
-            },
-          ],
+          statements: [],
           focusedStatementId: null,
           workspaceName: 'Workspace',
           workspaceNotes: null,
@@ -458,6 +467,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       sessionProperties: {
         'sql.local-time-zone': 'UTC',
+        'sql.execution.mode': 'streaming',
+        'execution.checkpointing.mode': 'EXACTLY_ONCE',
       },
 
       schemaRegistrySubjects: [],
@@ -488,6 +499,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       jobsLoading: false,
       jobsError: null,
       selectedJobName: null,
+      selectedExampleId: null,
 
       // Artifacts (runtime only, NOT persisted)
       artifactList: [],
@@ -501,6 +513,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       streamsPanelOpen: false,
       runAllStreamsSignal: 0,
       stopAllStreamsSignal: 0,
+
+      // Resource Filtering — admin sees all by default
+      resourceFilterMode: env.isAdmin ? 'all' : 'unique',
 
       // Schema test datasets (persisted)
       schemaDatasets: [],
@@ -1377,6 +1392,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ activeNavItem: item });
       },
 
+      setResourceFilterMode: (mode) => {
+        set({ resourceFilterMode: mode });
+      },
+
+      toggleResourceFilterMode: () => {
+        const next = get().resourceFilterMode === 'unique' ? 'all' : 'unique';
+        set({ resourceFilterMode: next });
+      },
+
       toggleNavExpanded: () => {
         set((state) => ({ navExpanded: !state.navExpanded }));
       },
@@ -1452,9 +1476,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadStatementHistory: async () => {
         set({ historyLoading: true, historyError: null });
         try {
+          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
           const statements = await flinkApi.listStatements(100, (accumulated) => {
             set({ statementHistory: accumulated });
-          }, 100);
+          }, 100, filterId);
           set({ statementHistory: statements, historyLoading: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to load statement history';
@@ -1591,6 +1616,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({
           sessionProperties: {
             'sql.local-time-zone': 'UTC',
+            'sql.execution.mode': 'streaming',
+            'execution.checkpointing.mode': 'EXACTLY_ONCE',
           },
         });
       },
@@ -1598,7 +1625,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadSchemaRegistrySubjects: async () => {
         set({ schemaRegistryLoading: true, schemaRegistryError: null });
         try {
-          const subjects = await schemaRegistryApi.listSubjects();
+          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
+          const subjects = await schemaRegistryApi.listSubjects(filterId);
           set({ schemaRegistrySubjects: subjects, schemaRegistryLoading: false });
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Failed to load schemas';
@@ -1650,7 +1678,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadTopics: async () => {
         set({ topicLoading: true, topicError: null });
         try {
-          const topics = await topicApi.listTopics();
+          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
+          const topics = await topicApi.listTopics(filterId);
           set({ topicList: topics, topicLoading: false });
         } catch (error) {
           let errorMessage = 'Failed to load topics';
@@ -1682,13 +1711,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       createTopic: async (params) => {
+        // Automatically tag topic name with uniqueId for filtering
+        const suffix = `-${getSessionTag()}`;
+        const topicName = params.topicName.endsWith(suffix) 
+          ? params.topicName 
+          : `${params.topicName}${suffix}`;
+
         const request: {
           topic_name: string;
           partitions_count: number;
           replication_factor: number;
           configs?: Array<{ name: string; value: string }>;
         } = {
-          topic_name: params.topicName,
+          topic_name: topicName,
           partitions_count: params.partitionsCount,
           replication_factor: params.replicationFactor,
         };
@@ -1852,45 +1887,72 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       saveCurrentWorkspace: (name, sourceTemplateId, sourceTemplateName, notes) => {
         const tab = activeTab();
         const { savedWorkspaces } = get();
-        if (savedWorkspaces.length >= 20) {
+        const existingIndex = savedWorkspaces.findIndex((w) => w.name === name);
+        if (existingIndex === -1 && savedWorkspaces.length >= 20) {
           get().addToast({ type: 'error', message: 'Max 20 workspaces reached — delete one first' });
           return;
         }
         const now = new Date().toISOString();
-        const snapshot: SavedWorkspace = {
-          id: crypto.randomUUID(),
-          name,
-          createdAt: now,
-          updatedAt: now,
-          statementCount: tab.statements.length,
-          streamCardCount: tab.streamCards.length,
-          ...(sourceTemplateId ? { sourceTemplateId } : {}),
-          ...(sourceTemplateName ? { sourceTemplateName } : {}),
-          ...(notes ? { notes } : {}),
-          statements: tab.statements.map((s) => ({
-            id: s.id,
-            code: s.code,
-            label: s.label,
-            isCollapsed: s.isCollapsed,
-            scanMode: s.scanMode,
-            scanTimestampMillis: s.scanTimestampMillis,
-            scanSpecificOffsets: s.scanSpecificOffsets,
-            scanGroupId: s.scanGroupId,
-            ...(s.status === 'RUNNING' && s.statementName ? { statementName: s.statementName } : {}),
-          })),
-          streamCards: tab.streamCards.map((c) => ({
-            topicName: c.topicName,
-            mode: c.mode ?? c.initialMode ?? 'consume',
-            dataSource: c.dataSource ?? 'synthetic',
-            selectedDatasetId: c.selectedDatasetId ?? null,
-            scanMode: c.scanMode ?? 'earliest-offset',
-            ...(c.datasetTemplate ? { datasetTemplate: c.datasetTemplate } : {}),
-          })),
-        };
+        const statementsSnapshot = tab.statements.map((s) => ({
+          id: s.id,
+          code: s.code,
+          label: s.label,
+          isCollapsed: s.isCollapsed,
+          scanMode: s.scanMode,
+          scanTimestampMillis: s.scanTimestampMillis,
+          scanSpecificOffsets: s.scanSpecificOffsets,
+          scanGroupId: s.scanGroupId,
+          ...(s.status === 'RUNNING' && s.statementName ? { statementName: s.statementName } : {}),
+        }));
+        const streamCardsSnapshot = tab.streamCards.map((c) => ({
+          topicName: c.topicName,
+          mode: c.mode ?? c.initialMode ?? 'consume',
+          dataSource: c.dataSource ?? 'synthetic',
+          selectedDatasetId: c.selectedDatasetId ?? null,
+          scanMode: c.scanMode ?? 'earliest-offset',
+          ...(c.datasetTemplate ? { datasetTemplate: c.datasetTemplate } : {}),
+        }));
+        const isUpsert = existingIndex !== -1;
+        let snapshot: SavedWorkspace;
+        if (isUpsert) {
+          const existing = savedWorkspaces[existingIndex];
+          snapshot = {
+            ...existing,
+            updatedAt: now,
+            statementCount: tab.statements.length,
+            streamCardCount: tab.streamCards.length,
+            ...(sourceTemplateId ? { sourceTemplateId } : {}),
+            ...(sourceTemplateName ? { sourceTemplateName } : {}),
+            notes: notes ?? existing.notes,
+            statements: statementsSnapshot,
+            streamCards: streamCardsSnapshot,
+          };
+        } else {
+          snapshot = {
+            id: crypto.randomUUID(),
+            name,
+            createdAt: now,
+            updatedAt: now,
+            statementCount: tab.statements.length,
+            streamCardCount: tab.streamCards.length,
+            ...(sourceTemplateId ? { sourceTemplateId } : {}),
+            ...(sourceTemplateName ? { sourceTemplateName } : {}),
+            ...(notes ? { notes } : {}),
+            statements: statementsSnapshot,
+            streamCards: streamCardsSnapshot,
+          };
+        }
         try {
-          set({ savedWorkspaces: [...get().savedWorkspaces, snapshot] });
+          if (isUpsert) {
+            const updated = [...get().savedWorkspaces];
+            updated[existingIndex] = snapshot;
+            set({ savedWorkspaces: updated });
+          } else {
+            set({ savedWorkspaces: [...get().savedWorkspaces, snapshot] });
+          }
+          setActiveTab({ lastSavedAt: new Date().toISOString() });
           if (!sourceTemplateId) {
-            get().addToast({ type: 'success', message: `Workspace "${name}" saved` });
+            get().addToast({ type: 'success', message: isUpsert ? `Workspace "${name}" updated` : `Workspace "${name}" saved` });
           }
         } catch (e) {
           if (e instanceof DOMException && e.name === 'QuotaExceededError') {
@@ -2090,12 +2152,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ activeNavItem: 'jobs' as NavItem, selectedJobName: statementName });
       },
 
+      navigateToExampleDetail: (cardId: string | null) => {
+        set({ selectedExampleId: cardId });
+      },
+
       loadJobs: async () => {
         set({ jobsLoading: true, jobsError: null });
         try {
+          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
           await flinkApi.listStatements(200, (accumulated) => {
             set({ jobStatements: accumulated });
-          });
+          }, undefined, filterId);
           set({ jobsLoading: false });
         } catch (error: unknown) {
           const err = error as { message?: string };
@@ -2159,7 +2226,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadArtifacts: async () => {
         set({ artifactLoading: true, artifactError: null });
         try {
-          const artifacts = await artifactApi.listArtifacts();
+          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
+          const artifacts = await artifactApi.listArtifacts(filterId);
           set({ artifactList: artifacts, artifactLoading: false });
           const enriched = await Promise.all(
             artifacts.map(async (a) => {
@@ -2571,15 +2639,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const { tabOrder } = get();
         if (tabOrder.length >= 8) return '';
         const newId = generateId();
-        const { catalog, database } = get();
         const newTab: TabState = {
-          statements: [{
-            id: generateId(),
-            code: `-- Write your Flink SQL query here\nSELECT * FROM \`${catalog}\`.\`${database}\`.<table_name> LIMIT 10;`,
-            status: 'IDLE',
-            createdAt: new Date(),
-            label: generateFunName(),
-          }],
+          statements: [],
           focusedStatementId: null,
           workspaceName: name || 'Workspace',
           workspaceNotes: null,

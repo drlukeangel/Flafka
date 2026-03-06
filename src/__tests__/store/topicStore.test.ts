@@ -54,6 +54,7 @@ vi.mock('../../utils/workspace-export', () => ({
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as topicApi from '../../api/topic-api';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
+import { env } from '../../config/environment';
 import type { KafkaTopic, SchemaSubject } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -370,8 +371,9 @@ describe('[@topic-store] createTopic', () => {
     vi.mocked(topicApi.listTopics).mockResolvedValue([]);
   });
 
-  it('calls topicApi.createTopic with correct snake_case body', async () => {
-    vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic({ topic_name: 'my-topic' }));
+  it('calls topicApi.createTopic with correct snake_case body and tagged name', async () => {
+    const taggedName = `my-topic-${env.uniqueId}`;
+    vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic({ topic_name: taggedName }));
 
     await useWorkspaceStore.getState().createTopic({
       topicName: 'my-topic',
@@ -380,7 +382,7 @@ describe('[@topic-store] createTopic', () => {
     });
 
     expect(topicApi.createTopic).toHaveBeenCalledWith({
-      topic_name: 'my-topic',
+      topic_name: taggedName,
       partitions_count: 6,
       replication_factor: 3,
     });
@@ -412,7 +414,8 @@ describe('[@topic-store] createTopic', () => {
     expect(topicApi.listTopics).not.toHaveBeenCalled();
   });
 
-  it('includes configs array when cleanupPolicy is provided', async () => {
+  it('includes configs array and tags name when cleanupPolicy is provided', async () => {
+    const taggedName = `compacted-topic-${env.uniqueId}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic());
 
     await useWorkspaceStore.getState().createTopic({
@@ -423,7 +426,7 @@ describe('[@topic-store] createTopic', () => {
     });
 
     expect(topicApi.createTopic).toHaveBeenCalledWith({
-      topic_name: 'compacted-topic',
+      topic_name: taggedName,
       partitions_count: 3,
       replication_factor: 3,
       configs: [{ name: 'cleanup.policy', value: 'compact' }],
@@ -431,6 +434,7 @@ describe('[@topic-store] createTopic', () => {
   });
 
   it('includes configs array when retentionMs is provided', async () => {
+    const taggedName = `retained-topic-${env.uniqueId}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic());
 
     await useWorkspaceStore.getState().createTopic({
@@ -441,7 +445,7 @@ describe('[@topic-store] createTopic', () => {
     });
 
     expect(topicApi.createTopic).toHaveBeenCalledWith({
-      topic_name: 'retained-topic',
+      topic_name: taggedName,
       partitions_count: 6,
       replication_factor: 3,
       configs: [{ name: 'retention.ms', value: '604800000' }],
@@ -449,6 +453,7 @@ describe('[@topic-store] createTopic', () => {
   });
 
   it('includes both cleanup.policy and retention.ms when both are provided', async () => {
+    const taggedName = `full-config-topic-${env.uniqueId}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic());
 
     await useWorkspaceStore.getState().createTopic({
@@ -460,7 +465,7 @@ describe('[@topic-store] createTopic', () => {
     });
 
     expect(topicApi.createTopic).toHaveBeenCalledWith({
-      topic_name: 'full-config-topic',
+      topic_name: taggedName,
       partitions_count: 6,
       replication_factor: 3,
       configs: [

@@ -530,6 +530,10 @@ export const helpTopics: HelpTopic[] = [
       },
       {
         type: 'list-item',
+        text: 'Ctrl+S: Save current workspace',
+      },
+      {
+        type: 'list-item',
         text: 'Ctrl+Alt+Up: Navigate to previous cell',
       },
       {
@@ -557,8 +561,8 @@ export const helpTopics: HelpTopic[] = [
       { type: 'heading', text: 'Saved Workspaces' },
       { type: 'paragraph', text: 'Saved Workspaces let you snapshot your entire workspace — SQL cells and stream card configs — and restore it in one click.' },
       { type: 'list', text: 'How to save:' },
-      { type: 'list-item', text: 'Click the Save button in the header (left of Stop All), or open the Workspaces panel and click Save Current' },
-      { type: 'list-item', text: 'Give it a name and press Enter or click Save' },
+      { type: 'list-item', text: 'Click the save icon on the active tab in the tab bar, press Ctrl+S, or open the Workspaces panel and click Save Current' },
+      { type: 'list-item', text: 'The workspace saves with the current tab name. Double-click a tab to rename it before saving.' },
       { type: 'list', text: 'How to restore:' },
       { type: 'list-item', text: 'Open the Workspaces panel from the left nav rail' },
       { type: 'list-item', text: 'Click the folder icon on any saved workspace to open it' },
@@ -566,6 +570,9 @@ export const helpTopics: HelpTopic[] = [
       { type: 'list', text: 'Stream card fidelity:' },
       { type: 'list-item', text: 'Produce mode cards are restored with their dataset pre-selected' },
       { type: 'list-item', text: 'Consume mode cards restore with their scan mode (earliest/latest)' },
+      { type: 'list', text: 'Notes:' },
+      { type: 'list-item', text: 'A dot indicator appears on tabs that have workspace notes attached' },
+      { type: 'list-item', text: 'Click the notes icon on the active tab to open or close the notes panel' },
       { type: 'paragraph', text: 'If a SQL statement was RUNNING when you saved, the workspace will automatically reconnect to it on open — if the job is still active on the Confluent Flink compute pool.' },
     ],
   },

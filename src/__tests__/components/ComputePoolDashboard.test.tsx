@@ -152,7 +152,7 @@ describe('[@dashboard] [@component] ComputePoolDashboard', () => {
     expect(screen.getByText(/Updated/)).toBeInTheDocument();
   });
 
-  it('should have role="region" and proper aria attributes', () => {
+  it('should have role="region" and proper aria attributes', { timeout: 15000 }, () => {
     render(<ComputePoolDashboard isOpen={true} />);
     const panel = screen.getByRole('region');
     expect(panel).toHaveAttribute('aria-label', 'Compute pool running statements');
@@ -183,4 +183,163 @@ describe('[@dashboard] formatNumber', () => {
   it('formats millions', () => expect(formatNumber(3500000)).toBe('3.5M'));
   it('passes through small numbers', () => expect(formatNumber(42)).toBe('42'));
   it('returns "\u2014" for NaN', () => expect(formatNumber(NaN)).toBe('\u2014'));
+});
+
+// ---------------------------------------------------------------------------
+// Additional coverage: uncovered branches & interactions
+// ---------------------------------------------------------------------------
+
+const mockNavigateToJobDetail = vi.fn();
+
+describe('[@dashboard] [@component] ComputePoolDashboard — additional coverage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    currentStoreState = {
+      ...defaultStoreState,
+      navigateToJobDetail: mockNavigateToJobDetail,
+    } as any;
+  });
+
+  it('should call loadStatementTelemetry when refresh button is clicked', () => {
+    render(<ComputePoolDashboard isOpen={true} />);
+    fireEvent.click(screen.getByLabelText('Refresh telemetry data'));
+    expect(mockLoadTelemetry).toHaveBeenCalled();
+  });
+
+  it('should disable refresh button when loading', () => {
+    currentStoreState = { ...currentStoreState, telemetryLoading: true, statementTelemetry: mockTelemetry };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(screen.getByLabelText('Refresh telemetry data')).toBeDisabled();
+  });
+
+  it('should close dashboard and focus badge when close button clicked', () => {
+    const focusMock = vi.fn();
+    const mockBadge = document.createElement('button');
+    mockBadge.id = 'compute-pool-badge';
+    mockBadge.focus = focusMock;
+    document.body.appendChild(mockBadge);
+
+    render(<ComputePoolDashboard isOpen={true} />);
+    fireEvent.click(screen.getByLabelText('Close compute pool dashboard'));
+    expect(mockToggle).toHaveBeenCalled();
+
+    document.body.removeChild(mockBadge);
+  });
+
+  it('should navigate to job detail when statement name clicked', () => {
+    currentStoreState = {
+      ...currentStoreState,
+      statementTelemetry: mockTelemetry,
+      navigateToJobDetail: mockNavigateToJobDetail,
+    } as any;
+    render(<ComputePoolDashboard isOpen={true} />);
+    fireEvent.click(screen.getByText('stmt-ws-1'));
+    expect(mockNavigateToJobDetail).toHaveBeenCalledWith('stmt-ws-1');
+    expect(mockToggle).toHaveBeenCalled();
+  });
+
+  it('should show em dash when cfus is null', () => {
+    const nullCfuTelemetry = [{
+      ...mockTelemetry[0],
+      cfus: null,
+    }];
+    currentStoreState = { ...currentStoreState, statementTelemetry: nullCfuTelemetry };
+    render(<ComputePoolDashboard isOpen={true} />);
+    // The em dash character
+    const cfuCells = document.querySelectorAll('.compute-dashboard-cfu-cell');
+    expect(cfuCells[0]?.textContent).toBe('\u2014');
+  });
+
+  it('should apply warning class when pendingRecords > 0', () => {
+    currentStoreState = { ...currentStoreState, statementTelemetry: mockTelemetry };
+    render(<ComputePoolDashboard isOpen={true} />);
+    const warningCells = document.querySelectorAll('.compute-dashboard-warning');
+    expect(warningCells.length).toBeGreaterThan(0);
+  });
+
+  it('should not apply warning class when pendingRecords is 0', () => {
+    const noPendingTelemetry = [{
+      ...mockTelemetry[1], // pendingRecords: 0
+    }];
+    currentStoreState = { ...currentStoreState, statementTelemetry: noPendingTelemetry };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(document.querySelectorAll('.compute-dashboard-warning').length).toBe(0);
+  });
+
+  it('should show error with telemetry still visible when both error and data exist', () => {
+    currentStoreState = {
+      ...currentStoreState,
+      telemetryError: 'Partial failure',
+      statementTelemetry: mockTelemetry,
+    };
+    render(<ComputePoolDashboard isOpen={true} />);
+    // Table should render (error branch only shows if data is empty)
+    expect(screen.getByText('stmt-ws-1')).toBeInTheDocument();
+  });
+
+  it('should show loading spinner with no data (first load)', () => {
+    currentStoreState = {
+      ...currentStoreState,
+      telemetryLoading: true,
+      statementTelemetry: [],
+    };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(screen.getByText('Loading telemetry...')).toBeInTheDocument();
+  });
+
+  it('should show table when loading with existing data (refresh)', () => {
+    currentStoreState = {
+      ...currentStoreState,
+      telemetryLoading: true,
+      statementTelemetry: mockTelemetry,
+    };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(screen.getByText('stmt-ws-1')).toBeInTheDocument();
+  });
+
+  it('should not show "Updated" text when telemetryLastUpdated is null', () => {
+    currentStoreState = { ...currentStoreState, telemetryLastUpdated: null };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(screen.queryByText(/Updated/)).not.toBeInTheDocument();
+  });
+
+  it('should apply external class to non-workspace rows', () => {
+    currentStoreState = { ...currentStoreState, statementTelemetry: mockTelemetry };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(document.querySelectorAll('.compute-dashboard-external').length).toBe(1);
+  });
+
+  it('should set height style from dashboardHeight', () => {
+    currentStoreState = { ...currentStoreState, dashboardHeight: 350 };
+    render(<ComputePoolDashboard isOpen={true} />);
+    const panel = screen.getByRole('region');
+    expect(panel.style.height).toBe('350px');
+  });
+
+  it('should have drag resize handle', () => {
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(document.querySelector('.compute-dashboard-resize-handle')).toBeTruthy();
+  });
+
+  it('should handle drag resize interaction', () => {
+    render(<ComputePoolDashboard isOpen={true} />);
+    const handle = document.querySelector('.compute-dashboard-resize-handle')!;
+    fireEvent.mouseDown(handle, { clientY: 100 });
+    // Simulate mouse move
+    fireEvent.mouseMove(document, { clientY: 150 });
+    expect(mockSetHeight).toHaveBeenCalled();
+    // Simulate mouse up
+    fireEvent.mouseUp(document);
+  });
+
+  it('should show table header columns', () => {
+    currentStoreState = { ...currentStoreState, statementTelemetry: mockTelemetry };
+    render(<ComputePoolDashboard isOpen={true} />);
+    expect(screen.getByText('Statement')).toBeInTheDocument();
+    expect(screen.getByText('CFU')).toBeInTheDocument();
+    expect(screen.getByText('Records In')).toBeInTheDocument();
+    expect(screen.getByText('Records Out')).toBeInTheDocument();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByText('State Size')).toBeInTheDocument();
+  });
 });

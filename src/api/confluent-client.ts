@@ -97,7 +97,7 @@ confluentClient.interceptors.response.use(
   (error: AxiosError) => {
     const message = (error.response?.data as { message?: string })?.message || error.message;
     if (import.meta.env.DEV) {
-      console.error(`[API Error] ${error.response?.status}: ${message}`);
+      console.error(`[API Error] ${error.response?.status}: ${message}`, JSON.stringify(error.response?.data, null, 2));
     }
     return Promise.reject(error);
   }
@@ -176,11 +176,13 @@ export interface ApiError {
 
 export const handleApiError = (error: unknown): ApiError => {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<{ message?: string; detail?: string }>;
+    const axiosError = error as AxiosError<{ message?: string; detail?: string; errors?: Array<{ detail?: string }> }>;
+    const data = axiosError.response?.data;
+    const detail = data?.errors?.[0]?.detail ?? data?.detail;
     return {
       status: axiosError.response?.status || 500,
-      message: axiosError.response?.data?.message || axiosError.message,
-      details: axiosError.response?.data?.detail,
+      message: data?.message || axiosError.message,
+      details: detail,
     };
   }
   return {

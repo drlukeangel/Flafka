@@ -40,6 +40,12 @@ vi.mock('../../store/workspaceStore', () => ({
         updateStatementLabel: mockUpdateStatementLabel,
         addToast: mockAddToast,
         theme: mockTheme,
+        statementTelemetry: [],
+        loadStatementTelemetry: vi.fn(),
+        refreshStatementStatus: vi.fn(),
+        addSnippet: vi.fn(),
+        statements: mockStatementsRef.current,
+        setStatementScanMode: vi.fn(),
       }
       if (selector) return selector(state)
       return state
@@ -59,6 +65,10 @@ vi.mock('../../store/workspaceStore', () => ({
         updateStatementLabel: mockUpdateStatementLabel,
         addToast: mockAddToast,
         theme: mockTheme,
+        statementTelemetry: [],
+        loadStatementTelemetry: vi.fn(),
+        refreshStatementStatus: vi.fn(),
+        addSnippet: vi.fn(),
         treeNodes: [],
         selectedTableSchema: [],
         focusedStatementId: null,
@@ -195,6 +205,7 @@ const makeStatement = (overrides: Partial<SQLStatement> = {}): SQLStatement => (
   id: 'stmt-1',
   code: 'SELECT 1',
   status: 'IDLE',
+  label: 'test-job',
   createdAt: new Date('2026-02-28T10:00:00Z'),
   ...overrides,
 })
@@ -762,7 +773,7 @@ describe('[@editor-cell] EditorCell', () => {
   describe('[@editor-cell] collapsed preview', () => {
     it('shows collapsed preview with SQL when collapsed and no label', () => {
       const { container } = renderCell(
-        makeStatement({ code: 'SELECT * FROM users', isCollapsed: true })
+        makeStatement({ code: 'SELECT * FROM users', isCollapsed: true, label: undefined })
       )
       const preview = container.querySelector('.cell-collapsed-preview')
       expect(preview).toBeInTheDocument()
@@ -780,7 +791,7 @@ describe('[@editor-cell] EditorCell', () => {
 
     it('shows "(empty)" preview when code is empty and collapsed', () => {
       const { container } = renderCell(
-        makeStatement({ code: '', isCollapsed: true })
+        makeStatement({ code: '', isCollapsed: true, label: undefined })
       )
       const preview = container.querySelector('.cell-collapsed-preview')
       expect(preview).toBeInTheDocument()
@@ -790,7 +801,7 @@ describe('[@editor-cell] EditorCell', () => {
     it('shows truncated SQL preview (60 chars max) when code is very long', () => {
       const longCode = 'SELECT id, name, email, phone, address, city, state FROM users'
       const { container } = renderCell(
-        makeStatement({ code: longCode, isCollapsed: true })
+        makeStatement({ code: longCode, isCollapsed: true, label: undefined })
       )
       const preview = container.querySelector('.cell-collapsed-preview')
       // Should truncate at 60 chars with "..."
@@ -800,7 +811,7 @@ describe('[@editor-cell] EditorCell', () => {
     it('skips comment-only lines and shows first non-comment line in preview', () => {
       const codeWithComments = '-- This is a comment\n-- Another comment\nSELECT 1'
       const { container } = renderCell(
-        makeStatement({ code: codeWithComments, isCollapsed: true })
+        makeStatement({ code: codeWithComments, isCollapsed: true, label: undefined })
       )
       const sqlPreview = container.querySelector('.cell-collapsed-sql')
       expect(sqlPreview).toHaveTextContent('SELECT 1')
@@ -848,10 +859,11 @@ describe('[@editor-cell] EditorCell', () => {
     })
 
     it('shows label placeholder when no label is set', () => {
-      const { container } = renderCell(makeStatement({ label: undefined }))
+      // Use COMPLETED status to prevent auto-entering edit mode on mount
+      const { container } = renderCell(makeStatement({ label: undefined, status: 'COMPLETED', lastExecutedCode: 'SELECT 1' }))
       const placeholder = container.querySelector('.cell-label-placeholder')
       expect(placeholder).toBeInTheDocument()
-      expect(placeholder).toHaveTextContent('Add label...')
+      expect(placeholder).toHaveTextContent('Job name...')
     })
 
     it('shows existing label text when label is set', () => {
@@ -870,10 +882,10 @@ describe('[@editor-cell] EditorCell', () => {
 
       const input = container.querySelector('.cell-label-input') as HTMLInputElement
       await user.clear(input)
-      await user.type(input, 'New Label')
+      await user.type(input, 'new-label')
       await user.keyboard('{Enter}')
 
-      expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-label', 'New Label')
+      expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-label', 'new-label')
     })
 
     it('pressing Escape in label input cancels without saving', async () => {
@@ -1219,7 +1231,7 @@ describe('[@editor-cell] EditorCell', () => {
   describe('[@editor-cell] getPreviewLine edge cases', () => {
     it('shows first non-empty line when code has leading blank lines', () => {
       const { container } = renderCell(
-        makeStatement({ code: '\n\n  SELECT 42', isCollapsed: true })
+        makeStatement({ code: '\n\n  SELECT 42', isCollapsed: true, label: undefined })
       )
       const sqlPreview = container.querySelector('.cell-collapsed-sql')
       expect(sqlPreview).toHaveTextContent('SELECT 42')
@@ -1227,7 +1239,7 @@ describe('[@editor-cell] EditorCell', () => {
 
     it('shows (empty) when code is only whitespace', () => {
       const { container } = renderCell(
-        makeStatement({ code: '   \n  \n  ', isCollapsed: true })
+        makeStatement({ code: '   \n  \n  ', isCollapsed: true, label: undefined })
       )
       const preview = container.querySelector('.cell-collapsed-preview')
       expect(preview).toHaveTextContent('(empty)')
@@ -1235,7 +1247,7 @@ describe('[@editor-cell] EditorCell', () => {
 
     it('falls back to first comment line content when all lines are comments', () => {
       const { container } = renderCell(
-        makeStatement({ code: '-- only comments\n-- more comments', isCollapsed: true })
+        makeStatement({ code: '-- only comments\n-- more comments', isCollapsed: true, label: undefined })
       )
       const sqlPreview = container.querySelector('.cell-collapsed-sql')
       // getPreviewLine falls through the loop and returns code.trim().slice(0,60)
@@ -1245,7 +1257,7 @@ describe('[@editor-cell] EditorCell', () => {
     it('shows exactly 60 chars with ellipsis for long single line', () => {
       const longLine = 'A'.repeat(80)
       const { container } = renderCell(
-        makeStatement({ code: longLine, isCollapsed: true })
+        makeStatement({ code: longLine, isCollapsed: true, label: undefined })
       )
       const sqlPreview = container.querySelector('.cell-collapsed-sql')
       expect(sqlPreview?.textContent).toBe('A'.repeat(60) + '...')
@@ -1482,12 +1494,12 @@ describe('[@editor-cell] EditorCell', () => {
 
       const input = container.querySelector('.cell-label-input') as HTMLInputElement
       await user.clear(input)
-      await user.type(input, 'Blurred Label')
+      await user.type(input, 'blurred-label')
 
       // Blur by clicking elsewhere
       await user.click(container.querySelector('.cell-number')!)
 
-      expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-blur', 'Blurred Label')
+      expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-blur', 'blurred-label')
     })
 
     it('blur after Escape does NOT save label (labelCancelledRef prevents it)', async () => {
@@ -2153,5 +2165,300 @@ describe('[@editor-cell] EditorCell', () => {
       // updateStatement should be called for each keystroke
       expect(mockUpdateStatement).toHaveBeenCalled()
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// [@coverage-boost] EditorCell — additional coverage for uncovered branches
+// ---------------------------------------------------------------------------
+
+describe('[@coverage-boost] EditorCell status badges and conditional rendering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('shows PENDING status badge with spinner', () => {
+    renderCell(makeStatement({ status: 'PENDING', label: 'pending-job' }))
+    expect(screen.getByText('Pending')).toBeInTheDocument()
+  })
+
+  it('shows RUNNING status badge with dot', () => {
+    renderCell(makeStatement({ status: 'RUNNING', label: 'running-job', startedAt: new Date() }))
+    expect(screen.getByText('Running')).toBeInTheDocument()
+  })
+
+  it('shows COMPLETED status badge', () => {
+    renderCell(makeStatement({ status: 'COMPLETED', label: 'done-job' }))
+    expect(screen.getByText('Completed')).toBeInTheDocument()
+  })
+
+  it('shows ERROR status badge', () => {
+    renderCell(makeStatement({ status: 'ERROR', error: 'Something broke', label: 'err-job' }))
+    expect(screen.getByText('Error')).toBeInTheDocument()
+  })
+
+  it('shows CANCELLED status badge', () => {
+    renderCell(makeStatement({ status: 'CANCELLED', label: 'cancelled-job' }))
+    expect(screen.getByText('Cancelled')).toBeInTheDocument()
+  })
+
+  it('shows "Modified" badge when code differs from lastExecutedCode', () => {
+    renderCell(makeStatement({
+      code: 'SELECT 2',
+      lastExecutedCode: 'SELECT 1',
+      label: 'mod-job',
+    }))
+    expect(screen.getByText('Modified')).toBeInTheDocument()
+  })
+
+  it('does not show "Modified" badge when code matches lastExecutedCode', () => {
+    renderCell(makeStatement({
+      code: 'SELECT 1',
+      lastExecutedCode: 'SELECT 1',
+      label: 'same-job',
+    }))
+    expect(screen.queryByText('Modified')).not.toBeInTheDocument()
+  })
+
+  it('shows results count when results present', () => {
+    renderCell(makeStatement({
+      label: 'res-job',
+      results: [{ a: 1 }, { a: 2 }],
+      columns: [{ name: 'a', type: 'INT' }],
+    }))
+    expect(screen.getByTestId('results-table')).toBeInTheDocument()
+  })
+
+  it('shows total rows when totalRowsReceived > results.length', () => {
+    renderCell(makeStatement({
+      label: 'big-job',
+      results: [{ a: 1 }],
+      totalRowsReceived: 5000,
+      columns: [{ name: 'a', type: 'INT' }],
+    }))
+    expect(screen.getByText(/1 of 5,000 rows/)).toBeInTheDocument()
+  })
+
+  it('shows execution time when set', () => {
+    renderCell(makeStatement({
+      label: 'timed-job',
+      status: 'COMPLETED',
+      executionTime: 1234,
+    }))
+    expect(screen.getByText('1.23s')).toBeInTheDocument()
+  })
+})
+
+describe('[@coverage-boost] EditorCell collapsed preview and status', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('collapsed cell shows label in preview when label is set', () => {
+    renderCell(makeStatement({ isCollapsed: true, label: 'my-query' }))
+    expect(document.querySelector('.cell-collapsed-label')).toBeInTheDocument()
+    expect(document.querySelector('.cell-collapsed-label')!.textContent).toBe('my-query')
+  })
+
+  it('collapsed cell shows SQL preview when no label', () => {
+    renderCell(makeStatement({ isCollapsed: true, label: '', code: 'SELECT * FROM orders' }))
+    expect(document.querySelector('.cell-collapsed-sql')).toBeInTheDocument()
+  })
+
+  it('collapsed cell with results shows row count', () => {
+    renderCell(makeStatement({
+      isCollapsed: true,
+      label: 'col-job',
+      results: [{ a: 1 }, { a: 2 }],
+      columns: [{ name: 'a', type: 'INT' }],
+    }))
+    expect(document.querySelector('.cell-collapsed-rows')!.textContent).toMatch(/2/)
+  })
+
+  it('collapsed cell with totalRowsReceived > results shows total', () => {
+    renderCell(makeStatement({
+      isCollapsed: true,
+      label: 'big-col-job',
+      results: [{ a: 1 }],
+      totalRowsReceived: 999,
+      columns: [{ name: 'a', type: 'INT' }],
+    }))
+    expect(document.querySelector('.cell-collapsed-rows')!.textContent).toMatch(/999/)
+  })
+})
+
+describe('[@coverage-boost] EditorCell CANCELLED state and error details', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('cancelled statement shows retry button', () => {
+    renderCell(makeStatement({ status: 'CANCELLED', label: 'can-job' }))
+    expect(screen.getByText('Retry')).toBeInTheDocument()
+  })
+
+  it('error state shows error details panel', () => {
+    renderCell(makeStatement({
+      status: 'ERROR',
+      error: 'Table not found',
+      label: 'err-detail-job',
+    }))
+    expect(screen.getByText('Error Details')).toBeInTheDocument()
+  })
+
+  it('clicking error details header toggles expanded state', async () => {
+    const user = userEvent.setup()
+    renderCell(makeStatement({
+      status: 'ERROR',
+      error: 'Table not found',
+      label: 'err-toggle-job',
+      statementName: 'stmt-err-1',
+      startedAt: new Date(),
+    }))
+    const header = screen.getByText('Error Details')
+    await user.click(header)
+    // After click, error message should be visible
+    expect(screen.getByText('Table not found')).toBeInTheDocument()
+    // Click again to collapse
+    await user.click(header)
+  })
+})
+
+describe('[@coverage-boost] EditorCell status bar with telemetry', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('status bar shows start time when startedAt is set', () => {
+    const startedAt = new Date('2026-03-01T10:30:00Z')
+    renderCell(makeStatement({
+      status: 'RUNNING',
+      startedAt,
+      statementName: 'stmt-status-1',
+      label: 'status-job',
+    }))
+    expect(screen.getByText('START TIME:')).toBeInTheDocument()
+    expect(screen.getByText('STATUS:')).toBeInTheDocument()
+    expect(screen.getByText('STATEMENT:')).toBeInTheDocument()
+  })
+
+  it('status bar shows finish time and duration for completed', () => {
+    const startedAt = new Date('2026-03-01T10:00:00Z')
+    const lastExecutedAt = new Date('2026-03-01T10:01:30Z')
+    renderCell(makeStatement({
+      status: 'COMPLETED',
+      startedAt,
+      lastExecutedAt,
+      label: 'dur-job',
+    }))
+    expect(screen.getByText('FINISH TIME:')).toBeInTheDocument()
+    expect(screen.getByText('DURATION:')).toBeInTheDocument()
+    expect(screen.getByText('1m 30s')).toBeInTheDocument()
+  })
+})
+
+describe('[@coverage-boost] EditorCell run button states', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('shows Stop when statement is RUNNING', () => {
+    renderCell(makeStatement({ status: 'RUNNING', label: 'run-stop-job' }))
+    expect(screen.getAllByText('Stop').length).toBeGreaterThan(0)
+  })
+
+  it('shows Restart when lastExecutedCode is set', () => {
+    renderCell(makeStatement({ status: 'IDLE', lastExecutedCode: 'SELECT 1', label: 'restart-job' }))
+    expect(screen.getByText('Restart')).toBeInTheDocument()
+  })
+
+  it('shows Run when no previous execution', () => {
+    renderCell(makeStatement({ status: 'IDLE', label: 'run-new-job' }))
+    expect(screen.getByText('Run')).toBeInTheDocument()
+  })
+
+  it('run button is disabled when no job name', () => {
+    renderCell(makeStatement({ status: 'IDLE', label: '' }))
+    const runBtn = document.querySelector('.run-btn') as HTMLButtonElement
+    expect(runBtn.disabled).toBe(true)
+  })
+
+  it('shows locked overlay when no job name', () => {
+    renderCell(makeStatement({ status: 'IDLE', label: '' }))
+    expect(document.querySelector('.cell-editor-locked-overlay')).toBeInTheDocument()
+  })
+})
+
+describe('[@coverage-boost] EditorCell label editing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('clicking label group enters edit mode', async () => {
+    const user = userEvent.setup()
+    renderCell(makeStatement({ label: 'edit-label-job' }))
+    // Click the label to start editing
+    const labelSpan = screen.getByText('edit-label-job')
+    await user.click(labelSpan)
+    expect(document.querySelector('.cell-label-input')).toBeInTheDocument()
+  })
+
+  it('pressing Enter saves label', async () => {
+    const user = userEvent.setup()
+    renderCell(makeStatement({ label: '' }))
+    const input = document.querySelector('.cell-label-input') as HTMLInputElement
+    expect(input).toBeInTheDocument()
+    await user.type(input, 'new-name')
+    await user.keyboard('{Enter}')
+    expect(mockUpdateStatementLabel).toHaveBeenCalledWith('stmt-1', 'new-name')
+  })
+
+  it('pressing Escape cancels label edit without saving', async () => {
+    const user = userEvent.setup()
+    renderCell(makeStatement({ label: '' }))
+    const input = document.querySelector('.cell-label-input') as HTMLInputElement
+    await user.type(input, 'discarded')
+    await user.keyboard('{Escape}')
+    // After escape and blur, save should NOT happen
+    expect(mockUpdateStatementLabel).not.toHaveBeenCalled()
+  })
+
+  it('label input auto-lowercases and strips invalid chars', async () => {
+    const user = userEvent.setup()
+    renderCell(makeStatement({ label: '' }))
+    const input = document.querySelector('.cell-label-input') as HTMLInputElement
+    await user.type(input, 'ABC_123')
+    // Underscores get stripped, uppercase gets lowered
+    expect(input.value).toBe('abc123')
+  })
+
+  it('invalid label shows invalid class', async () => {
+    const user = userEvent.setup()
+    renderCell(makeStatement({ label: '' }))
+    const input = document.querySelector('.cell-label-input') as HTMLInputElement
+    await user.type(input, '-invalid')
+    expect(input.classList.contains('cell-label-input--invalid')).toBe(true)
+  })
+})
+
+describe('[@coverage-boost] EditorCell snippet save', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStatementsRef.current = []
+  })
+
+  it('save as snippet with empty code shows warning toast', async () => {
+    const mockAddSnippet = vi.fn()
+    // Re-render with empty code
+    renderCell(makeStatement({ code: '', label: 'snippet-empty' }))
+    // The snippet button should be disabled when code is empty
+    const snippetBtn = document.querySelector('[aria-label="Save as snippet"]') as HTMLButtonElement
+    expect(snippetBtn.disabled).toBe(true)
   })
 })

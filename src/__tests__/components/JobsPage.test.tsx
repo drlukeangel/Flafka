@@ -85,7 +85,7 @@ describe('[@jobs-page] JobsPage', () => {
   it('calls loadJobs on mount', async () => {
     render(<JobsPage />);
     await waitFor(() => {
-      expect(flinkApi.listStatements).toHaveBeenCalledWith(200);
+      expect(flinkApi.listStatements).toHaveBeenCalledWith(200, expect.any(Function));
     });
   });
 

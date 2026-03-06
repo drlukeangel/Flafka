@@ -31,6 +31,7 @@ import * as schemaRegistryApi from '../../api/schema-registry-api';
 import type { CompatibilityLevel } from '../../types';
 import SchemaTreeView from './SchemaTreeView';
 import { SchemaDatasets } from './SchemaDatasets';
+import { getSessionTag } from '../../utils/names';
 import {
   FiRefreshCw,
   FiX,
@@ -570,6 +571,10 @@ export default function SchemaDetail() {
   const [schemaOpen, setSchemaOpen] = useState(false);
 
   const subject = selectedSchemaSubject?.subject ?? null;
+
+  // Soft multi-tenancy check
+  const isOwner = subject?.endsWith(`-${getSessionTag()}`);
+  const canManage = isOwner;
 
   // Load versions list whenever subject changes
   useEffect(() => {
@@ -1124,10 +1129,13 @@ export default function SchemaDetail() {
               borderRadius: 4,
               background: 'var(--color-surface)',
               color: 'var(--color-text-secondary)',
-              cursor: 'pointer',
+              cursor: canManage ? 'pointer' : 'not-allowed',
+              opacity: canManage ? 1 : 0.4,
+              filter: canManage ? 'none' : 'grayscale(1)',
             }}
             onClick={() => setShowDeleteConfirm(true)}
-            title="Delete schema subject and all datasets"
+            disabled={!canManage}
+            title={canManage ? "Delete schema subject and all datasets" : `Only the owner can delete this schema (required suffix: -${getSessionTag()})`}
             aria-label="Delete subject"
           >
             <FiTrash2 size={13} aria-hidden="true" />

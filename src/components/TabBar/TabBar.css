@@ -44,6 +44,7 @@
   color: var(--color-text);
   border-color: var(--color-border);
   font-weight: 500;
+  min-width: 100px;
 }
 
 .tab-bar__tab[aria-selected="true"]::after {
@@ -168,6 +169,133 @@
 @keyframes tab-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Notes dot indicator */
+.tab-bar__notes-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent, #3b82f6);
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+/* Save and notes buttons on active tab */
+.tab-bar__save-btn,
+.tab-bar__notes-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #6b7280);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.tab-bar__save-btn:hover,
+.tab-bar__notes-btn:hover {
+  background: var(--color-hover, rgba(0,0,0,0.06));
+  color: var(--color-text, #1f2937);
+}
+
+.tab-bar__notes-btn--active {
+  color: var(--color-accent, #3b82f6);
+}
+
+/* Notes panel */
+.tab-bar__notes-panel {
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface, #ffffff);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: notes-slide-up 0.15s ease-out;
+}
+
+@keyframes notes-slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Resize handle */
+.tab-bar__notes-resize-handle {
+  height: 4px;
+  cursor: ns-resize;
+  background: transparent;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.tab-bar__notes-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-border, #e5e7eb);
+  transition: background 0.15s;
+}
+
+.tab-bar__notes-resize-handle:hover::after {
+  background: var(--color-text-secondary, #6b7280);
+}
+
+.tab-bar__notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+
+.tab-bar__notes-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #6b7280);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tab-bar__notes-close {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary, #6b7280);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.tab-bar__notes-close:hover {
+  background: var(--color-hover, rgba(0,0,0,0.06));
+}
+
+.tab-bar__notes-textarea {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  padding: 8px 12px;
+  border: none;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text, #1f2937);
+  background: var(--color-surface, #ffffff);
+}
+
+.tab-bar__notes-textarea::placeholder {
+  color: var(--color-text-tertiary, #9ca3af);
 }
 
 /* Close warning dialog */

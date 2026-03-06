@@ -1,3 +1,9 @@
+/**
+ * Virtual-scrolled results table for SQL query output.
+ * Uses @tanstack/react-virtual for efficient rendering of large result sets
+ * (only visible rows are in the DOM).
+ */
+
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ExpandableJsonPane } from '../shared/ExpandableJsonPane';
@@ -436,6 +442,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
             </tr>
           </thead>
           <tbody>
+            {/* Virtual scrolling spacer rows: empty <tr> elements whose height
+                equals the total size of all off-screen rows above/below the
+                visible window. This creates the correct scroll height in the
+                container without rendering actual data rows for every record. */}
             {paddingTop > 0 && (
               <tr><td colSpan={visibleColumnNames.length + 1} style={{ height: paddingTop, padding: 0, border: 0 }} /></tr>
             )}

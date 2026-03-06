@@ -35,6 +35,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  position: relative;
   height: 56px;
   padding: 0 16px;
   background-color: #242427;
@@ -83,109 +84,6 @@
 }
 
 
-/* Workspace name in header */
-.header-workspace-sep {
-  width: 1px;
-  height: 16px;
-  background: var(--color-border);
-  margin: 0 -4px;
-  flex-shrink: 0;
-}
-
-.header-workspace-name {
-  font-size: 15px;
-  font-weight: 400;
-  color: #A1A1A6;
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Shared ghost icon button used in header (save, notes toggle) */
-.header-icon-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #696969;
-  font-size: 14px;
-  padding: 3px 4px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
-  flex-shrink: 0;
-  transition: color 0.15s;
-}
-.header-icon-btn:hover {
-  color: #A1A1A6;
-}
-.header-icon-btn--active,
-.header-icon-btn--active:hover {
-  color: var(--color-primary);
-}
-
-
-/* Workspace Notes push-down panel — mirrors .compute-pool-dashboard pattern */
-.workspace-notes-panel {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.25s ease;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
-  flex-shrink: 0;
-}
-.workspace-notes-panel--open {
-  max-height: 300px;
-  overflow-y: auto;
-}
-.workspace-notes-header {
-  padding: 6px 16px 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.workspace-notes-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.workspace-notes-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--color-primary);
-  padding: 0;
-  line-height: 1;
-}
-.workspace-notes-close:hover {
-  opacity: 0.75;
-}
-.workspace-notes-textarea {
-  display: block;
-  width: 100%;
-  min-height: 100px;
-  max-height: 220px;
-  padding: 8px 16px;
-  font-size: 12px;
-  font-family: inherit;
-  line-height: 1.6;
-  color: var(--color-text-secondary);
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: vertical;
-  box-sizing: border-box;
-}
-.workspace-notes-textarea:focus {
-  color: var(--color-text-primary);
-  background: var(--color-surface-secondary);
-}
-
 /* Save workspace button */
 .save-workspace-btn {
   display: flex;
@@ -208,6 +106,9 @@
 }
 
 .header-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -395,6 +296,64 @@
   outline: none;
   border-color: var(--color-primary);
   box-shadow: var(--shadow-focus-ring);
+}
+
+.settings-input {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  max-width: 160px;
+  transition: border-color 0.15s;
+}
+.settings-input:hover {
+  border-color: var(--color-primary);
+}
+.settings-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-focus-ring);
+}
+
+/* ═══ Inline New Property ═══ */
+.property-row--new {
+  background: var(--color-surface-secondary);
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+}
+
+.property-key-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 6px 0 6px 8px;
+  outline: none;
+  width: 0;
+}
+
+.property-key-input::placeholder {
+  color: var(--color-text-secondary);
+}
+
+/* ═══ Property Help Text ═══ */
+.property-row-group {
+  margin-bottom: 8px;
+}
+
+.property-help {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  padding: 4px 8px 0 8px;
+  line-height: 1.4;
+  font-style: italic;
+  max-width: 160px;
+  word-break: break-word;
 }
 
 /* History Panel */

@@ -1,3 +1,8 @@
+/**
+ * SQL editor cell — each statement in the workspace gets one EditorCell.
+ * Contains Monaco editor, run/stop button, status bar, and results table.
+ */
+
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
@@ -30,9 +35,15 @@ import { ScanModePanel } from '../ScanModePanel/ScanModePanel';
 // SQL Autocomplete - module-level disposable (prevents duplicate providers on HMR)
 // ---------------------------------------------------------------------------
 
+// Monaco autocomplete providers persist across React re-mounts during HMR.
+// If we registered inside the component, each hot reload would add a duplicate
+// provider, causing double suggestions. Module-level ensures we can dispose the
+// old one before registering a new one.
 let completionProviderDisposable: monaco.IDisposable | null = null;
 
-// Flink-specific keywords not already handled by Monaco's built-in SQL mode
+// Flink-specific SQL keywords used for autocomplete suggestions.
+// These supplement Monaco's built-in SQL keywords with Flink-only syntax
+// (windowing functions, SHOW commands, MATCH_RECOGNIZE, etc.).
 const FLINK_KEYWORDS: string[] = [
   'TUMBLE',
   'HOP',
@@ -153,6 +164,14 @@ const getPreviewLine = (code: string): string => {
   return code.trim().slice(0, 60) || '(empty)';
 };
 
+/**
+ * EditorCell — renders a single SQL statement editor within the workspace.
+ *
+ * Props:
+ *   - statement: The SQLStatement object (code, status, results, label, etc.)
+ *   - index: Position of this cell in the workspace's statement list (used for
+ *            display numbering, drag-reorder, and export filenames)
+ */
 const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const {
     updateStatement,
@@ -411,6 +430,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     [statement.id, updateStatement]
   );
 
+  // Execute the statement, or cancel it if already running/pending (toggle behavior).
   const handleRun = () => {
     if (statement.status === 'RUNNING' || statement.status === 'PENDING') {
       cancelStatement(statement.id);
@@ -433,6 +453,8 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     duplicateStatement(statement.id);
   };
 
+  // Collapse or expand the cell body (editor + results). Collapsed cells show
+  // a one-line preview with the first non-comment SQL line.
   const handleToggleCollapse = () => {
     toggleStatementCollapse(statement.id);
   };
@@ -470,6 +492,9 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     handleLabelSave();
   };
 
+  // Drag-and-drop handlers for reordering cells within the workspace.
+  // handleDragStart stores the source index; handleDrop calculates the
+  // destination index and calls reorderStatements in the store.
   const handleDragStart = (e: React.DragEvent<HTMLSpanElement>) => {
     e.dataTransfer.setData('text/plain', index.toString());
     e.dataTransfer.effectAllowed = 'move';
@@ -618,6 +643,17 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             title="Insert cell below"
           >
             <FiPlus size={16} />
+          </button>
+          <button
+            className="icon-btn collapse-btn"
+            onClick={handleToggleCollapse}
+            title={statement.isCollapsed ? 'Expand' : 'Collapse'}
+          >
+            {statement.isCollapsed ? (
+              <FiChevronRight size={16} />
+            ) : (
+              <FiChevronDown size={16} />
+            )}
           </button>
           <span className="cell-number">#{index + 1}</span>
           <div className={`cell-label-group${isEditingLabel ? ' cell-label-group--editing' : ''}`} onClick={!isEditingLabel ? handleLabelClick : undefined}>
@@ -784,17 +820,6 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
                 <FiPlay size={14} />
                 <span>Run</span>
               </>
-            )}
-          </button>
-          <button
-            className="icon-btn collapse-btn"
-            onClick={handleToggleCollapse}
-            title={statement.isCollapsed ? 'Expand' : 'Collapse'}
-          >
-            {statement.isCollapsed ? (
-              <FiChevronRight size={16} />
-            ) : (
-              <FiChevronDown size={16} />
             )}
           </button>
         </div>

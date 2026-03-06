@@ -23,22 +23,22 @@ vi.mock('../../components/StreamsPanel/StreamCard', () => ({
 
 // Mock store
 let mockTopicList: KafkaTopic[] = []
-let mockStreamsSelectedTopics: string[] = []
+let mockStreamCards: { id: string; topicName: string }[] = []
 
 const mockLoadTopics = vi.fn()
-const mockAddStreamsTopic = vi.fn()
-const mockRemoveStreamsTopic = vi.fn()
-const mockToggleStreamsPanel = vi.fn()
+const mockAddStreamCard = vi.fn()
+const mockRemoveStreamCard = vi.fn()
+const mockRemoveStreamCardsByTopic = vi.fn()
 
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) => {
     const state = {
       topicList: mockTopicList,
-      streamsSelectedTopics: mockStreamsSelectedTopics,
+      streamCards: mockStreamCards,
       loadTopics: mockLoadTopics,
-      addStreamsTopic: mockAddStreamsTopic,
-      removeStreamsTopic: mockRemoveStreamsTopic,
-      toggleStreamsPanel: mockToggleStreamsPanel,
+      addStreamCard: mockAddStreamCard,
+      removeStreamCard: mockRemoveStreamCard,
+      removeStreamCardsByTopic: mockRemoveStreamCardsByTopic,
     }
     return typeof selector === 'function' ? selector(state) : state
   },
@@ -59,7 +59,7 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockTopicList = []
-    mockStreamsSelectedTopics = []
+    mockStreamCards = []
   })
 
   // ========================================================================
@@ -67,11 +67,12 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
   // ========================================================================
 
   describe('[@stream-panel-expanded] Rendering', () => {
-    it('renders streams panel with title and close button', () => {
+    it('renders streams panel with title', () => {
       render(<StreamsPanel />)
 
-      expect(screen.getByText('Streams')).toBeInTheDocument()
-      expect(screen.getByLabelText('Close streams panel')).toBeInTheDocument()
+      // "Streams" appears in both the search label and the empty state heading
+      const allStreams = screen.getAllByText('Streams')
+      expect(allStreams.length).toBeGreaterThanOrEqual(1)
     })
 
     it('renders search input with placeholder', () => {
@@ -112,7 +113,7 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
 
       render(<StreamsPanel />)
 
-      expect(screen.getByText('Select topics above to start monitoring')).toBeInTheDocument()
+      expect(screen.getByText('Select a topic above to start streaming')).toBeInTheDocument()
     })
   })
 
@@ -174,7 +175,7 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
       await userEvent.type(searchInput, 'nonexistent')
 
       // Empty state should show
-      expect(screen.getByText('Select topics above to start monitoring')).toBeInTheDocument()
+      expect(screen.getByText('Select a topic above to start streaming')).toBeInTheDocument()
     })
   })
 
@@ -191,12 +192,12 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
       const checkbox = screen.getByRole('checkbox') as HTMLInputElement
       await userEvent.click(checkbox)
 
-      expect(mockAddStreamsTopic).toHaveBeenCalledWith('test-topic')
+      expect(mockAddStreamCard).toHaveBeenCalledWith('test-topic')
     })
 
     it('deselects topic when already selected checkbox is clicked', async () => {
       mockTopicList = [makeTopic({ topic_name: 'test-topic' })]
-      mockStreamsSelectedTopics = ['test-topic']
+      mockStreamCards = [{ id: 'card-1', topicName: 'test-topic' }]
 
       render(<StreamsPanel />)
 
@@ -205,12 +206,12 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
 
       await userEvent.click(checkbox)
 
-      expect(mockRemoveStreamsTopic).toHaveBeenCalledWith('test-topic')
+      expect(mockRemoveStreamCardsByTopic).toHaveBeenCalledWith('test-topic')
     })
 
-    it('marks checkbox as checked when topic is selected', () => {
+    it('marks checkbox as checked when topic has a stream card', () => {
       mockTopicList = [makeTopic({ topic_name: 'test-topic' })]
-      mockStreamsSelectedTopics = ['test-topic']
+      mockStreamCards = [{ id: 'card-1', topicName: 'test-topic' }]
 
       render(<StreamsPanel />)
 
@@ -218,9 +219,9 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
       expect(checkbox.checked).toBe(true)
     })
 
-    it('marks checkbox as unchecked when topic is not selected', () => {
+    it('marks checkbox as unchecked when topic has no stream card', () => {
       mockTopicList = [makeTopic({ topic_name: 'test-topic' })]
-      mockStreamsSelectedTopics = []
+      mockStreamCards = []
 
       render(<StreamsPanel />)
 
@@ -234,43 +235,43 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
   // ========================================================================
 
   describe('[@stream-panel-expanded] Max Streams Limit', () => {
-    it('disables checkboxes when 5 streams are selected', () => {
-      mockTopicList = Array.from({ length: 7 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
-      mockStreamsSelectedTopics = ['topic-0', 'topic-1', 'topic-2', 'topic-3', 'topic-4']
+    it('disables checkboxes when 10 streams are active', () => {
+      mockTopicList = Array.from({ length: 12 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
+      mockStreamCards = Array.from({ length: 10 }, (_, i) => ({ id: `card-${i}`, topicName: `topic-${i}` }))
 
       render(<StreamsPanel />)
 
       const checkboxes = screen.getAllByRole('checkbox')
-      // First 5 are selected, next 2 should be disabled
-      expect(checkboxes[5]).toBeDisabled()
-      expect(checkboxes[6]).toBeDisabled()
+      // First 10 are selected (have cards), next 2 should be disabled
+      expect(checkboxes[10]).toBeDisabled()
+      expect(checkboxes[11]).toBeDisabled()
     })
 
     it('enables disabled checkboxes when streams are removed', () => {
-      mockTopicList = Array.from({ length: 6 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
-      mockStreamsSelectedTopics = ['topic-0', 'topic-1', 'topic-2', 'topic-3', 'topic-4']
+      mockTopicList = Array.from({ length: 11 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
+      mockStreamCards = Array.from({ length: 10 }, (_, i) => ({ id: `card-${i}`, topicName: `topic-${i}` }))
 
       const { rerender } = render(<StreamsPanel />)
 
-      const disabledCheckbox = screen.getAllByRole('checkbox')[5] as HTMLInputElement
+      const disabledCheckbox = screen.getAllByRole('checkbox')[10] as HTMLInputElement
       expect(disabledCheckbox).toBeDisabled()
 
-      // Remove one stream
-      mockStreamsSelectedTopics = ['topic-0', 'topic-1', 'topic-2', 'topic-3']
+      // Remove one stream card
+      mockStreamCards = Array.from({ length: 9 }, (_, i) => ({ id: `card-${i}`, topicName: `topic-${i}` }))
       rerender(<StreamsPanel />)
 
       const checkboxes = screen.getAllByRole('checkbox')
-      expect(checkboxes[5]).not.toBeDisabled()
+      expect(checkboxes[10]).not.toBeDisabled()
     })
 
     it('shows tooltip on disabled checkbox', () => {
-      mockTopicList = Array.from({ length: 6 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
-      mockStreamsSelectedTopics = Array.from({ length: 5 }, (_, i) => `topic-${i}`)
+      mockTopicList = Array.from({ length: 11 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
+      mockStreamCards = Array.from({ length: 10 }, (_, i) => ({ id: `card-${i}`, topicName: `topic-${i}` }))
 
       render(<StreamsPanel />)
 
-      const disabledCheckbox = screen.getAllByRole('checkbox')[5]
-      expect(disabledCheckbox).toHaveAttribute('title', 'Max 5 streams')
+      const disabledCheckbox = screen.getAllByRole('checkbox')[10]
+      expect(disabledCheckbox).toHaveAttribute('title', 'Max 10 streams')
     })
   })
 
@@ -279,8 +280,11 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
   // ========================================================================
 
   describe('[@stream-panel-expanded] Stream Cards', () => {
-    it('renders stream card for each selected topic', () => {
-      mockStreamsSelectedTopics = ['topic1', 'topic2']
+    it('renders stream card for each stream card entry', () => {
+      mockStreamCards = [
+        { id: 'card-1', topicName: 'topic1' },
+        { id: 'card-2', topicName: 'topic2' },
+      ]
 
       render(<StreamsPanel />)
 
@@ -289,31 +293,34 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
     })
 
     it('removes stream card when remove button is clicked', async () => {
-      mockStreamsSelectedTopics = ['topic1', 'topic2']
+      mockStreamCards = [
+        { id: 'card-1', topicName: 'topic1' },
+        { id: 'card-2', topicName: 'topic2' },
+      ]
 
       render(<StreamsPanel />)
 
       const removeButton = screen.getByLabelText('Remove topic1')
       await userEvent.click(removeButton)
 
-      expect(mockRemoveStreamsTopic).toHaveBeenCalledWith('topic1')
+      expect(mockRemoveStreamCard).toHaveBeenCalledWith('card-1')
     })
 
     it('shows empty state when all stream cards are removed', () => {
       mockTopicList = [makeTopic({ topic_name: 'test' })]
-      mockStreamsSelectedTopics = []
+      mockStreamCards = []
 
       render(<StreamsPanel />)
 
-      expect(screen.getByText('Select topics above to start monitoring')).toBeInTheDocument()
+      expect(screen.getByText('Select a topic above to start streaming')).toBeInTheDocument()
     })
 
     it('hides empty state when stream cards are displayed', () => {
-      mockStreamsSelectedTopics = ['topic1']
+      mockStreamCards = [{ id: 'card-1', topicName: 'topic1' }]
 
       render(<StreamsPanel />)
 
-      expect(screen.queryByText('Select topics above to start monitoring')).not.toBeInTheDocument()
+      expect(screen.queryByText('Select a topic above to start streaming')).not.toBeInTheDocument()
     })
   })
 
@@ -321,21 +328,19 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
   // Close Button Tests
   // ========================================================================
 
-  describe('[@stream-panel-expanded] Close Button', () => {
-    it('calls toggleStreamsPanel when close button is clicked', async () => {
+  describe('[@stream-panel-expanded] Panel Structure', () => {
+    it('renders the Streams label in the search header', () => {
       render(<StreamsPanel />)
 
-      const closeButton = screen.getByLabelText('Close streams panel')
-      await userEvent.click(closeButton)
-
-      expect(mockToggleStreamsPanel).toHaveBeenCalled()
+      // "Streams" appears in both the search label and the empty state heading
+      const allStreams = screen.getAllByText('Streams')
+      expect(allStreams.length).toBeGreaterThanOrEqual(1)
     })
 
-    it('close button is always visible', () => {
+    it('renders search input', () => {
       render(<StreamsPanel />)
 
-      const closeButton = screen.getByLabelText('Close streams panel')
-      expect(closeButton).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Search topics...')).toBeInTheDocument()
     })
   })
 
@@ -361,7 +366,7 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
       // Select it
       const checkbox = screen.getByRole('checkbox')
       await userEvent.click(checkbox)
-      expect(mockAddStreamsTopic).toHaveBeenCalledWith('orders-topic')
+      expect(mockAddStreamCard).toHaveBeenCalledWith('orders-topic')
 
       // Clear search
       await userEvent.clear(searchInput)
@@ -380,8 +385,8 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
       const searchInput = screen.getByPlaceholderText('Search topics...') as HTMLInputElement
       await userEvent.type(searchInput, 'orders')
 
-      const checkbox = screen.getByRole('checkbox')
-      await userEvent.click(checkbox)
+      const checkboxes = screen.getAllByRole('checkbox')
+      await userEvent.click(checkboxes[0])
 
       // Search term should be preserved
       expect(searchInput.value).toBe('orders')
@@ -400,8 +405,7 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
 
       render(<StreamsPanel />)
 
-      const closeButton = screen.getByLabelText('Close streams panel')
-      expect(closeButton).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Search topics...')).toBeInTheDocument()
     })
 
     it('topic items are properly labeled', () => {
@@ -422,13 +426,13 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
     })
 
     it('disabled checkboxes have proper title attributes', () => {
-      mockTopicList = Array.from({ length: 6 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
-      mockStreamsSelectedTopics = Array.from({ length: 5 }, (_, i) => `topic-${i}`)
+      mockTopicList = Array.from({ length: 11 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
+      mockStreamCards = Array.from({ length: 10 }, (_, i) => ({ id: `card-${i}`, topicName: `topic-${i}` }))
 
       render(<StreamsPanel />)
 
-      const disabledCheckbox = screen.getAllByRole('checkbox')[5]
-      expect(disabledCheckbox).toHaveAttribute('title', 'Max 5 streams')
+      const disabledCheckbox = screen.getAllByRole('checkbox')[10]
+      expect(disabledCheckbox).toHaveAttribute('title', 'Max 10 streams')
     })
   })
 
@@ -442,7 +446,8 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
 
       render(<StreamsPanel />)
 
-      expect(screen.getByText('Streams')).toBeInTheDocument()
+      const allStreams = screen.getAllByText('Streams')
+      expect(allStreams.length).toBeGreaterThanOrEqual(1)
       const checkboxes = screen.queryAllByRole('checkbox')
       expect(checkboxes).toHaveLength(0)
     })
@@ -455,15 +460,15 @@ describe('[@stream-panel-expanded] StreamsPanel Expanded Coverage', () => {
       expect(screen.getByText('only-topic')).toBeInTheDocument()
     })
 
-    it('handles exactly 5 selected topics', () => {
-      mockTopicList = Array.from({ length: 10 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
-      mockStreamsSelectedTopics = Array.from({ length: 5 }, (_, i) => `topic-${i}`)
+    it('handles exactly 10 stream cards', () => {
+      mockTopicList = Array.from({ length: 12 }, (_, i) => makeTopic({ topic_name: `topic-${i}` }))
+      mockStreamCards = Array.from({ length: 10 }, (_, i) => ({ id: `card-${i}`, topicName: `topic-${i}` }))
 
       render(<StreamsPanel />)
 
       const checkboxes = screen.getAllByRole('checkbox')
-      // All after 5th should be disabled
-      for (let i = 5; i < checkboxes.length; i++) {
+      // All after 10th should be disabled
+      for (let i = 10; i < checkboxes.length; i++) {
         expect(checkboxes[i]).toBeDisabled()
       }
     })
