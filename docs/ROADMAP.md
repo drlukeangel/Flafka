@@ -1,6 +1,6 @@
 # Platform Roadmap
 
-**Last Updated:** 2026-03-01T23:00:00Z (Phase 12.6 ad-hoc improvements documented — 7 product-owner-directed changes, ~24 pts. Schema->Topic nav chip, resizable side panel, BadgeTooltip, Kafka config tooltips, real Schema Registry API integration. Outside workflow automation. Phase 12.7 Phase 1 PRD previously approved — 42 story points, 8 features.)
+**Last Updated:** 2026-03-08T00:00:00Z (Phase 12.6 ad-hoc improvements documented — 7 product-owner-directed changes, ~24 pts. Schema->Topic nav chip, resizable side panel, BadgeTooltip, Kafka config tooltips, real Schema Registry API integration. Outside workflow automation. Phase 12.7 Phase 1 PRD previously approved — 42 story points, 8 features.)
 **Orchestration Model:** Multi-Agent Workflow (Phases 1-5)
 
 ---
@@ -200,6 +200,7 @@
 
 | Date | Feature | Closer | Commits | Notes |
 | :--- | :--- | :--- | :--- | :--- |
+| 2026-03-08 | Platform Example UDF Namespacing | Product Owner | — | Stable `platform-examples-*` names for Quick Start UDFs. Platform badge + read-only delete in UI. Session tag auto-appended to user uploads. Bug fix: reused artifacts from other sessions now always visible. 4 E2E tests. Doc: `docs/features/platform-example-udf-namespacing.md`. How-to: `docs/how-to/udf-upload.md`. |
 | 2026-03-01 | Phase 12.6 Ad-Hoc: Schema-Topic Nav, Resizable Panel, Tooltips, Schema API & Scan Mode | Product Owner | uncommitted (`master`) | 8 ad-hoc improvements, ~29 pts. Schema->Topic nav chip, resizable side panel, schema assoc reorder, icon-only delete, portal BadgeTooltip, Kafka config tooltips, real Schema Registry API, scan startup mode pushdown panel. Outside workflow automation. Doc: `docs/features/phase-12.6-ad-hoc-improvements.md`. |
 | 2026-03-01 | Phase 12.2 Release 2: Schema Management | Closer | ea6e4c8 | 18 items, 51 pts. Diff view, tree click-copy, stale state fixes, CSS color migration, UX polish. 100% quality. |
 | 2026-03-01 | Phase 12.3 Release 2: Topic Critical Bugs | Closer | ea6e4c8 | 18 items, 62 pts. Auth rotation, system topic filter, race condition, virtual scrolling, rate limiting. All CRIT/HIGH fixes validated. 100% quality. |

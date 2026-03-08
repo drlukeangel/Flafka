@@ -475,7 +475,7 @@ export async function setupScalarExtractExample(
 
   // Step 1: Upload artifact (reuses existing by class if available)
   const artifact = await uploadArtifact(
-    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
     '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
 
@@ -541,7 +541,7 @@ export async function setupTableExplodeExample(
 
   // Step 1: Upload artifact (reuses existing by class if available)
   const artifact = await uploadArtifact(
-    store, `Loan Detail UDF Python (${rid})`, PYTHON_EXPLODE_CLASS,
+    store, 'platform-examples-loan-python-udf', PYTHON_EXPLODE_CLASS,
     '/examples/loan-detail-udf-python.zip', 'ZIP', 'PYTHON', onProgress,
   );
 
@@ -606,7 +606,7 @@ export async function setupJavaTableExplodeExample(
 
   // Find existing JAR artifact by class — skips upload if already present
   const artifact = await uploadArtifact(
-    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
     '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
 
@@ -661,11 +661,11 @@ export async function setupAggregateUdfExample(
 
   // Step 1: Upload artifacts (reuses existing by class if available)
   const extractArtifact = await uploadArtifact(
-    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
     '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
   const weightedAvgArtifact = await uploadArtifact(
-    store, `WeightedAvg UDF (${rid})`, WEIGHTED_AVG_CLASS,
+    store, 'platform-examples-weighted-avg', WEIGHTED_AVG_CLASS,
     '/udf/credit-bureau-enrich-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
 
@@ -722,11 +722,11 @@ export async function setupValidationExample(
 
   // Step 1: Upload artifacts
   const extractArtifact = await uploadArtifact(
-    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
     '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
   const validatorArtifact = await uploadArtifact(
-    store, `Loan Validator UDF (${rid})`, LOAN_VALIDATOR_CLASS,
+    store, 'platform-examples-loan-validator', LOAN_VALIDATOR_CLASS,
     '/udf/loan-validator-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
 
@@ -785,11 +785,11 @@ export async function setupPiiMaskingExample(
 
   // Step 1: Upload artifacts
   const extractArtifact = await uploadArtifact(
-    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
     '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
   const maskArtifact = await uploadArtifact(
-    store, `PII Mask UDF (${rid})`, PII_MASK_CLASS,
+    store, 'platform-examples-pii-mask', PII_MASK_CLASS,
     '/udf/pii-mask-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
 
@@ -845,11 +845,11 @@ export async function setupAsyncEnrichmentExample(
 
   // Step 1: Upload artifacts
   const extractArtifact = await uploadArtifact(
-    store, `Loan Detail Extractor (${rid})`, JAVA_UDF_CLASS,
+    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
     '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
   const enrichArtifact = await uploadArtifact(
-    store, `Credit Bureau Enrich UDF (${rid})`, CREDIT_BUREAU_ENRICH_CLASS,
+    store, 'platform-examples-credit-bureau-enrich', CREDIT_BUREAU_ENRICH_CLASS,
     '/udf/credit-bureau-enrich-1.0.0.jar', 'JAR', 'JAVA', onProgress,
   );
 

@@ -23,7 +23,10 @@ export async function listArtifacts(filterUniqueId?: string): Promise<FlinkArtif
   );
   const artifacts = response.data.data ?? [];
   if (filterUniqueId) {
-    return artifacts.filter(a => a.display_name?.includes(filterUniqueId));
+    return artifacts.filter(a =>
+      a.display_name?.startsWith('platform-examples-') ||
+      a.display_name?.includes(filterUniqueId)
+    );
   }
   return artifacts;
 }

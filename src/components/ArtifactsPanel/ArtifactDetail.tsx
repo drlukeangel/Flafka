@@ -47,6 +47,7 @@ const ArtifactDetail: React.FC = () => {
 
   if (!selectedArtifact) return null;
 
+  const isPlatformExample = selectedArtifact.display_name?.startsWith('platform-examples-');
   const versions = selectedArtifact.versions || [];
   const currentVersion = versions[selectedVersion] || versions[0];
 
@@ -384,30 +385,48 @@ const ArtifactDetail: React.FC = () => {
 
       {/* ── Delete Section ── */}
       <div style={{ margin: '20px 12px 0' }}>
-        <button
-          onClick={() => setShowDelete(true)}
-          style={{
-            border: '1px solid var(--color-error)',
-            background: 'transparent',
-            color: 'var(--color-error)',
-            cursor: 'pointer',
-            padding: '6px 12px',
-            borderRadius: 4,
-            fontSize: 12,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            width: '100%',
-            justifyContent: 'center',
-          }}
-        >
-          <FiTrash2 size={13} />
-          Delete Artifact
-        </button>
+        {isPlatformExample ? (
+          <div
+            style={{
+              padding: '8px 12px',
+              fontSize: 12,
+              color: 'var(--color-text-secondary)',
+              background: 'var(--color-bg-hover)',
+              borderRadius: 4,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <FiTrash2 size={13} style={{ flexShrink: 0, opacity: 0.4 }} />
+            Platform examples are managed by Flafka and cannot be deleted.
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowDelete(true)}
+            style={{
+              border: '1px solid var(--color-error)',
+              background: 'transparent',
+              color: 'var(--color-error)',
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: 4,
+              fontSize: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              width: '100%',
+              justifyContent: 'center',
+            }}
+          >
+            <FiTrash2 size={13} />
+            Delete Artifact
+          </button>
+        )}
       </div>
 
       {/* ── Delete Confirmation Overlay ── */}
-      {showDelete && (
+      {showDelete && !isPlatformExample && (
         <div
           style={{
             position: 'absolute',

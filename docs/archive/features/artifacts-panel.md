@@ -81,8 +81,16 @@ Panel requires `VITE_CLOUD_API_KEY` and `VITE_CLOUD_API_SECRET`. If missing, dis
 - NavRail: FiPackage icon in Data section, positioned after "Database Objects" and before "Schemas"
 - Clicking the nav item toggles the side panel (same pattern as Topics, Schemas)
 
-## Deferred to Phase 2
+## Phase 2 Updates (2026-03-08)
+
+See [docs/features/platform-example-udf-namespacing.md](../../features/platform-example-udf-namespacing.md) for full details.
+
+- **Platform artifact naming** (`src/services/example-setup.ts`): All Quick Start UDF artifacts now use stable `platform-examples-*` display names instead of session-scoped fun-names. Fixes visibility bug in shared/multi-user environments.
+- **Filter update** (`src/api/artifact-api.ts`): `listArtifacts()` always passes artifacts with `display_name.startsWith('platform-examples-')` regardless of `filterUniqueId`.
+- **Platform badge** (`src/components/ArtifactsPanel/ArtifactList.tsx`): Purple lock + "Platform" pill shown on platform artifact rows.
+- **Read-only platform delete** (`src/components/ArtifactsPanel/ArtifactDetail.tsx`): Delete section replaced with "Platform examples are managed by Flafka and cannot be deleted." for `platform-examples-*` artifacts.
+- **User upload session tagging** (`src/components/ArtifactsPanel/UploadArtifact.tsx`): `display_name` automatically receives `-{sessionTag}` suffix on creation.
+
+## Still Deferred
 - Upload New Version (version management)
-- Python/ZIP artifact support
 - Tree Navigator bidirectional linking
-- CORS fallback proxy for presigned upload URLs

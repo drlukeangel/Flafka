@@ -227,6 +227,20 @@ Browse, upload, and delete Flink JAR artifacts (UDFs) deployed to Confluent Clou
 - Delete with name-confirmation gate
 - Requires Cloud API keys (shows setup instructions if missing)
 
+### Platform Example Artifacts
+Quick Start example UDFs use stable, session-independent names prefixed with `platform-examples-` (e.g., `platform-examples-flink-kickstarter`). These artifacts:
+- Are always visible in the panel regardless of which session uploaded them
+- Show a **Platform** badge (lock icon) in the list
+- Cannot be deleted from the UI ("Platform examples are managed by Flafka and cannot be deleted.")
+
+### User Upload Session Tagging
+Artifacts uploaded via the Upload modal automatically receive the session tag as a suffix on the display name (e.g., `My UDF-f696969`). This ensures:
+- Per-session artifact filtering works reliably
+- Artifacts are traceable to the user/session that uploaded them
+- No collision with platform artifacts or other sessions' uploads
+
+See [how-to/udf-upload.md](how-to/udf-upload.md) for a complete walkthrough.
+
 ---
 
 ## Compute Pool Dashboard

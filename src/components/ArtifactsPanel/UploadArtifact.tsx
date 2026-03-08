@@ -20,6 +20,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as artifactApi from '../../api/artifact-api';
 import { env } from '../../config/environment';
 import { FiX, FiUpload, FiLoader, FiCheck, FiAlertCircle } from 'react-icons/fi';
+import { getSessionTag } from '../../utils/names';
 
 // Java: fully-qualified class name (e.g. com.example.MyUdf)
 const JAVA_CLASS_REGEX = /^[a-zA-Z_$][\w$]*(\.[a-zA-Z_$][\w$]*)*$/;
@@ -133,8 +134,13 @@ const UploadArtifact: React.FC<UploadArtifactProps> = ({ onClose }) => {
 
       // Step 3: Create artifact
       setStep('creating');
+      const sessionTag = getSessionTag();
+      const suffix = `-${sessionTag}`;
+      const taggedName = displayName.trim().endsWith(suffix)
+        ? displayName.trim()
+        : `${displayName.trim()}${suffix}`;
       await artifactApi.createArtifact({
-        display_name: displayName.trim(),
+        display_name: taggedName,
         class: className.trim(),
         cloud: env.cloudProvider,
         region: env.cloudRegion,
@@ -152,7 +158,7 @@ const UploadArtifact: React.FC<UploadArtifactProps> = ({ onClose }) => {
       setStep('done');
       setArtifactUploading(false);
       setUploadProgress(null);
-      addToast({ type: 'success', message: `Artifact "${displayName.trim()}" created` });
+      addToast({ type: 'success', message: `Artifact "${taggedName}" created` });
       loadArtifacts();
     } catch (error: unknown) {
       if (abort.signal.aborted) return;

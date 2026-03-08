@@ -12,7 +12,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { FiPackage, FiSearch, FiUpload, FiLoader, FiAlertCircle } from 'react-icons/fi';
+import { FiPackage, FiSearch, FiUpload, FiLoader, FiAlertCircle, FiLock } from 'react-icons/fi';
 import UploadArtifact from './UploadArtifact';
 
 const EMPTY_ARTIFACTS: never[] = [];
@@ -251,9 +251,34 @@ const ArtifactList: React.FC = () => {
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
                   }}
                 >
-                  {artifact.display_name}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {artifact.display_name}
+                  </span>
+                  {artifact.display_name?.startsWith('platform-examples-') && (
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 3,
+                        background: 'rgba(73,51,215,0.1)',
+                        color: 'var(--color-primary)',
+                        borderRadius: 3,
+                        padding: '1px 5px',
+                        fontSize: 10,
+                        fontWeight: 600,
+                      }}
+                      title="Managed by Flafka — shared across sessions"
+                    >
+                      <FiLock size={9} />
+                      Platform
+                    </span>
+                  )}
                 </div>
                 <div
                   style={{
