@@ -20,6 +20,7 @@ A browser-based SQL workspace for Confluent Cloud Flink. Write, execute, and ite
 | **Icons** | react-icons (Feather) | Consistent icon set |
 | **Styling** | CSS custom properties | Theming (light/dark), per-component CSS files |
 | **Testing** | Vitest + React Testing Library | Unit and integration tests with marker-based filtering |
+| **ksqlDB Client** | Axios + fetch | DDL/DML via Axios, push queries via native fetch streaming |
 
 No routing library — the app is a single workspace view with a nav rail and panel system.
 
@@ -44,7 +45,8 @@ No routing library — the app is a single workspace view with a nav rail and pa
 |  +----------------------------+-------------------------------+  |
 |  |                   API Layer (Axios)                        |  |
 |  |  confluentClient | fcpmClient | telemetryClient            |  |
-|  |  schemaRegistryClient | kafkaRestClient | artifactClient   |  |
+|  |  schemaRegistryClient | kafkaRestClient | artifactClient   |
+|  |  ksqlClient                                                 |  |
 |  +----------------------------+-------------------------------+  |
 |                               |                                  |
 +-------------------------------+----------------------------------+
@@ -320,6 +322,13 @@ CSS custom properties in `:root` (light) and `[data-theme="dark"]` (dark). Inlin
 
 ### Workspace Persistence
 Zustand's `persist` middleware with `partialize` controls what hits localStorage. Tabs, statements (code + status), saved workspaces, snippets, theme, and session properties all survive refresh. Runtime state (polling timers, API responses) does not persist.
+
+### Engine Adapter Pattern
+The `SqlEngineAdapter` interface (in `src/store/engines/types.ts`) defines a common contract for
+SQL execution: `execute`, `poll`, `cancel`, and `fetchResults`. Two implementations exist:
+`flink-engine.ts` (Confluent Flink SQL API) and `ksql-engine.ts` (ksqlDB REST API). The store
+resolves the correct adapter per statement based on the cell's `engine` field, so all execution
+logic in the workspace store is engine-agnostic.
 
 ---
 

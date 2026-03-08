@@ -77,6 +77,60 @@ On reload, any statements in RUNNING or PENDING status are reset to IDLE since t
 
 ---
 
+## Routing
+
+The app uses **clean URL routing** via the browser History API (`pushState` / `popstate`). No hash fragments — navigation produces paths like `/jobs`, `/topics/my-topic`, `/schemas/loans-value`.
+
+### Implementation
+
+A single custom hook at `src/hooks/useRoute.ts` provides bidirectional sync between the URL and the Zustand store:
+
+```
+URL ←→ useRoute hook ←→ Zustand store (activeNavItem + detail selections)
+```
+
+Three effects handle the lifecycle:
+1. **Mount**: Parse `window.location.pathname`, apply to store if it's a non-default URL (deep link)
+2. **Store → URL**: When `activeNavItem` or detail selections change, `pushState` the new path
+3. **URL → Store** (popstate): On browser back/forward, parse the URL and dispatch to the store
+
+A `suppressPopstate` ref prevents circular updates when the hook itself pushes a new URL.
+
+### Deep Links
+
+Four panels support deep links with sub-IDs:
+
+| URL | Store Action | Detail Selection |
+|-----|-------------|-----------------|
+| `/topics/{name}` | `navigateToTopic(name)` | `selectedTopic` |
+| `/schemas/{subject}` | `navigateToSchemaSubject(subject)` | `selectedSchemaSubject` |
+| `/jobs/{name}` | `navigateToJobDetail(name)` | `selectedJobName` |
+| `/examples/{id}` | `navigateToExampleDetail(id)` | `selectedExampleId` |
+
+Sub-IDs are URL-encoded via `encodeURIComponent` / `decodeURIComponent`. Extra path segments beyond the sub-ID are silently ignored.
+
+### Accessibility
+
+Route changes update `document.title` (e.g., `loans — Topics — Flafka`) and announce the navigation to screen readers via a visually-hidden `aria-live="polite"` region (`#route-announcer`).
+
+### SPA Fallback
+
+Since the server receives the full path, it must return `index.html` for all non-static-file routes:
+- **Vite dev server**: Automatic (`appType: 'spa'` default)
+- **Production**: Requires server-side catch-all (e.g., nginx `try_files $uri /index.html`)
+
+### Legacy Hash Support
+
+Old `#/jobs/my-statement` URLs are automatically upgraded to `/jobs/my-statement` via `replaceState` on page load. Hash segments are decoded first to prevent double-encoding.
+
+### Adding a New Deep Link
+
+1. Add a branch in `applyRoute()` for `navItem === 'yourPanel' && subId`
+2. Add a branch in the store→URL effect to extract the sub-ID from the relevant store selection
+3. Wire it to a store navigation action that sets `activeNavItem` and loads the detail
+
+---
+
 ## Component Map
 
 ### Workspace (main content area)

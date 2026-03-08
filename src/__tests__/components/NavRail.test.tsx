@@ -63,7 +63,7 @@ describe('[@phase-12-nav-rail] renders all nav items', () => {
     expect(screen.getByRole('button', { name: 'Snippets' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'History' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Artifacts' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Examples' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Learn' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Help' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
   })
@@ -351,7 +351,7 @@ describe('[@phase-12-nav-rail] accessibility', () => {
       'Snippets',
       'History',
       'Artifacts',
-      'Examples',
+      'Learn',
       'Help',
       'Settings',
     ]

@@ -1,7 +1,5 @@
 node_modules
-dist
 coverage
-.env
 .git
 .playwright
 docs/agents/feedback

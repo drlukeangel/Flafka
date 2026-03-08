@@ -73,10 +73,10 @@ describe('[@example-detail-page] ExampleDetailPage', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('returns null when card has no documentation', () => {
+  it('renders fallback UI when card has no documentation', () => {
     mockSelectedExampleId = 'no-doc';
-    const { container } = render(<ExampleDetailPage />);
-    expect(container.firstChild).toBeNull();
+    render(<ExampleDetailPage />);
+    expect(screen.getByText('No Doc Card')).toBeInTheDocument();
   });
 
   it('renders hero section with title and subtitle', () => {

@@ -348,7 +348,7 @@ export const helpTopics: HelpTopic[] = [
       { type: 'list-item', text: 'Use the filter tabs (All, Running, Completed, Stopped, Failed) to narrow results' },
       { type: 'list-item', text: 'Click the Stop button on any running or pending statement to cancel it' },
       { type: 'list-item', text: 'Click a row to see full statement details, SQL code, and properties' },
-      { type: 'paragraph', text: 'The Jobs page fetches the latest 200 statements from the API. Click the Refresh button to reload. Running statements auto-refresh every 5 seconds when viewing their detail page.' },
+      { type: 'paragraph', text: 'The Jobs page caches statement data for fast navigation. Click the Refresh button to check for updates. Running statements auto-refresh every 5 seconds when viewing their detail page. You can configure the cache interval in Settings > Performance.' },
     ],
   },
   {
@@ -502,6 +502,32 @@ export const helpTopics: HelpTopic[] = [
   },
 
   // ============================================================================
+  // Performance / Caching (1 entry)
+  // ============================================================================
+  {
+    id: 'performance-caching',
+    title: 'How does data caching work for Jobs and History?',
+    category: 'sidebar',
+    sortOrder: 15,
+    keywords: ['cache', 'caching', 'performance', 'refresh', 'interval', 'ttl', 'clear', 'data', 'stale'],
+    relatedTopicIds: ['jobs-managing-statements', 'faq-rerun-statements'],
+    content: [
+      { type: 'heading', text: 'Data Caching' },
+      { type: 'paragraph', text: 'The Jobs and History pages cache their data after the first load. Subsequent visits use a fast refresh that checks for new statements and status changes without re-fetching everything.' },
+      { type: 'list', text: 'How it works:' },
+      { type: 'list-item', text: 'First visit: Full data load from the server' },
+      { type: 'list-item', text: 'Return visits: Quick refresh picks up new and changed statements' },
+      { type: 'list-item', text: 'Running/Pending jobs have their status refreshed individually' },
+      { type: 'list-item', text: 'After the refresh interval expires, the next visit does a full reload' },
+      { type: 'list', text: 'Settings:' },
+      { type: 'list-item', text: 'Open Settings and find the Performance section' },
+      { type: 'list-item', text: 'Data refresh interval \u2014 how long cached data is kept before a full reload (default: 10 minutes)' },
+      { type: 'list-item', text: 'Clear Cached Data \u2014 removes all cached Jobs and History data; pages will fully reload on next visit' },
+      { type: 'paragraph', text: 'The refresh button on Jobs and History pages always checks for updates. Changing the resource filter (My Statements vs All) automatically refreshes the data.' },
+    ],
+  },
+
+  // ============================================================================
   // Keyboard Shortcuts (1 entry)
   // ============================================================================
   {
@@ -598,6 +624,103 @@ export const helpTopics: HelpTopic[] = [
       { type: 'list-item', text: 'Default — Runs all idle/errored SQL statements and starts all idle stream cards' },
       { type: 'list-item', text: 'Run Queries — Runs only idle/errored SQL statements' },
       { type: 'list-item', text: 'Run Streams — Starts only idle stream cards' },
+    ],
+  },
+
+  // ============================================================================
+  // Education Center (1 entry)
+  // ============================================================================
+  {
+    id: 'learn-center',
+    title: 'How do I use the Learning Center?',
+    category: 'sidebar',
+    sortOrder: 60,
+    keywords: ['learn', 'education', 'tracks', 'examples', 'progress', 'badges', 'challenges', 'concepts'],
+    relatedTopicIds: ['flink-streaming-select', 'flink-cardinality-explosion'],
+    content: [
+      { type: 'heading', text: 'Education Center Overview' },
+      { type: 'paragraph', text: 'The Learning Center (Learn tab in the navigation rail) is a full-page education hub covering Flink SQL, Kafka, and Confluent Cloud. It replaces the old Examples panel with a richer learning experience including guided tracks, concept explainers, challenges, and progress tracking.' },
+      { type: 'heading', text: 'Tabs' },
+      { type: 'paragraph', text: 'The Learn page has two tabs: Tracks and Examples.' },
+      { type: 'list', text: 'Tracks tab:' },
+      { type: 'list-item', text: 'Browse 7 learning tracks organized by topic and difficulty' },
+      { type: 'list-item', text: 'Each track contains a mix of concept lessons and hands-on examples' },
+      { type: 'list-item', text: 'Progress bars show your completion percentage per track' },
+      { type: 'list-item', text: 'Some tracks have prerequisites — look for the "Skip ahead" link if you want to jump in' },
+      { type: 'list', text: 'Examples tab:' },
+      { type: 'list-item', text: 'All 46 example cards in a responsive grid — same Set Up flow as before' },
+      { type: 'list-item', text: 'Completed examples show a green checkmark overlay' },
+      { type: 'list-item', text: 'Search and filter by group, skill level, and tags' },
+      { type: 'heading', text: 'Progress Tracking' },
+      { type: 'paragraph', text: 'Your learning progress is automatically saved to your browser (localStorage). Complete examples by clicking "Mark Complete" after working through them. Earn badges for milestones like completing tracks, finishing challenges, or mastering all examples.' },
+      { type: 'heading', text: 'Concept Lessons' },
+      { type: 'paragraph', text: 'Concept lessons explain theory with animated diagrams — covering topics like watermarks, join types, state management, and Kafka fundamentals. These are embedded within tracks alongside hands-on examples.' },
+      { type: 'heading', text: 'Challenges' },
+      { type: 'paragraph', text: 'Each example has "Try It Yourself" challenges at the bottom of its detail page. Challenges prompt you to modify the SQL or explore edge cases. Hints are available if you get stuck.' },
+      { type: 'heading', text: 'Role Tags' },
+      { type: 'paragraph', text: 'Tracks show recommended role tags (Data Engineer, Analytics Engineer, Platform Engineer) to help you prioritize which tracks are most relevant to your work. These are soft suggestions — all tracks are available to everyone.' },
+    ],
+  },
+
+  // ============================================================================
+  // ksqlDB (3 entries)
+  // ============================================================================
+  {
+    id: 'ksqldb-vs-flink',
+    title: "What's the difference between Flink SQL and ksqlDB?",
+    category: 'ksqldb',
+    sortOrder: 1,
+    keywords: ['ksqldb', 'flink', 'engine', 'difference', 'compare', 'selector', 'toggle'],
+    relatedTopicIds: ['ksqldb-query-types', 'ksqldb-scan-modes'],
+    content: [
+      { type: 'heading', text: 'Two Engines, Same Kafka Topics' },
+      { type: 'paragraph', text: 'This workspace supports two SQL engines. Each cell has an engine selector dropdown in its header — choose between Flink SQL and ksqlDB per statement. Both engines read from and write to the same Kafka topics, so stream cards work identically regardless of engine.' },
+      { type: 'heading', text: 'Flink SQL' },
+      { type: 'paragraph', text: 'Full SQL standard dialect. Supports windowed aggregations (TUMBLE, HOP, CUMULATE), MATCH_RECOGNIZE, temporal joins, and async statement polling. Runs on a dedicated Confluent Cloud compute pool.' },
+      { type: 'heading', text: 'ksqlDB' },
+      { type: 'paragraph', text: 'KSQL dialect with push queries (EMIT CHANGES), pull queries, and persistent queries (CREATE STREAM/TABLE AS SELECT). Uses a shared ksqlDB cluster. Simpler syntax, real-time streaming by default.' },
+      { type: 'heading', text: 'When to Use Which' },
+      { type: 'paragraph', text: 'Use Flink for complex windowed aggregations, batch-style queries, and advanced SQL features. Use ksqlDB for simple stream transformations, fan-out routing, and when you want instant push-query results.' },
+    ],
+  },
+  {
+    id: 'ksqldb-query-types',
+    title: 'Understanding ksqlDB query types',
+    category: 'ksqldb',
+    sortOrder: 2,
+    keywords: ['ksqldb', 'push', 'pull', 'persistent', 'emit', 'changes', 'query', 'type'],
+    relatedTopicIds: ['ksqldb-vs-flink', 'ksqldb-scan-modes'],
+    content: [
+      { type: 'heading', text: 'Four Types of ksqlDB Statements' },
+      { type: 'paragraph', text: 'ksqlDB classifies SQL into four categories, each handled differently:' },
+      { type: 'heading', text: 'Pull Queries' },
+      { type: 'paragraph', text: 'A regular SELECT without EMIT CHANGES. Returns an immediate result set (like a batch query) and completes. Example:' },
+      { type: 'code-block', text: "SELECT * FROM my_table WHERE id = 'abc';" },
+      { type: 'heading', text: 'Push Queries' },
+      { type: 'paragraph', text: 'A SELECT with EMIT CHANGES. Streams rows continuously until you cancel. Results appear in real time.' },
+      { type: 'code-block', text: 'SELECT * FROM my_stream EMIT CHANGES;' },
+      { type: 'heading', text: 'Persistent Queries' },
+      { type: 'paragraph', text: 'CREATE STREAM/TABLE AS SELECT or INSERT INTO ... SELECT. These create server-side continuous queries that run until you TERMINATE them. They show as RUNNING in the cell.' },
+      { type: 'code-block', text: 'CREATE STREAM filtered AS\n  SELECT * FROM orders WHERE amount > 100\n  EMIT CHANGES;' },
+      { type: 'heading', text: 'DDL Statements' },
+      { type: 'paragraph', text: 'CREATE STREAM/TABLE, DROP, SHOW, DESCRIBE, EXPLAIN. These execute synchronously and complete immediately.' },
+    ],
+  },
+  {
+    id: 'ksqldb-scan-modes',
+    title: 'Why does my ksqlDB query show different scan modes?',
+    category: 'ksqldb',
+    sortOrder: 3,
+    keywords: ['ksqldb', 'scan', 'mode', 'offset', 'earliest', 'latest', 'auto.offset.reset'],
+    relatedTopicIds: ['ksqldb-vs-flink', 'ksqldb-query-types'],
+    content: [
+      { type: 'heading', text: 'ksqlDB Scan Modes' },
+      { type: 'paragraph', text: 'When using the ksqlDB engine, the scan mode dropdown shows only two options: Earliest and Latest. This maps to ksqlDB\'s ksql.streams.auto.offset.reset property.' },
+      { type: 'heading', text: 'Why Only Two?' },
+      { type: 'paragraph', text: 'Flink SQL supports 5 scan modes (earliest, latest, group offsets, timestamp, specific offsets) because its consumer can be configured at a granular level. ksqlDB only supports auto.offset.reset with values "earliest" or "latest" — the other modes are Flink-specific features.' },
+      { type: 'heading', text: 'Behavior' },
+      { type: 'list', text: 'Earliest — reads from the beginning of the topic (auto.offset.reset=earliest)' },
+      { type: 'list', text: 'Latest — reads only new messages arriving after the query starts (auto.offset.reset=latest)' },
     ],
   },
 ];

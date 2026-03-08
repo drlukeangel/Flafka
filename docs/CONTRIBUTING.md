@@ -62,6 +62,9 @@ npm test -- -t "@store|@api" --run    # multiple markers
 npm run test:coverage                 # coverage report
 ```
 
+### Engine-Specific Test Markers
+ksqlDB API tests use `@ksql-api` marker, ksqlDB engine tests use `@ksql-engine` marker, Flink engine tests use `@flink-engine` marker.
+
 ### Tier 1 vs Tier 2
 
 - **Tier 1 (blocking):** Happy path and critical error scenarios. Must pass 100% before merge. Target 40-50% coverage.

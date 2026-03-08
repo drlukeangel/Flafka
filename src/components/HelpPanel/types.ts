@@ -11,7 +11,7 @@ export interface ContentSection {
 export interface HelpTopic {
   id: string;
   title: string;
-  category: 'editor' | 'results' | 'sidebar' | 'keyboard-shortcuts' | 'flink-sql' | 'troubleshooting' | 'tips';
+  category: 'editor' | 'results' | 'sidebar' | 'keyboard-shortcuts' | 'flink-sql' | 'ksqldb' | 'troubleshooting' | 'tips';
   content: ContentSection[];
   relatedTopicIds: string[];
   keywords: string[];

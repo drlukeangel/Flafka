@@ -77,9 +77,9 @@ describe('[@workspaces] saveCurrentWorkspace', () => {
     expect(snap.statementName).toBeUndefined();
   });
 
-  it('enforces max 20 workspaces and shows toast', () => {
-    // Pre-fill 20
-    const existing = Array.from({ length: 20 }, (_, i) => ({
+  it('enforces max 50 workspaces and shows toast', () => {
+    // Pre-fill 50
+    const existing = Array.from({ length: 50 }, (_, i) => ({
       id: `ws-${i}`,
       name: `WS ${i}`,
       createdAt: new Date().toISOString(),
@@ -91,9 +91,9 @@ describe('[@workspaces] saveCurrentWorkspace', () => {
     }));
     useWorkspaceStore.setState({ savedWorkspaces: existing });
     useWorkspaceStore.getState().saveCurrentWorkspace('Overflow WS');
-    expect(useWorkspaceStore.getState().savedWorkspaces).toHaveLength(20);
+    expect(useWorkspaceStore.getState().savedWorkspaces).toHaveLength(50);
     const toast = useWorkspaceStore.getState().toasts.find((t) => t.type === 'error');
-    expect(toast?.message).toContain('Max 20');
+    expect(toast?.message).toContain('Max 50');
   });
 
   it('saves stream card mutable config fields', () => {

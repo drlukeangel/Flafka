@@ -8,6 +8,7 @@ vi.mock('../../api/flink-api', () => ({
   cancelStatement: vi.fn(),
   getComputePoolStatus: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   getCatalogs: vi.fn(),
   getDatabases: vi.fn(),
   getTables: vi.fn(),

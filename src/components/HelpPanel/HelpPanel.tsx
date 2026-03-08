@@ -290,6 +290,7 @@ export function HelpPanel({ isOpen, onClose, activeTopicId }: HelpPanelProps) {
     'sidebar': 'Sidebar',
     'keyboard-shortcuts': 'Keyboard Shortcuts',
     'flink-sql': 'Flink SQL',
+    'ksqldb': 'ksqlDB',
     'troubleshooting': 'Troubleshooting',
     'tips': 'Tips & Tricks',
   };

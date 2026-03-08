@@ -9,6 +9,7 @@ vi.mock('../../api/flink-api', () => ({
   cancelStatement: vi.fn(),
   getComputePoolStatus: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   getCatalogs: vi.fn(),
   getDatabases: vi.fn(),
   getTables: vi.fn(),
@@ -75,6 +76,14 @@ describe('[@jobs-page] JobsPage', () => {
       jobsLoading: false,
       jobsError: null,
       toasts: [],
+      jobsLastFetched: null,
+      jobsCacheFilterMode: null,
+      historyLastFetched: null,
+      historyCacheFilterMode: null,
+      _jobsFetchGen: 0,
+      _historyFetchGen: 0,
+      cacheTtlMinutes: 10,
+      userLaunchedStatements: [],
     });
   });
 
@@ -85,7 +94,7 @@ describe('[@jobs-page] JobsPage', () => {
   it('calls loadJobs on mount', async () => {
     render(<JobsPage />);
     await waitFor(() => {
-      expect(flinkApi.listStatements).toHaveBeenCalledWith(200, expect.any(Function));
+      expect(flinkApi.listStatements).toHaveBeenCalledWith(200, expect.any(Function), undefined, expect.anything());
     });
   });
 

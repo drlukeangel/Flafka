@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Column } from '../../types'
 import ResultsTable, { isExpandable, formatJSON, formatCellValue } from '../../components/ResultsTable/ResultsTable'
@@ -930,34 +930,37 @@ describe('[@coverage-boost] ResultsTable cell click with null/object values', ()
   beforeEach(() => {
     vi.clearAllMocks()
     mockWriteText = vi.fn().mockResolvedValue(undefined)
-    vi.stubGlobal('navigator', {
-      ...navigator,
-      clipboard: { writeText: mockWriteText },
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: mockWriteText },
+      writable: true,
+      configurable: true,
     })
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
-    vi.unstubAllGlobals()
   })
 
   it('clicking a null cell copies "null" string', async () => {
-    const user = userEvent.setup()
     const data = [{ id: 1, data: null }]
     render(<ResultsTable data={data} columns={mockColumns} />)
     const nullCell = document.querySelector('.null-value')!.closest('td')!
-    await user.click(nullCell)
-    expect(mockWriteText).toHaveBeenCalledWith('null')
+    expect(nullCell).toBeTruthy()
+    fireEvent.click(nullCell)
+    await waitFor(() => {
+      expect(mockWriteText).toHaveBeenCalledWith('null')
+    })
   })
 
   it('clicking an object cell copies JSON string', async () => {
-    const user = userEvent.setup()
     const data = [{ id: 1, data: { key: 'val' } }]
     render(<ResultsTable data={data} columns={mockColumns} />)
-    // Click the td containing the JSON
     const jsonPreview = document.querySelector('.results-cell-json-preview')!.closest('td')!
-    await user.click(jsonPreview)
-    expect(mockWriteText).toHaveBeenCalledWith('{"key":"val"}')
+    expect(jsonPreview).toBeTruthy()
+    fireEvent.click(jsonPreview)
+    await waitFor(() => {
+      expect(mockWriteText).toHaveBeenCalledWith('{"key":"val"}')
+    })
   })
 
   it('clipboard failure shows error toast', async () => {

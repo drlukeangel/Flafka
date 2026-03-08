@@ -118,6 +118,11 @@ export function generateLoanApplication(seed: number): LoanApplicationRecord {
     application: {
       applicant: {
         name: { first: firstName, middle: middleName, last: lastName },
+        contact: {
+          email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@${pick(['gmail.com', 'yahoo.com', 'outlook.com', 'proton.me'] as const, rng)}`,
+          phone: `${rangeInt(200, 999, rng)}-${rangeInt(200, 999, rng)}-${rangeInt(1000, 9999, rng)}`,
+        },
+        ssn_last_four: String(rangeInt(1000, 9999, rng)),
         employment: {
           employer,
           title: jobTitle,
@@ -146,6 +151,7 @@ export function generateLoanApplication(seed: number): LoanApplicationRecord {
     underwriting: {
       risk_assessment: {
         risk_level: riskLevel,
+        overall_risk: riskLevel,
         credit_analysis: {
           bureau_data: {
             score: creditScore,

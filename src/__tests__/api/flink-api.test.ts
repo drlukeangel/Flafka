@@ -58,7 +58,7 @@ describe('[@api] [@core] flink-api', () => {
       const [_url, payload] = call as [string, unknown]
 
       expect(payload).toMatchObject({
-        name: expect.stringMatching(/^[a-z]+-[a-z]+-[a-z0-9]*$/i),
+        name: expect.stringMatching(/^[a-z]+-[a-z]+-[a-z0-9]+-[0-9a-f]{4}$/i),
         spec: {
           statement: 'SELECT * FROM table',
           compute_pool_id: expect.any(String),
@@ -171,17 +171,16 @@ describe('[@api] [@core] flink-api', () => {
 
       expect(names).toHaveLength(5)
       for (const name of names) {
-        // name format: <adjective>-<noun>-<uniqueId>
-        // uniqueId can be alphanumeric (e.g. 'f696969') or empty string
-        expect(name).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]*$/i)
+        // name format: <adjective>-<noun>-<uniqueId>-<hex4>
+        expect(name).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]+-[0-9a-f]{4}$/i)
       }
 
-      // All names share the same unique ID suffix (last segment after second hyphen)
-      const suffixes = names.map((n) => {
+      // All names share the same unique ID (third segment)
+      const uniqueIds = names.map((n) => {
         const parts = n.split('-')
-        return parts.slice(2).join('-')
+        return parts[2]
       })
-      expect(new Set(suffixes).size).toBe(1)
+      expect(new Set(uniqueIds).size).toBe(1)
     })
   })
 

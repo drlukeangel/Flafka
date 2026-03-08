@@ -208,6 +208,11 @@ All agent definitions live in `docs/agents/`. Each file contains: role, responsi
 | `src/store/workspaceStore.ts` | Zustand store - all app state and actions |
 | `src/api/flink-api.ts` | Confluent Flink SQL API calls |
 | `src/api/confluent-client.ts` | Axios HTTP client with Basic Auth |
+| `src/api/ksql-api.ts` | ksqlDB REST API calls |
+| `src/api/ksql-client.ts` | Axios HTTP client for ksqlDB |
+| `src/store/engines/types.ts` | SqlEngineAdapter interface |
+| `src/store/engines/flink-engine.ts` | Flink engine adapter |
+| `src/store/engines/ksql-engine.ts` | ksqlDB engine adapter |
 | `src/components/EditorCell/EditorCell.tsx` | SQL editor cell with Monaco |
 | `src/components/ResultsTable/ResultsTable.tsx` | Query results table |
 | `src/components/TreeNavigator/TreeNavigator.tsx` | Sidebar tree of DB objects |
@@ -216,10 +221,11 @@ All agent definitions live in `docs/agents/`. Each file contains: role, responsi
 | `src/config/environment.ts` | Environment variable config |
 
 ### API Pattern
-- All API calls go through Vite proxy at `/api/flink` → Confluent Cloud
+- Flink API calls go through Vite proxy at `/api/flink` → Confluent Cloud
 - Auth: Basic Auth with `VITE_FLINK_API_KEY:VITE_FLINK_API_SECRET`
 - Statement execution: POST → poll status → fetch results with cursor pagination
 - Streaming: FIFO buffer of 5000 rows max, cursor-based long-polling
+- ksqlDB calls go through `/api/ksql` → ksqlDB cluster. Auth: Basic Auth with `VITE_KSQL_API_KEY:SECRET`
 
 ### Unused Code (Available for Reuse)
 - `getTableSchema()` in `flink-api.ts:231` - DESCRIBE table, returns columns

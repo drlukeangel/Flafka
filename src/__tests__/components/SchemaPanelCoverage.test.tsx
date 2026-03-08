@@ -47,6 +47,7 @@ vi.mock('../../config/environment', () => ({
     cloudProvider: 'aws', cloudRegion: 'us-east-1',
     kafkaClusterId: '', kafkaRestEndpoint: '',
     kafkaApiKey: '', kafkaApiSecret: '',
+    uniqueId: 'test',
   },
 }));
 

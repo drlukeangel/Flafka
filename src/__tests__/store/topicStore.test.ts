@@ -12,6 +12,7 @@ vi.mock('../../api/flink-api', () => ({
   cancelStatement: vi.fn(),
   getComputePoolStatus: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   getCatalogs: vi.fn(),
   getDatabases: vi.fn(),
   getTables: vi.fn(),
@@ -55,6 +56,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as topicApi from '../../api/topic-api';
 import * as schemaRegistryApi from '../../api/schema-registry-api';
 import { env } from '../../config/environment';
+import { getSessionTag } from '../../utils/names';
 import type { KafkaTopic, SchemaSubject } from '../../types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -372,7 +374,7 @@ describe('[@topic-store] createTopic', () => {
   });
 
   it('calls topicApi.createTopic with correct snake_case body and tagged name', async () => {
-    const taggedName = `my-topic-${env.uniqueId}`;
+    const taggedName = `my-topic-${getSessionTag()}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic({ topic_name: taggedName }));
 
     await useWorkspaceStore.getState().createTopic({
@@ -415,7 +417,7 @@ describe('[@topic-store] createTopic', () => {
   });
 
   it('includes configs array and tags name when cleanupPolicy is provided', async () => {
-    const taggedName = `compacted-topic-${env.uniqueId}`;
+    const taggedName = `compacted-topic-${getSessionTag()}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic());
 
     await useWorkspaceStore.getState().createTopic({
@@ -434,7 +436,7 @@ describe('[@topic-store] createTopic', () => {
   });
 
   it('includes configs array when retentionMs is provided', async () => {
-    const taggedName = `retained-topic-${env.uniqueId}`;
+    const taggedName = `retained-topic-${getSessionTag()}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic());
 
     await useWorkspaceStore.getState().createTopic({
@@ -453,7 +455,7 @@ describe('[@topic-store] createTopic', () => {
   });
 
   it('includes both cleanup.policy and retention.ms when both are provided', async () => {
-    const taggedName = `full-config-topic-${env.uniqueId}`;
+    const taggedName = `full-config-topic-${getSessionTag()}`;
     vi.mocked(topicApi.createTopic).mockResolvedValueOnce(makeTopic());
 
     await useWorkspaceStore.getState().createTopic({

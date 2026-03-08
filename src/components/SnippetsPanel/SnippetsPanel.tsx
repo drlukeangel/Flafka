@@ -1,10 +1,51 @@
 // Phase 12.6 — F6: Query Templates / Saved SQL Snippets Library
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { editorRegistry } from '../EditorCell/editorRegistry';
-import { FiSearch, FiBookmark, FiTrash2, FiEdit2, FiCheck, FiX, FiPlay } from 'react-icons/fi';
+import { FiSearch, FiBookmark, FiTrash2, FiEdit2, FiCheck, FiX, FiPlay, FiLock } from 'react-icons/fi';
+import type { Snippet } from '../../types';
 
 const MAX_SNIPPETS = 100;
+
+const BUILT_IN_SNIPPETS: Snippet[] = [
+  {
+    id: 'builtin-hello-world',
+    name: 'Hello World',
+    sql: 'SELECT 1;',
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    builtIn: true,
+  },
+  {
+    id: 'builtin-show-functions',
+    name: 'Show Functions',
+    sql: 'SHOW FUNCTIONS;',
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    builtIn: true,
+  },
+  {
+    id: 'builtin-create-java-udf',
+    name: 'Create Java UDF',
+    sql: `CREATE FUNCTION my_java_udf
+  AS '<entry-class>'
+  USING JAR 'confluent-artifact://<artifact-id>/<version-id>';`,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    builtIn: true,
+  },
+  {
+    id: 'builtin-create-python-udf',
+    name: 'Create Python UDF',
+    sql: `-- Note: USING JAR works for both Java and Python artifacts
+CREATE FUNCTION my_python_udf
+  AS '<entry-class>'
+  USING JAR 'confluent-artifact://<artifact-id>/<version-id>';`,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    builtIn: true,
+  },
+];
 
 export function SnippetsPanel() {
   const snippets = useWorkspaceStore((s) => s.snippets);
@@ -20,6 +61,18 @@ export function SnippetsPanel() {
   const [renameValue, setRenameValue] = useState('');
   const renameCancelledRef = useRef(false);
 
+  // Track hidden/renamed built-in snippets (persisted in localStorage)
+  const [hiddenBuiltIns, setHiddenBuiltIns] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('flafka-hidden-builtins') || '[]');
+    } catch { return []; }
+  });
+  const [builtInOverrides, setBuiltInOverrides] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('flafka-builtin-overrides') || '{}');
+    } catch { return {}; }
+  });
+
   // Save-as-snippet dialog state
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveNameValue, setSaveNameValue] = useState('');
@@ -27,10 +80,21 @@ export function SnippetsPanel() {
   const [saveError, setSaveError] = useState('');
   const dialogRef = useRef<HTMLDialogElement>(null);
 
-  const filtered = snippets.filter((s) =>
+  // Merge built-in snippets (with overrides applied, hidden ones filtered) with user snippets
+  const allSnippets = useMemo(() => {
+    const visibleBuiltIns = BUILT_IN_SNIPPETS
+      .filter((s) => !hiddenBuiltIns.includes(s.id))
+      .map((s) => builtInOverrides[s.id] ? { ...s, name: builtInOverrides[s.id] } : s);
+    return [...visibleBuiltIns, ...snippets];
+  }, [snippets, hiddenBuiltIns, builtInOverrides]);
+
+  const filtered = allSnippets.filter((s) =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     s.sql.toLowerCase().includes(search.toLowerCase())
   );
+
+  const filteredBuiltIn = filtered.filter((s) => s.builtIn);
+  const filteredUser = filtered.filter((s) => !s.builtIn);
 
   // Open save dialog, pre-filling SQL from focused editor if available
   const handleOpenSaveDialog = () => {
@@ -113,7 +177,14 @@ export function SnippetsPanel() {
   const handleCommitRename = (id: string) => {
     const trimmed = renameValue.trim();
     if (trimmed) {
-      renameSnippet(id, trimmed);
+      // Check if this is a built-in snippet
+      if (BUILT_IN_SNIPPETS.some((s) => s.id === id)) {
+        const updated = { ...builtInOverrides, [id]: trimmed };
+        setBuiltInOverrides(updated);
+        localStorage.setItem('flafka-builtin-overrides', JSON.stringify(updated));
+      } else {
+        renameSnippet(id, trimmed);
+      }
     }
     setRenamingId(null);
     setRenameValue('');
@@ -136,6 +207,16 @@ export function SnippetsPanel() {
       return;
     }
     handleCommitRename(id);
+  };
+
+  const handleDeleteBuiltIn = (id: string) => {
+    const snippet = BUILT_IN_SNIPPETS.find((s) => s.id === id);
+    const updated = [...hiddenBuiltIns, id];
+    setHiddenBuiltIns(updated);
+    localStorage.setItem('flafka-hidden-builtins', JSON.stringify(updated));
+    if (snippet) {
+      addToast({ type: 'info', message: `Snippet "${builtInOverrides[id] || snippet.name}" deleted.`, duration: 2000 });
+    }
   };
 
   return (
@@ -186,102 +267,222 @@ export function SnippetsPanel() {
         aria-live="polite"
         aria-label="Snippet list"
       >
-        {snippets.length === 0 ? (
-          <div className="snippets-empty-state" role="status">
-            <FiBookmark size={32} style={{ color: 'var(--color-text-tertiary)', marginBottom: 8 }} />
-            <p className="snippets-empty-title">No snippets yet</p>
-            <p className="snippets-empty-hint">
-              Click <strong>Save Snippet</strong> to save frequently used SQL queries.
-            </p>
-          </div>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <div className="snippets-empty-state" role="status">
             <p className="snippets-empty-title">No snippets match your search.</p>
           </div>
         ) : (
-          <ul className="snippets-list" role="list">
-            {filtered.map((snippet) => (
-              <li key={snippet.id} className="snippet-item" role="listitem">
-                <div className="snippet-item-header">
-                  {renamingId === snippet.id ? (
-                    <input
-                      className="snippet-rename-input"
-                      value={renameValue}
-                      onChange={(e) => setRenameValue(e.target.value)}
-                      onKeyDown={(e) => handleRenameKeyDown(e, snippet.id)}
-                      onBlur={() => handleRenameBlur(snippet.id)}
-                      autoFocus
-                      maxLength={80}
-                      aria-label="Rename snippet"
-                    />
-                  ) : (
-                    <span
-                      className="snippet-name"
-                      title={snippet.name}
-                    >
-                      {snippet.name}
-                    </span>
-                  )}
-                  <div className="snippet-actions">
-                    {renamingId === snippet.id ? (
-                      <>
-                        <button
-                          className="snippet-action-btn snippet-action-btn--confirm"
-                          onClick={() => handleCommitRename(snippet.id)}
-                          title="Save rename"
-                          aria-label="Save rename"
-                        >
-                          <FiCheck size={12} />
-                        </button>
-                        <button
-                          className="snippet-action-btn"
-                          onClick={() => {
-                            renameCancelledRef.current = true;
-                            setRenamingId(null);
-                          }}
-                          title="Cancel rename"
-                          aria-label="Cancel rename"
-                        >
-                          <FiX size={12} />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          className="snippet-action-btn"
-                          onClick={() => handleInsertSnippet(snippet.sql)}
-                          title="Insert into editor"
-                          aria-label={`Insert snippet ${snippet.name}`}
-                        >
-                          <FiPlay size={12} />
-                        </button>
-                        <button
-                          className="snippet-action-btn"
-                          onClick={() => handleStartRename(snippet.id, snippet.name)}
-                          title="Rename snippet"
-                          aria-label={`Rename snippet ${snippet.name}`}
-                        >
-                          <FiEdit2 size={12} />
-                        </button>
-                        <button
-                          className="snippet-action-btn snippet-action-btn--danger"
-                          onClick={() => {
-                            deleteSnippet(snippet.id);
-                            addToast({ type: 'info', message: `Snippet "${snippet.name}" deleted.`, duration: 2000 });
-                          }}
-                          title="Delete snippet"
-                          aria-label={`Delete snippet ${snippet.name}`}
-                        >
-                          <FiTrash2 size={12} />
-                        </button>
-                      </>
-                    )}
-                  </div>
+          <>
+            {/* Built-in snippets section */}
+            {filteredBuiltIn.length > 0 && (
+              <>
+                <div style={{
+                  padding: '4px 12px 3px',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  color: 'var(--color-text-tertiary)',
+                  borderBottom: '1px solid var(--color-border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}>
+                  <FiLock size={10} />
+                  Built-in
                 </div>
-                <pre className="snippet-sql-preview">{snippet.sql.length > 200 ? snippet.sql.slice(0, 200) + '...' : snippet.sql}</pre>
-              </li>
-            ))}
-          </ul>
+                <ul className="snippets-list" role="list">
+                  {filteredBuiltIn.map((snippet) => (
+                    <li key={snippet.id} className="snippet-item" role="listitem">
+                      <div className="snippet-item-header">
+                        {renamingId === snippet.id ? (
+                          <input
+                            className="snippet-rename-input"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => handleRenameKeyDown(e, snippet.id)}
+                            onBlur={() => handleRenameBlur(snippet.id)}
+                            autoFocus
+                            maxLength={80}
+                            aria-label="Rename snippet"
+                          />
+                        ) : (
+                          <span className="snippet-name" title={snippet.name}>
+                            {snippet.name}
+                          </span>
+                        )}
+                        <div className="snippet-actions">
+                          {renamingId === snippet.id ? (
+                            <>
+                              <button
+                                className="snippet-action-btn snippet-action-btn--confirm"
+                                onClick={() => handleCommitRename(snippet.id)}
+                                title="Save rename"
+                                aria-label="Save rename"
+                              >
+                                <FiCheck size={12} />
+                              </button>
+                              <button
+                                className="snippet-action-btn"
+                                onClick={() => {
+                                  renameCancelledRef.current = true;
+                                  setRenamingId(null);
+                                }}
+                                title="Cancel rename"
+                                aria-label="Cancel rename"
+                              >
+                                <FiX size={12} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="snippet-action-btn"
+                                onClick={() => handleInsertSnippet(snippet.sql)}
+                                title="Insert into editor"
+                                aria-label={`Insert snippet ${snippet.name}`}
+                              >
+                                <FiPlay size={12} />
+                              </button>
+                              <button
+                                className="snippet-action-btn"
+                                onClick={() => handleStartRename(snippet.id, snippet.name)}
+                                title="Rename snippet"
+                                aria-label={`Rename snippet ${snippet.name}`}
+                              >
+                                <FiEdit2 size={12} />
+                              </button>
+                              <button
+                                className="snippet-action-btn snippet-action-btn--danger"
+                                onClick={() => handleDeleteBuiltIn(snippet.id)}
+                                title="Delete snippet"
+                                aria-label={`Delete snippet ${snippet.name}`}
+                              >
+                                <FiTrash2 size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <pre className="snippet-sql-preview">{snippet.sql.length > 200 ? snippet.sql.slice(0, 200) + '...' : snippet.sql}</pre>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {/* User snippets section */}
+            {filteredUser.length > 0 && (
+              <>
+                {filteredBuiltIn.length > 0 && (
+                  <div style={{
+                    padding: '4px 12px 3px',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px',
+                    color: 'var(--color-text-tertiary)',
+                    borderBottom: '1px solid var(--color-border)',
+                    marginTop: 6,
+                  }}>
+                    Your Snippets
+                  </div>
+                )}
+                <ul className="snippets-list" role="list">
+                  {filteredUser.map((snippet) => (
+                    <li key={snippet.id} className="snippet-item" role="listitem">
+                      <div className="snippet-item-header">
+                        {renamingId === snippet.id ? (
+                          <input
+                            className="snippet-rename-input"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => handleRenameKeyDown(e, snippet.id)}
+                            onBlur={() => handleRenameBlur(snippet.id)}
+                            autoFocus
+                            maxLength={80}
+                            aria-label="Rename snippet"
+                          />
+                        ) : (
+                          <span
+                            className="snippet-name"
+                            title={snippet.name}
+                          >
+                            {snippet.name}
+                          </span>
+                        )}
+                        <div className="snippet-actions">
+                          {renamingId === snippet.id ? (
+                            <>
+                              <button
+                                className="snippet-action-btn snippet-action-btn--confirm"
+                                onClick={() => handleCommitRename(snippet.id)}
+                                title="Save rename"
+                                aria-label="Save rename"
+                              >
+                                <FiCheck size={12} />
+                              </button>
+                              <button
+                                className="snippet-action-btn"
+                                onClick={() => {
+                                  renameCancelledRef.current = true;
+                                  setRenamingId(null);
+                                }}
+                                title="Cancel rename"
+                                aria-label="Cancel rename"
+                              >
+                                <FiX size={12} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="snippet-action-btn"
+                                onClick={() => handleInsertSnippet(snippet.sql)}
+                                title="Insert into editor"
+                                aria-label={`Insert snippet ${snippet.name}`}
+                              >
+                                <FiPlay size={12} />
+                              </button>
+                              <button
+                                className="snippet-action-btn"
+                                onClick={() => handleStartRename(snippet.id, snippet.name)}
+                                title="Rename snippet"
+                                aria-label={`Rename snippet ${snippet.name}`}
+                              >
+                                <FiEdit2 size={12} />
+                              </button>
+                              <button
+                                className="snippet-action-btn snippet-action-btn--danger"
+                                onClick={() => {
+                                  deleteSnippet(snippet.id);
+                                  addToast({ type: 'info', message: `Snippet "${snippet.name}" deleted.`, duration: 2000 });
+                                }}
+                                title="Delete snippet"
+                                aria-label={`Delete snippet ${snippet.name}`}
+                              >
+                                <FiTrash2 size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <pre className="snippet-sql-preview">{snippet.sql.length > 200 ? snippet.sql.slice(0, 200) + '...' : snippet.sql}</pre>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {/* Empty state for user snippets when only built-ins match */}
+            {filteredUser.length === 0 && filteredBuiltIn.length > 0 && snippets.length === 0 && !search && (
+              <div className="snippets-empty-state" role="status" style={{ paddingTop: 12 }}>
+                <p className="snippets-empty-hint">
+                  Click <strong>Save Snippet</strong> to save frequently used SQL queries.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 

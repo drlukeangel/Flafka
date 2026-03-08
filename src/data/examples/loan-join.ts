@@ -41,11 +41,26 @@ SELECT
     ELSE 'LOW_RISK'
   END AS alert_reason
 FROM \`{LOANS}\` l
-JOIN \`{CUSTOMERS}\` c ON l.customer_id = c.customer_id`,
+JOIN \`{CUSTOMERS}\` c ON l.customer_id = c.customer_id
+
+-- ============================================================
+-- WHAT: Joins each loan against CUSTOMERS to assign a fraud risk alert_reason.
+-- HOW: Regular inner JOIN on customer_id; CASE evaluates risk top-down (CRITICAL > HIGH > MEDIUM > LOW).
+-- WHY regular JOIN: Both sides are Kafka topics; Flink keeps state for both and matches on shared keys.
+-- WHY CAST(loan_id AS BYTES): Output topic key column is typed BYTES; skipping this causes a type mismatch error.
+-- GOTCHA: Produce CUSTOMERS first — loans arriving before customers are buffered waiting for a match.
+-- GOTCHA: CASE is evaluated top-down; reordering WHEN clauses changes which branch matches.
+-- EXPECT: One output row per loan (if matching customer exists) with alert_reason explaining the flag.
+-- ============================================================`,
     },
     {
       label: 'view-output',
-      sql: 'SELECT * FROM `{FRAUD-ALERTS}` LIMIT 50',
+      sql: `SELECT * FROM \`{FRAUD-ALERTS}\` LIMIT 50
+
+-- ============================================================
+-- WHAT: Inspect fraud alert output written by the INSERT job above.
+-- GOTCHA: Without LIMIT, Flink streams forever; LIMIT 50 stops after 50 rows.
+-- ============================================================`,
     },
   ],
   completionModal: {

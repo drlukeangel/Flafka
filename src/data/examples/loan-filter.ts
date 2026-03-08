@@ -22,11 +22,24 @@ export const loanFilterDef: KickstarterExampleDef = {
       sql: `INSERT INTO \`{LOANS-FILTERED}\`
 SELECT CAST(loan_id AS BYTES) AS \`key\`, loan_id, amount, status, created_at, txn_id, customer_id
 FROM \`{LOANS}\`
-WHERE status = 'APPROVED'`,
+WHERE status = 'APPROVED'
+
+-- ============================================================
+-- WHAT: Continuous job that filters LOANS for status = 'APPROVED', writes matches to LOANS-FILTERED.
+-- WHY CAST(loan_id AS BYTES): Kafka keys must be raw bytes. Same loan_id = same partition = ordering guarantee.
+-- WHY explicit columns: Output table expects specific columns in order. SELECT * would fail on schema mismatch.
+-- GOTCHA: Job runs FOREVER. String comparisons are CASE-SENSITIVE. Wait for data to flow before checking output.
+-- ============================================================`,
     },
     {
       label: 'view-output',
-      sql: 'SELECT * FROM `{LOANS-FILTERED}` LIMIT 50',
+      sql: `SELECT * FROM \`{LOANS-FILTERED}\` LIMIT 50
+
+-- ============================================================
+-- WHAT: Reads from the LOANS-FILTERED output topic to verify only APPROVED loans made it through.
+-- WHY LIMIT 50: Only a fraction of 200 loans will be APPROVED. 50 is a reasonable sample cap.
+-- GOTCHA: Run the INSERT INTO job and produce data FIRST — output topic is empty until the filter processes data.
+-- ============================================================`,
     },
   ],
   completionModal: {

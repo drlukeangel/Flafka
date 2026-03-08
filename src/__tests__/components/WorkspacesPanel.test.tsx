@@ -91,7 +91,7 @@ describe('[@workspaces] WorkspacesPanel — empty state', () => {
 
   it('renders header with count badge', () => {
     render(<WorkspacesPanel />);
-    expect(screen.getByText('0/20')).toBeInTheDocument();
+    expect(screen.getByText('0/50')).toBeInTheDocument();
   });
 
   it('renders Save Current button', () => {
@@ -121,9 +121,9 @@ describe('[@workspaces] WorkspacesPanel — with workspaces', () => {
     expect(screen.getByText(/1 stream/)).toBeInTheDocument();
   });
 
-  it('renders count badge showing 2/20', () => {
+  it('renders count badge showing 2/50', () => {
     render(<WorkspacesPanel />);
-    expect(screen.getByText('2/20')).toBeInTheDocument();
+    expect(screen.getByText('2/50')).toBeInTheDocument();
   });
 });
 
@@ -292,8 +292,8 @@ describe('[@workspaces] NavRail — workspaces item', () => {
 });
 
 describe('[@workspaces] WorkspacesPanel — max limit', () => {
-  it('disables Save Current button at 20 workspaces', () => {
-    mockSavedWorkspaces = Array.from({ length: 20 }, (_, i) =>
+  it('disables Save Current button at 50 workspaces', () => {
+    mockSavedWorkspaces = Array.from({ length: 50 }, (_, i) =>
       makeWorkspace({ id: `ws-${i}`, name: `WS ${i}` })
     );
     render(<WorkspacesPanel />);

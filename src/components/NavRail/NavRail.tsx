@@ -41,7 +41,7 @@ const NAV_ITEMS: NavRailItemConfig[] = [
   { id: 'snippets', icon: <FiBookmark size={18} />, label: 'Snippets', section: 'tools' },
   { id: 'history', icon: <FiClock size={18} />, label: 'History', section: 'tools' },
   { id: 'artifacts', icon: <FiPackage size={18} />, label: 'Artifacts', section: 'tools' },
-  { id: 'examples', icon: <FiBookOpen size={18} />, label: 'Examples', section: 'tools' },
+  { id: 'learn', icon: <FiBookOpen size={18} />, label: 'Learn', section: 'tools' },
   { id: 'help', icon: <FiHelpCircle size={18} />, label: 'Help', section: 'tools' },
   { id: 'settings', icon: <FiSettings size={18} />, label: 'Settings', section: 'settings' },
 ];

@@ -13,10 +13,15 @@ export const test = base.extend<{ appPage: Page }>({
 
 export { expect };
 
-/** Navigate to the Examples panel and wait for it to be visible. */
+/** Navigate to the Learn panel and wait for it to be visible. */
+export async function goToLearn(page: Page) {
+  await page.getByRole('button', { name: 'Learn' }).click();
+  await expect(page.getByLabel('Learn panel')).toBeVisible();
+}
+
+/** @deprecated Use `goToLearn` instead. */
 export async function goToExamples(page: Page) {
-  await page.getByRole('button', { name: 'Examples' }).click();
-  await expect(page.getByLabel('Examples panel')).toBeVisible();
+  return goToLearn(page);
 }
 
 /** Wait for a toast notification of the given type. */

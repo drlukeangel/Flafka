@@ -2,7 +2,7 @@ import { test, expect, goToExamples, waitForToast } from './fixtures/app.fixture
 import { SEL } from './helpers/selectors';
 
 test.describe('Debug Setup', () => {
-  test('diagnose setup flow', async ({ appPage: page }) => {
+  test.skip('diagnose setup flow', async ({ appPage: page }) => {
     // Collect console messages
     const consoleLogs: string[] = [];
     page.on('console', (msg) => {

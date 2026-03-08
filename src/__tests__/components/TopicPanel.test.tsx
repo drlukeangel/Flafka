@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { KafkaTopic, TopicConfig } from '../../types'
 
@@ -89,6 +89,9 @@ vi.mock('../../store/workspaceStore', () => ({
       configAuditLog: [],
       addConfigAuditEntry: vi.fn(),
       getConfigAuditLogForTopic: vi.fn().mockReturnValue([]),
+      // Schema registry (used by TopicDetail sub-components)
+      schemaRegistrySubjects: [],
+      loadSchemaRegistrySubjects: vi.fn(),
     }
     return typeof selector === 'function' ? selector(state) : state
   },
@@ -134,17 +137,31 @@ vi.mock('../../components/EditorCell/editorRegistry', () => ({
 // ---------------------------------------------------------------------------
 
 // Default: fully configured. Individual tests override as needed.
-let mockEnv = {
-  kafkaClusterId: 'test-cluster-id',
-  kafkaRestEndpoint: 'https://test.confluent.cloud',
-  kafkaApiKey: 'test-key',
-  kafkaApiSecret: 'test-secret',
-  schemaRegistryUrl: '',
-}
+const mockEnvRef = vi.hoisted(() => {
+  const ref = {
+    current: {
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+      uniqueId: 'test',
+      isAdmin: true,
+    } as Record<string, unknown>,
+  };
+  return ref;
+});
+
+// Helper to reassign mockEnv throughout tests
+let mockEnv: Record<string, unknown> = mockEnvRef.current;
+const setMockEnv = (val: Record<string, unknown>) => {
+  mockEnv = val;
+  mockEnvRef.current = val;
+};
 
 vi.mock('../../config/environment', () => ({
   get env() {
-    return mockEnv
+    return mockEnvRef.current
   },
 }))
 
@@ -186,6 +203,10 @@ function makeConfig(overrides: Partial<TopicConfig> = {}): TopicConfig {
 // TopicPanel
 // ===========================================================================
 
+afterEach(() => {
+  cleanup();
+});
+
 describe('[@topic-panel] rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -193,12 +214,12 @@ describe('[@topic-panel] rendering', () => {
     mockSelectedTopic = null
     mockTopicLoading = false
     mockTopicError = null
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
-    }
+    })
   })
 
   it("renders 'Kafka Topics' title when no topic is selected", () => {
@@ -227,19 +248,19 @@ describe('[@topic-panel] rendering', () => {
   })
 
   it("shows 'Kafka REST endpoint not configured' when kafkaClusterId is empty", () => {
-    mockEnv = { ...mockEnv, kafkaClusterId: '' }
+    setMockEnv({ ...mockEnv, kafkaClusterId: '' })
     render(<TopicPanel />)
     expect(screen.getByText('Kafka REST endpoint not configured')).toBeInTheDocument()
   })
 
   it("shows 'Kafka REST endpoint not configured' when kafkaRestEndpoint is empty", () => {
-    mockEnv = { ...mockEnv, kafkaRestEndpoint: '' }
+    setMockEnv({ ...mockEnv, kafkaRestEndpoint: '' })
     render(<TopicPanel />)
     expect(screen.getByText('Kafka REST endpoint not configured')).toBeInTheDocument()
   })
 
   it('does not render TopicList or TopicDetail when env is not configured', () => {
-    mockEnv = { ...mockEnv, kafkaClusterId: '' }
+    setMockEnv({ ...mockEnv, kafkaClusterId: '' })
     render(<TopicPanel />)
     // Should not show the filter input (belongs to TopicList)
     expect(screen.queryByPlaceholderText('Filter topics...')).not.toBeInTheDocument()
@@ -253,12 +274,12 @@ describe('[@topic-panel] load on mount', () => {
     mockSelectedTopic = null
     mockTopicLoading = false
     mockTopicError = null
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
-    }
+    })
   })
 
   it('calls loadTopics() on mount when env is configured', () => {
@@ -267,7 +288,7 @@ describe('[@topic-panel] load on mount', () => {
   })
 
   it('does not call loadTopics() when env is not configured', () => {
-    mockEnv = { ...mockEnv, kafkaClusterId: '' }
+    setMockEnv({ ...mockEnv, kafkaClusterId: '' })
     render(<TopicPanel />)
     expect(mockLoadTopics).not.toHaveBeenCalled()
   })
@@ -280,12 +301,12 @@ describe('[@topic-panel] refresh button', () => {
     mockSelectedTopic = null
     mockTopicLoading = false
     mockTopicError = null
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
-    }
+    })
   })
 
   it('refresh button calls loadTopics() when clicked', async () => {
@@ -818,6 +839,15 @@ describe('[@topic-detail] delete overlay', () => {
     vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
     mockDeleteTopic.mockResolvedValue(undefined)
     mockLoadTopics.mockResolvedValue(undefined)
+    setMockEnv({
+      kafkaClusterId: 'test-cluster-id',
+      kafkaRestEndpoint: 'https://test.confluent.cloud',
+      kafkaApiKey: 'test-key',
+      kafkaApiSecret: 'test-secret',
+      schemaRegistryUrl: '',
+      uniqueId: 'test',
+      isAdmin: true,
+    })
   })
 
   it('clicking the Delete button opens the confirmation overlay', async () => {
@@ -1308,13 +1338,13 @@ describe('[@topic-detail] query with flink button', () => {
     vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
     mockAddStatement.mockReset()
     mockSetActiveNavItem.mockReset()
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: '',
-    }
+    })
   })
 
   it('renders the Query button in the header', () => {
@@ -1355,13 +1385,13 @@ describe('[@topic-detail] insert topic name at cursor', () => {
     mockSelectedTopic = makeTopic({ topic_name: 'orders-v1' })
     vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
     mockInsertTextAtCursor.mockReturnValue(true)
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: '',
-    }
+    })
   })
 
   it('renders the insert at cursor button', () => {
@@ -1415,13 +1445,13 @@ describe('[@topic-detail] health indicator badge', () => {
     mockTopicError = null
     mockFocusedStatementId = null
     vi.mocked(topicApi.getTopicConfigs).mockResolvedValue([])
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: '',
-    }
+    })
   })
 
   it('shows yellow health dot when partitions_count < 2', () => {
@@ -1494,13 +1524,13 @@ describe('[@topic-detail] inline config editing', () => {
     mockFocusedStatementId = null
     mockSelectedTopic = makeTopic({ topic_name: 'orders-v1' })
     vi.mocked(topicApi.alterTopicConfig).mockResolvedValue(undefined)
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: '',
-    }
+    })
   })
 
   it('read-only config shows lock icon', async () => {
@@ -1609,13 +1639,13 @@ describe('[@topic-detail] schema association', () => {
   })
 
   it('does not render schema section when schemaRegistryUrl is empty', async () => {
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: '',
-    }
+    })
     vi.mocked(schemaRegistryApi.getSchemaDetail).mockRejectedValue({ response: { status: 404 } })
 
     render(<TopicDetail />)
@@ -1625,13 +1655,13 @@ describe('[@topic-detail] schema association', () => {
   })
 
   it('shows "No schema registered" when all subject lookups return 404', async () => {
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: 'https://schema-registry.confluent.cloud',
-    }
+    })
     vi.mocked(schemaRegistryApi.getSchemaDetail).mockRejectedValue({ response: { status: 404 } })
 
     render(<TopicDetail />)
@@ -1642,13 +1672,13 @@ describe('[@topic-detail] schema association', () => {
   })
 
   it('shows found subject name when schema exists for topic-value', async () => {
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: 'https://schema-registry.confluent.cloud',
-    }
+    })
     const mockSubject = {
       subject: 'orders-v1-value',
       version: 1,
@@ -1670,13 +1700,13 @@ describe('[@topic-detail] schema association', () => {
 
   it('clicking View schema button calls navigateToSchemaSubject', async () => {
     const user = userEvent.setup()
-    mockEnv = {
+    setMockEnv({
       kafkaClusterId: 'test-cluster-id',
       kafkaRestEndpoint: 'https://test.confluent.cloud',
       kafkaApiKey: 'test-key',
       kafkaApiSecret: 'test-secret',
       schemaRegistryUrl: 'https://schema-registry.confluent.cloud',
-    }
+    })
     const mockSubject = {
       subject: 'orders-v1-value',
       version: 1,

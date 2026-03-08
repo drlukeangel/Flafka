@@ -105,13 +105,11 @@ function HistoryItem({
 }
 
 export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
-  const { statementHistory, historyLoading, historyError, addStatement } = useWorkspaceStore();
+  const { statementHistory, historyLoading, historyError, historyLastFetched, addStatement } = useWorkspaceStore();
   const [activeFilter, setActiveFilter] = useState<string>('all');
 
   useEffect(() => {
-    if (statementHistory.length === 0 && !historyLoading) {
-      onRefresh();
-    }
+    onRefresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLoad = (sql: string) => {
@@ -149,6 +147,11 @@ export function HistoryPanel({ onClose, onRefresh }: HistoryPanelProps) {
       <div className="history-panel-header">
         <span className="history-panel-title">Statement History</span>
         <div className="history-panel-controls">
+          {historyLastFetched && !historyLoading && (
+            <span className="history-updated-ago" title={new Date(historyLastFetched).toLocaleString()}>
+              Updated {getRelativeTime(new Date(historyLastFetched).toISOString()) || 'just now'}
+            </span>
+          )}
           <button
             className="history-icon-btn"
             onClick={onRefresh}

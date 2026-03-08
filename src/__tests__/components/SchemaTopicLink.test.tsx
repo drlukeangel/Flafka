@@ -66,6 +66,7 @@ vi.mock('../../config/environment', () => ({
     kafkaRestEndpoint: '',
     kafkaApiKey: '',
     kafkaApiSecret: '',
+    uniqueId: 'test',
   },
 }));
 
@@ -272,11 +273,11 @@ describe('[@schema-detail-layout] Schema/Datasets toggle and header layout', () 
 
   describe('Delete schema also deletes datasets', () => {
     it('delete confirms then removes schema and associated datasets', async () => {
-      const ds1 = makeDataset('orders-value', 'ds-1', 'Dataset 1');
-      const ds2 = makeDataset('orders-value', 'ds-2', 'Dataset 2');
+      const ds1 = makeDataset('orders-value-test', 'ds-1', 'Dataset 1');
+      const ds2 = makeDataset('orders-value-test', 'ds-2', 'Dataset 2');
       const dsOther = makeDataset('other-value', 'ds-3', 'Other Dataset');
       mockSchemaDatasets = [ds1, ds2, dsOther];
-      mockSelectedSchemaSubject = makeSubject('orders-value');
+      mockSelectedSchemaSubject = makeSubject('orders-value-test');
       mockDeleteSubject.mockResolvedValueOnce(undefined);
 
       render(<SchemaDetail />);
@@ -286,19 +287,19 @@ describe('[@schema-detail-layout] Schema/Datasets toggle and header layout', () 
 
       // Type subject name to confirm
       await waitFor(() => {
-        expect(screen.getByPlaceholderText('orders-value')).toBeTruthy();
+        expect(screen.getByPlaceholderText('orders-value-test')).toBeTruthy();
       });
-      fireEvent.change(screen.getByPlaceholderText('orders-value'), {
-        target: { value: 'orders-value' },
+      fireEvent.change(screen.getByPlaceholderText('orders-value-test'), {
+        target: { value: 'orders-value-test' },
       });
 
       // Click the confirm delete button
       await act(async () => {
-        fireEvent.click(screen.getByLabelText('Delete orders-value'));
+        fireEvent.click(screen.getByLabelText('Delete orders-value-test'));
       });
 
       await waitFor(() => {
-        expect(mockDeleteSubject).toHaveBeenCalledWith('orders-value');
+        expect(mockDeleteSubject).toHaveBeenCalledWith('orders-value-test');
       });
 
       // Should delete only datasets for this subject

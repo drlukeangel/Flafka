@@ -7,6 +7,8 @@ vi.mock('../../config/environment', () => ({
   env: {
     cloudProvider: 'aws',
     cloudRegion: 'us-east-1',
+    uniqueId: 'test',
+    isAdmin: true,
   },
 }));
 
@@ -123,32 +125,30 @@ describe('[@jobs-list] JobsList', () => {
     expect(screen.queryByText('stmt-running-1')).toBeNull();
   });
 
-  // --- Filter dropdown ---
+  // --- Filter flyout ---
 
-  it('filter dropdown options show correct counts', () => {
+  it('filter flyout shows status options when opened', () => {
     renderList();
-    const dropdown = screen.getByLabelText('Filter statements') as HTMLSelectElement;
-    const options = Array.from(dropdown.options);
-    expect(options.find((o) => o.value === 'all')?.textContent).toBe('All (5)');
-    expect(options.find((o) => o.value === 'running')?.textContent).toBe('Running (2)');
-    expect(options.find((o) => o.value === 'completed')?.textContent).toBe('Completed (1)');
-    expect(options.find((o) => o.value === 'stopped')?.textContent).toBe('Stopped (1)');
-    expect(options.find((o) => o.value === 'failed')?.textContent).toBe('Failed (1)');
+    fireEvent.click(screen.getByLabelText('Filter'));
+    expect(screen.getByText('Statement Status')).toBeTruthy();
+    expect(screen.getByLabelText('Running')).toBeTruthy();
+    expect(screen.getByLabelText('Completed')).toBeTruthy();
+    expect(screen.getByLabelText('Stopped')).toBeTruthy();
+    expect(screen.getByLabelText('Failed')).toBeTruthy();
   });
 
-  it('filter dropdown filters correctly', () => {
+  it('filter flyout filters by checked status', () => {
     renderList();
-    const dropdown = screen.getByLabelText('Filter statements');
-    fireEvent.change(dropdown, { target: { value: 'running' } });
+    fireEvent.click(screen.getByLabelText('Filter'));
+    fireEvent.click(screen.getByLabelText('Running'));
     expect(screen.getByText('stmt-running-1')).toBeTruthy();
-    expect(screen.getByText('stmt-pending-1')).toBeTruthy();
     expect(screen.queryByText('stmt-completed-1')).toBeNull();
   });
 
-  it('CANCELLED maps to stopped filter option', () => {
+  it('CANCELLED maps to Stopped filter checkbox', () => {
     renderList();
-    const dropdown = screen.getByLabelText('Filter statements');
-    fireEvent.change(dropdown, { target: { value: 'stopped' } });
+    fireEvent.click(screen.getByLabelText('Filter'));
+    fireEvent.click(screen.getByLabelText('Stopped'));
     expect(screen.getByText('stmt-cancelled-1')).toBeTruthy();
     expect(screen.queryByText('stmt-running-1')).toBeNull();
   });
@@ -277,8 +277,8 @@ describe('[@jobs-list] JobsList', () => {
 
   it('shows fetch more hint when filtered < total', () => {
     renderList();
-    const dropdown = screen.getByLabelText('Filter statements');
-    fireEvent.change(dropdown, { target: { value: 'running' } });
+    fireEvent.click(screen.getByLabelText('Filter'));
+    fireEvent.click(screen.getByLabelText('Running'));
     expect(screen.getByText(/Scroll or use search to fetch more\./)).toBeTruthy();
   });
 
@@ -520,8 +520,8 @@ describe('[@coverage-boost] JobsList edge cases', () => {
     expect((screen.getByLabelText('Select stmt-running-1') as HTMLInputElement).checked).toBe(true);
 
     // Filter to completed only — running selection should be cleared
-    const dropdown = screen.getByLabelText('Filter statements');
-    fireEvent.change(dropdown, { target: { value: 'completed' } });
+    fireEvent.click(screen.getByLabelText('Filter'));
+    fireEvent.click(screen.getByLabelText('Completed'));
     // The running row is no longer visible
     expect(screen.queryByLabelText('Select stmt-running-1')).toBeNull();
   });
@@ -549,18 +549,15 @@ describe('[@coverage-boost] JobsList edge cases', () => {
     expect(actionsBtn.disabled).toBe(true);
   });
 
-  it('matchesFilter default case returns true', () => {
-    // The 'all' tab should show all statements
+  it('no filters selected shows all statements', () => {
     renderList();
-    const dropdown = screen.getByLabelText('Filter statements');
-    fireEvent.change(dropdown, { target: { value: 'all' } });
     expect(screen.getByText(/5 statements shown\./)).toBeTruthy();
   });
 
   it('failed filter shows only failed statements', () => {
     renderList();
-    const dropdown = screen.getByLabelText('Filter statements');
-    fireEvent.change(dropdown, { target: { value: 'failed' } });
+    fireEvent.click(screen.getByLabelText('Filter'));
+    fireEvent.click(screen.getByLabelText('Failed'));
     expect(screen.getByText('stmt-failed-1')).toBeTruthy();
     expect(screen.queryByText('stmt-running-1')).toBeNull();
   });

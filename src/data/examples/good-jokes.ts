@@ -19,11 +19,27 @@ export const goodJokesDef: KickstarterExampleDef = {
   sql: [
     {
       label: 'filter-good-jokes',
-      sql: "INSERT INTO `{GOOD-JOKES}`\nSELECT joke_id, joke, category, rating\nFROM `{JOKES}`\nWHERE rating IN ('LOL', 'ROFL', 'DEAD')",
+      sql: `INSERT INTO \`{GOOD-JOKES}\`
+SELECT joke_id, joke, category, rating
+FROM \`{JOKES}\`
+WHERE rating IN ('LOL', 'ROFL', 'DEAD')
+
+-- ============================================================
+-- WHAT: Continuous job that filters jokes by rating, writing only LOL/ROFL/DEAD to GOOD-JOKES.
+-- WHY INSERT INTO: SELECT shows results in console but doesn't save. INSERT INTO writes to an actual Kafka topic.
+-- WHY explicit columns: Output table may differ from input schema. SELECT * fails on mismatch.
+-- WHY IN (...): Shorthand for multiple OR conditions — cleaner with 3+ values.
+-- GOTCHA: Job runs FOREVER. Running it twice without cancelling the first creates DUPLICATE output.
+-- ============================================================`,
     },
     {
       label: 'view-good-jokes',
-      sql: 'SELECT * FROM `{GOOD-JOKES}` LIMIT 20',
+      sql: `SELECT * FROM \`{GOOD-JOKES}\` LIMIT 20
+
+-- ============================================================
+-- WHAT: Reads from GOOD-JOKES to verify only LOL/ROFL/DEAD ratings made it through the filter.
+-- GOTCHA: Run the INSERT INTO job and produce jokes FIRST — topic is empty until the filter processes data.
+-- ============================================================`,
     },
   ],
   completionModal: {

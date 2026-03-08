@@ -1,5 +1,6 @@
 /* ExampleDetailPage — full-page documentation experience */
 .edp {
+  position: relative;
   height: 100%;
   overflow: hidden;
   background: var(--color-background);
@@ -93,7 +94,7 @@
 
 .edp__btn--setup {
   background: var(--color-success);
-  color: #fff;
+  color: #1a1a1a;
 }
 .edp__btn--copy {
   background: var(--color-surface);
@@ -512,4 +513,237 @@
   color: var(--color-text-secondary);
   line-height: 1.4;
   margin-top: 2px;
+}
+
+/* ── Challenges ───────────────────────────────────────────────── */
+
+.edp__challenges {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.edp__challenges-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--color-text);
+}
+
+.edp__challenge {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--color-surface);
+}
+
+.edp__challenge--done {
+  background: var(--success-bg, #f0fdf4);
+  border-color: var(--success-color, #16a34a);
+  opacity: 0.8;
+}
+
+[data-theme="dark"] .edp__challenge--done {
+  background: rgba(22, 163, 106, 0.08);
+}
+
+.edp__challenge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.edp__challenge-prompt {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.edp__challenge-check {
+  color: var(--success-color, #16a34a);
+  flex-shrink: 0;
+}
+
+.edp__challenge-hint {
+  margin-top: 6px;
+}
+
+.edp__challenge-hint-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.edp__challenge-hint-text {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.edp__challenge-expected {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.edp__challenge-done-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+/* ── Mark Complete ────────────────────────────────────────────── */
+
+.edp__mark-complete {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: center;
+}
+
+.edp__mark-complete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.edp__mark-complete-btn:hover {
+  opacity: 0.9;
+}
+
+.edp__mark-complete-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  background: var(--success-color, #16a34a);
+  color: #fff;
+}
+
+/* ── Concept Lesson Styles ────────────────────────────────────── */
+
+.concept-lesson {
+  padding: 0 40px 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.concept-lesson__hero {
+  margin-bottom: 28px;
+}
+
+.concept-lesson__title {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: var(--color-text-primary);
+  letter-spacing: -0.3px;
+}
+
+.concept-lesson__subtitle {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 720px;
+}
+
+.concept-lesson__animation {
+  margin: 24px 0 32px;
+}
+
+.concept-lesson__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 860px;
+}
+
+.concept-lesson__section {
+  border-left: 3px solid var(--color-primary, var(--accent-color));
+  padding-left: 20px;
+}
+
+.concept-lesson__heading {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: var(--color-text-primary);
+}
+
+.concept-lesson__body {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+}
+
+.concept-lesson__body p {
+  margin: 0 0 10px;
+}
+
+.concept-lesson__body p:last-child {
+  margin-bottom: 0;
+}
+
+.concept-lesson__footer {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: center;
+}
+
+.concept-lesson__complete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 8px;
+  background: var(--color-primary, var(--accent-color));
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.concept-lesson__complete-btn:hover {
+  opacity: 0.9;
 }

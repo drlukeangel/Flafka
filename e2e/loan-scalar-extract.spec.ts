@@ -21,9 +21,6 @@ test.describe('Loan Detail Extract (Java UDF)', () => {
     // Wait for success toast (full budget for upload + DDL + data gen)
     await waitForToast(page, 'success', 180_000);
 
-    // Verify nav switched to workspace
-    await expect(page.locator(`${SEL.NAV_WORKSPACE}[aria-current="page"]`)).toBeVisible();
-
     // Verify workspace has a cell containing the UDF SQL
     await expect(page.locator('text=LoanDetailExtract')).toBeVisible();
   });
@@ -54,7 +51,6 @@ test.describe('Loan Detail Extract (Java UDF)', () => {
 
     await goToExamples(page);
     const javaCard = page.locator(SEL.JAVA_CARD);
-    const pythonCard = page.locator(SEL.PYTHON_CARD);
 
     // Click Set Up but do NOT await completion
     await javaCard.getByRole('button', { name: 'Set Up' }).click();
@@ -63,25 +59,13 @@ test.describe('Loan Detail Extract (Java UDF)', () => {
     const javaSetup = javaCard.getByRole('button', { name: /Set Up|Setting up/i });
     await expect(javaSetup).toHaveAttribute('aria-busy', 'true');
 
-    // Python "Set Up" button should be disabled
-    const pythonSetup = pythonCard.getByRole('button', { name: /Set Up|Setting up/i });
-    await expect(pythonSetup).toBeDisabled();
+    // Another kickstart card's Set Up button should be disabled during setup
+    const helloCard = page.locator(SEL.card('hello-flink'));
+    const helloSetup = helloCard.getByRole('button', { name: /Set Up|Setting up/i });
+    await expect(helloSetup).toBeDisabled();
 
     // Now wait for setup to complete so state is clean for next tests
     await waitForToast(page, 'success', 180_000);
-  });
-
-  test('nav auto-switches to workspace on success', async ({ appPage: page }) => {
-    await goToExamples(page);
-    const card = page.locator(SEL.JAVA_CARD);
-    await card.getByRole('button', { name: 'Set Up' }).click();
-
-    await waitForToast(page, 'success', 180_000);
-
-    // Workspace nav should be active
-    await expect(page.locator(`${SEL.NAV_WORKSPACE}[aria-current="page"]`)).toBeVisible();
-    // Examples panel should be hidden
-    await expect(page.locator(SEL.EXAMPLES_PANEL)).not.toBeVisible();
   });
 
   test('error path: presigned URL failure shows error toast', async ({ appPage: page }) => {

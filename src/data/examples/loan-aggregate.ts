@@ -30,11 +30,26 @@ SELECT
 FROM TABLE(
   TUMBLE(TABLE \`{LOANS}\`, DESCRIPTOR($rowtime), INTERVAL '20' SECOND)
 )
-GROUP BY window_start, window_end, status`,
+GROUP BY window_start, window_end, status
+
+-- ============================================================
+-- WHAT: Groups loans into fixed 20-second tumbling windows, computes COUNT and SUM per status per window.
+-- TUMBLING WINDOW: Non-overlapping time buckets. Each event belongs to exactly one window.
+-- WHY TUMBLE TVF: TABLE = input, DESCRIPTOR($rowtime) = Kafka event time, INTERVAL = window size.
+-- WHY DATE_FORMAT: Converts TIMESTAMP to readable strings for JSON output. Without it, you get epoch millis.
+-- WHY composite key: CONCAT(window_start, status) ensures unique Kafka key per (window, status) for compaction.
+-- GOTCHA: Windows emit only AFTER they close — wait 20s. GROUP BY must include BOTH window_start and window_end.
+-- GOTCHA: $rowtime = Kafka message timestamp, not wall clock. Bulk-produced records may all land in one window.
+-- ============================================================`,
     },
     {
       label: 'view-output',
-      sql: 'SELECT * FROM `{LOANS-STATS}` LIMIT 50',
+      sql: `SELECT * FROM \`{LOANS-STATS}\` LIMIT 50
+
+-- ============================================================
+-- WHAT: Reads aggregated stats from LOANS-STATS — loan counts and totals per window per status.
+-- GOTCHA: Wait ~20 seconds for the first tumbling window to close before running this.
+-- ============================================================`,
     },
   ],
   completionModal: {

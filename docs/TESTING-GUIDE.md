@@ -20,6 +20,9 @@ npm test -- -t "@store"              # store tests
 npm test -- -t "@api"                # API tests
 npm test -- -t "@phase-9"            # phase-9 tests
 npm test -- -t "@store|@api" --run   # multiple markers, no watch
+npm test -- -t "@ksql-api" --run     # ksqlDB API tests
+npm test -- -t "@ksql-engine" --run  # ksqlDB engine adapter tests
+npm test -- -t "@flink-engine" --run # Flink engine adapter tests
 
 # Run tests marked as @changed (in-progress work)
 npm test -- -t "@changed" --run
@@ -43,8 +46,13 @@ npm run test:ui
 src/__tests__/
   api/
     flink-api.test.ts
+    ksql-api.test.ts
+    ksql-client.test.ts
   store/
     workspaceStore.test.ts
+    engines/
+      flink-engine.test.ts
+      ksql-engine.test.ts
   components/
     ResultsTable.test.tsx
 ```

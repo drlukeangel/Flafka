@@ -2,18 +2,26 @@
  * [@settings-panel] Settings panel validation tests
  * Validates all editable settings sections and their unique IDs
  */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { render, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 import App from '../../App';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 
 describe('[@settings-panel] Settings Panel with Unique IDs', () => {
   beforeEach(() => {
+    useWorkspaceStore.setState({
+      catalog: 'test_catalog',
+      database: 'test_db',
+      catalogs: ['test_catalog'],
+      databases: ['test_db'],
+    });
     const store = useWorkspaceStore.getState();
     store.setActiveNavItem('settings');
-    store.setCatalog('default');
-    store.setDatabase('cluster_0');
     store.setWorkspaceName('test-workspace');
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   describe('Environment Section', () => {
@@ -49,10 +57,10 @@ describe('[@settings-panel] Settings Panel with Unique IDs', () => {
       render(<App />);
       const catalogSelect = document.getElementById('settings-catalog-select') as HTMLSelectElement;
 
-      fireEvent.change(catalogSelect, { target: { value: 'default' } });
+      fireEvent.change(catalogSelect, { target: { value: 'test_catalog' } });
 
       await waitFor(() => {
-        expect(catalogSelect.value).toBe('default');
+        expect(catalogSelect.value).toBe('test_catalog');
       });
     });
 
@@ -60,10 +68,10 @@ describe('[@settings-panel] Settings Panel with Unique IDs', () => {
       render(<App />);
       const databaseSelect = document.getElementById('settings-database-select') as HTMLSelectElement;
 
-      fireEvent.change(databaseSelect, { target: { value: 'cluster_0' } });
+      fireEvent.change(databaseSelect, { target: { value: 'test_db' } });
 
       await waitFor(() => {
-        expect(databaseSelect.value).toBe('cluster_0');
+        expect(databaseSelect.value).toBe('test_db');
       });
     });
   });
@@ -113,7 +121,7 @@ describe('[@settings-panel] Settings Panel with Unique IDs', () => {
 
       render(<App />);
 
-      const propInput = document.getElementById('settings-session-property-sql-local_time_zone');
+      const propInput = document.getElementById('settings-session-property-sql-local-time-zone');
       expect(propInput).toBeTruthy();
       expect((propInput as HTMLInputElement)?.value).toBe('UTC');
     });
@@ -124,19 +132,23 @@ describe('[@settings-panel] Settings Panel with Unique IDs', () => {
 
       render(<App />);
 
-      const deleteBtn = document.getElementById('settings-session-property-delete-sql-local_time_zone');
+      const deleteBtn = document.getElementById('settings-session-property-delete-sql-local-time-zone');
       expect(deleteBtn).toBeTruthy();
       expect(deleteBtn?.textContent).toBe('×');
     });
 
     it('should update session property value', async () => {
-      const store = useWorkspaceStore.getState();
-      store.setSessionProperty('sql.local_time_zone', 'UTC');
+      useWorkspaceStore.setState({
+        sessionProperties: { 'sql.local_time_zone': 'UTC' },
+      });
 
       render(<App />);
 
-      const propInput = document.getElementById('settings-session-property-sql-local_time_zone') as HTMLInputElement;
-      fireEvent.change(propInput, { target: { value: 'America/New_York' } });
+      const propInput = document.getElementById('settings-session-property-sql-local-time-zone') as HTMLInputElement;
+      expect(propInput).toBeTruthy();
+      await act(async () => {
+        fireEvent.change(propInput, { target: { value: 'America/New_York' } });
+      });
 
       await waitFor(() => {
         const updatedStore = useWorkspaceStore.getState();
@@ -145,13 +157,17 @@ describe('[@settings-panel] Settings Panel with Unique IDs', () => {
     });
 
     it('should delete session property when delete button clicked', async () => {
-      const store = useWorkspaceStore.getState();
-      store.setSessionProperty('sql.local_time_zone', 'UTC');
+      useWorkspaceStore.setState({
+        sessionProperties: { 'sql.local_time_zone': 'UTC' },
+      });
 
       render(<App />);
 
-      const deleteBtn = document.getElementById('settings-session-property-delete-sql-local_time_zone');
-      fireEvent.click(deleteBtn!);
+      const deleteBtn = document.getElementById('settings-session-property-delete-sql-local-time-zone');
+      expect(deleteBtn).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(deleteBtn!);
+      });
 
       await waitFor(() => {
         const updatedStore = useWorkspaceStore.getState();

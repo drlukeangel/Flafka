@@ -9,11 +9,11 @@
  *
  * Form fields:
  *   - Topic Name (required, monospace, autoFocus, validated)
- *   - Partitions (number, default 6, min 1, max 1000)
+ *   - Partitions (number, min 1, max 1000; default: 1 in dev, 6 in production)
  *   - Replication Factor (number, default 3, min 3)
  *   - Advanced section (collapsed by default):
  *     - Cleanup Policy (select: delete | compact, default delete)
- *     - Retention (ms) (optional number)
+ *     - Retention (ms) (dev: 3600000 = 1 hour; production: empty = broker default; -1 for infinite)
  *
  * Keyboard:
  *   - Escape closes the dialog (unless creating is in progress)
@@ -23,7 +23,13 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { env } from '../../config/environment';
 import { FiX, FiChevronDown, FiLoader } from 'react-icons/fi';
+
+// Environment-aware defaults for topic creation
+const isDev = env.environment === 'dev';
+const DEFAULT_PARTITIONS = isDev ? 1 : 6;
+const DEFAULT_RETENTION_MS = isDev ? '3600000' : '';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -64,10 +70,10 @@ export default function CreateTopic({ isOpen, onClose, onCreated }: CreateTopicP
 
   // Form state
   const [topicName, setTopicName] = useState('');
-  const [partitions, setPartitions] = useState(6);
+  const [partitions, setPartitions] = useState(DEFAULT_PARTITIONS);
   const [replicationFactor, setReplicationFactor] = useState(3);
   const [cleanupPolicy, setCleanupPolicy] = useState<'delete' | 'compact'>('delete');
-  const [retentionMs, setRetentionMs] = useState('');
+  const [retentionMs, setRetentionMs] = useState(DEFAULT_RETENTION_MS);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // MED-4: track whether the user has attempted to submit (to show validation errors on the name)
@@ -106,10 +112,10 @@ export default function CreateTopic({ isOpen, onClose, onCreated }: CreateTopicP
   useEffect(() => {
     if (!isOpen) {
       setTopicName('');
-      setPartitions(6);
+      setPartitions(DEFAULT_PARTITIONS);
       setReplicationFactor(3);
       setCleanupPolicy('delete');
-      setRetentionMs('');
+      setRetentionMs(DEFAULT_RETENTION_MS);
       setShowAdvanced(false);
       setApiError(null);
       setCreating(false);
@@ -565,7 +571,9 @@ export default function CreateTopic({ isOpen, onClose, onCreated }: CreateTopicP
                         marginTop: 4,
                       }}
                     >
-                      Use -1 for infinite retention. Leave blank for broker default.
+                      {isDev
+                        ? 'Default: 1 hour (3600000ms) in dev mode. Use -1 for infinite retention. Leave blank for broker default.'
+                        : 'Use -1 for infinite retention. Leave blank for broker default (7 days).'}
                     </span>
                   )}
                 </div>

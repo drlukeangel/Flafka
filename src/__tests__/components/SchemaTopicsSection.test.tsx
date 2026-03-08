@@ -95,6 +95,7 @@ vi.mock('../../config/environment', () => ({
     kafkaRestEndpoint: '',
     kafkaApiKey: '',
     kafkaApiSecret: '',
+    uniqueId: 'test',
   },
 }));
 

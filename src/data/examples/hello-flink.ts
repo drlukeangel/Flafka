@@ -14,7 +14,14 @@ export const helloFlinkDef: KickstarterExampleDef = {
   sql: [
     {
       label: 'read-jokes',
-      sql: 'SELECT * FROM `{JOKES}` LIMIT 20',
+      sql: `SELECT * FROM \`{JOKES}\` LIMIT 20
+
+-- ============================================================
+-- WHAT: Reads up to 20 joke records from the JOKES Kafka topic, then stops.
+-- WHY LIMIT 20: Without LIMIT, Flink reads a Kafka stream FOREVER — it has no natural end.
+-- GOTCHA: Produce data FIRST (click play on the stream card). If fewer than 20 records exist, the query hangs waiting.
+-- GOTCHA: Table names with special characters need backticks (\`like-this\`). {JOKES} is replaced at runtime.
+-- ============================================================`,
     },
   ],
   completionModal: {

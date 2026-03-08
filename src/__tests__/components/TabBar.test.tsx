@@ -357,7 +357,7 @@ describe('[@tab-bar] TabBar', () => {
     expect(screen.queryByText('Close tab?')).not.toBeInTheDocument();
   });
 
-  it('does not switch tab when clicking during rename', async () => {
+  it('commits rename and switches tab when clicking tab during rename', async () => {
     const user = userEvent.setup();
     mockTabs = {
       'tab-1': { ...defaultTab, workspaceName: 'WS 1' },
@@ -370,10 +370,10 @@ describe('[@tab-bar] TabBar', () => {
     await user.dblClick(screen.getByText('WS 1'));
     // Clear calls from the dblClick (which includes click events)
     mockSwitchTab.mockClear();
-    // Click tab-1 area (should not switchTab since renaming)
+    // Click tab-1 area — blur commits rename (clears renaming state), then click fires switchTab
     const tab1 = screen.getAllByRole('tab')[0];
     await user.click(tab1);
-    expect(mockSwitchTab).not.toHaveBeenCalled();
+    expect(mockSwitchTab).toHaveBeenCalledWith('tab-1');
   });
 
   it('does not rename with empty value on blur', async () => {
@@ -485,7 +485,9 @@ describe('[@tab-bar] TabBar', () => {
       'tab-1': { ...defaultTab, workspaceNotesOpen: true },
     };
     render(<TabBar />);
-    await user.click(screen.getByLabelText('Close notes'));
+    // There are two "Close notes" labels (header button + tab toggle); target the header button by text content
+    const closeBtn = document.querySelector('.tab-bar__notes-close') as HTMLElement;
+    await user.click(closeBtn);
     expect(mockToggleWorkspaceNotes).toHaveBeenCalled();
   });
 

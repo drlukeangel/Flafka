@@ -8,6 +8,7 @@ vi.mock('../../api/flink-api', () => ({
   cancelStatement: vi.fn(),
   getComputePoolStatus: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   getCatalogs: vi.fn(),
   getDatabases: vi.fn(),
   getTables: vi.fn(),
@@ -78,6 +79,14 @@ function resetStore() {
     jobsLoading: false,
     jobsError: null,
     toasts: [],
+    jobsLastFetched: null,
+    jobsCacheFilterMode: null,
+    historyLastFetched: null,
+    historyCacheFilterMode: null,
+    _jobsFetchGen: 0,
+    _historyFetchGen: 0,
+    cacheTtlMinutes: 10,
+    userLaunchedStatements: [],
   });
 }
 
@@ -108,7 +117,7 @@ describe('[@jobs-store] Jobs store state and actions', () => {
       (flinkApi.listStatements as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
       await useWorkspaceStore.getState().loadJobs();
-      expect(flinkApi.listStatements).toHaveBeenCalledWith(200, expect.any(Function));
+      expect(flinkApi.listStatements).toHaveBeenCalledWith(200, expect.any(Function), undefined, expect.anything());
     });
 
     it('stores results in jobStatements via onPage callback', async () => {

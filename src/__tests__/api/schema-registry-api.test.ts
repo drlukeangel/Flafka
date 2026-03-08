@@ -14,6 +14,7 @@ import {
 } from '../../api/schema-registry-api'
 import { schemaRegistryClient } from '../../api/schema-registry-client'
 import { env } from '../../config/environment'
+import { getSessionTag } from '../../utils/names'
 
 vi.mock('../../api/schema-registry-client', () => ({
   schemaRegistryClient: {
@@ -251,7 +252,7 @@ describe('[@schema-registry-api] schema-registry-api', () => {
   describe('[@schema-registry-api] registerSchema', () => {
     it('posts schema and returns the assigned id with tagged subject', async () => {
       vi.mocked(schemaRegistryClient.post).mockResolvedValueOnce({ data: { id: 101 } })
-      const taggedSubject = `user-value-${env.uniqueId}`
+      const taggedSubject = `user-value-${getSessionTag()}`
 
       const schemaStr = '{"type":"record","name":"User","fields":[]}'
       const result = await registerSchema('user-value', schemaStr, 'AVRO')
@@ -265,7 +266,7 @@ describe('[@schema-registry-api] schema-registry-api', () => {
 
     it('sends the correct schemaType in the request body with tagged subject', async () => {
       vi.mocked(schemaRegistryClient.post).mockResolvedValueOnce({ data: { id: 202 } })
-      const taggedSubject = `msg-value-${env.uniqueId}`
+      const taggedSubject = `msg-value-${getSessionTag()}`
 
       const schemaStr = 'syntax = "proto3"; message Msg {}'
       await registerSchema('msg-value', schemaStr, 'PROTOBUF')
@@ -278,7 +279,7 @@ describe('[@schema-registry-api] schema-registry-api', () => {
 
     it('URL-encodes the subject name and tags it', async () => {
       vi.mocked(schemaRegistryClient.post).mockResolvedValueOnce({ data: { id: 1 } })
-      const taggedSubject = `my topic/value-${env.uniqueId}`
+      const taggedSubject = `my topic/value-${getSessionTag()}`
 
       await registerSchema('my topic/value', '{}', 'JSON')
 

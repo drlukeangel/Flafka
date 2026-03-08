@@ -40,9 +40,12 @@ const SCAN_MODES: ScanMode[] = [
 
 interface ScanModePanelProps {
   statementId: string;
+  engine?: import('../../types').SqlEngine;
 }
 
-export function ScanModePanel({ statementId }: ScanModePanelProps) {
+const KSQL_MODES = new Set(['earliest-offset', 'latest-offset']);
+
+export function ScanModePanel({ statementId, engine }: ScanModePanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -51,8 +54,12 @@ export function ScanModePanel({ statementId }: ScanModePanelProps) {
   const statement = useWorkspaceStore((s) => s.statements.find((st) => st.id === statementId));
   const setStatementScanMode = useWorkspaceStore((s) => s.setStatementScanMode);
 
+  const filteredModes = engine === 'ksqldb'
+    ? SCAN_MODES.filter((m) => KSQL_MODES.has(m.value))
+    : SCAN_MODES;
+
   const currentMode = statement?.scanMode || 'earliest-offset';
-  const selectedDef = SCAN_MODES.find((m) => m.value === currentMode)!;
+  const selectedDef = filteredModes.find((m) => m.value === currentMode) || filteredModes[0];
   const triggerLabel = selectedDef.shortLabel;
 
   const updatePosition = useCallback(() => {
@@ -119,7 +126,7 @@ export function ScanModePanel({ statementId }: ScanModePanelProps) {
       ref={menuRef}
       style={{ top: menuPos.top, right: menuPos.right }}
     >
-      {SCAN_MODES.map((mode) => {
+      {filteredModes.map((mode) => {
         const isSelected = currentMode === mode.value;
         return (
           <div key={mode.value} className="scan-mode-option-group">

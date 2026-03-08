@@ -44,8 +44,8 @@
 
 .jobs-search-wrapper {
   position: relative;
-  flex: 1;
-  min-width: 180px;
+  flex: 0 1 240px;
+  min-width: 140px;
 }
 
 .jobs-search-icon {
@@ -72,23 +72,6 @@
 .jobs-search:focus {
   border-color: var(--color-primary);
   box-shadow: var(--shadow-focus-ring);
-}
-
-/* Filter dropdown */
-.jobs-filter-dropdown {
-  padding: 6px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-surface);
-  color: var(--color-text-primary);
-  font-size: 13px;
-  cursor: pointer;
-  outline: none;
-  transition: border-color var(--transition-fast);
-}
-
-.jobs-filter-dropdown:focus {
-  border-color: var(--color-primary);
 }
 
 /* Page loaded timestamp */
@@ -248,6 +231,24 @@
 
 .jobs-row--selected {
   background: var(--color-surface-primary-tint, var(--color-bg-hover));
+}
+
+.jobs-row--mine {
+  border-left: 2px solid var(--color-primary, #3b82f6);
+}
+
+.jobs-mine-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 16px;
+  border-radius: 3px;
+  background: var(--color-primary, #3b82f6);
+  color: #fff;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
 }
 
 .jobs-cell-name {

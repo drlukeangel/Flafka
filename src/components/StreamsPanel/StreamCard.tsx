@@ -12,7 +12,7 @@ import * as flinkApi from '../../api/flink-api';
 import { generateSyntheticRecord } from '../../utils/synthetic-data';
 import { serializeToConfluentBinary } from '../../utils/confluent-serializer';
 import { StreamCardTable } from './StreamCardTable';
-import { FiPlay, FiSquare, FiChevronDown, FiChevronUp, FiX, FiRefreshCw, FiCopy } from 'react-icons/fi';
+import { FiPlay, FiSquare, FiChevronDown, FiChevronUp, FiX, FiRefreshCw, FiCopy, FiRadio, FiFileText } from 'react-icons/fi';
 import type { BackgroundStatement, ProduceRecord } from '../../types';
 import './StreamCard.css';
 
@@ -101,6 +101,8 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const backgroundStatements = useWorkspaceStore((s) => s.backgroundStatements);
   const schemaDatasets = useWorkspaceStore((s) => s.schemaDatasets);
   const navigateToSchemaDatasets = useWorkspaceStore((s) => s.navigateToSchemaDatasets);
+  const navigateToTopic = useWorkspaceStore((s) => s.navigateToTopic);
+  const navigateToSchemaSubject = useWorkspaceStore((s) => s.navigateToSchemaSubject);
   const updateStreamCardConfig = useWorkspaceStore((s) => s.updateStreamCardConfig);
 
   const [mode, setMode] = useState<'consume' | 'produce-consume'>(initialMode ?? 'consume');
@@ -667,6 +669,22 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
             >
               {isAutoRefreshing ? <FiSquare size={12} /> : <FiPlay size={12} />}
               <span>{isAutoRefreshing ? 'Stop' : 'Live'}</span>
+            </button>
+            <button
+              className="stream-card-icon-link"
+              onClick={() => navigateToTopic(topicName)}
+              title="View Topic"
+              aria-label="View Topic"
+            >
+              <FiRadio size={13} />
+            </button>
+            <button
+              className="stream-card-icon-link"
+              onClick={() => navigateToSchemaSubject(`${topicName}-value`)}
+              title="View Schema"
+              aria-label="View Schema"
+            >
+              <FiFileText size={13} />
             </button>
           </div>
 

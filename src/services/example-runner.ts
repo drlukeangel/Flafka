@@ -11,8 +11,28 @@
  */
 
 import { createTable, type BaseExampleStoreSlice } from './example-helpers';
+import { createTopic as createKafkaTopic } from '../api/topic-api';
 import { generateFunName } from '../utils/names';
 import type { ExampleCompletionModal } from '../types';
+import {
+  generateLoanUpdates,
+  generateSecuritizedLoans,
+  generateAiAuditLog,
+  generatePaymentEvents,
+  generateLoanCommitments,
+  generateMarketRates,
+} from '../data/view-sample-generators';
+import {
+  generateLoanCoborrowers,
+  generateLoansWithProperty,
+  generatePropertyReference,
+  generateLatePaymentReports,
+  generateLoanEvents,
+  generateLoanEventsDept,
+  generateRoutingRulesArrayDynamic,
+  generatePaymentStream,
+  generateBorrowerReference,
+} from '../data/new-example-generators';
 
 // ---------------------------------------------------------------------------
 // Table schema registry
@@ -41,10 +61,11 @@ const TABLE_SCHEMAS: Record<string, DDLFactory | string> = {
   total_amount DOUBLE
 )`,
   'customers-risk': (n) => `CREATE TABLE \`${n}\` (
-  customer_id STRING,
+  customer_id STRING NOT NULL,
   name STRING,
   risk_score INT,
-  risk_level STRING
+  risk_level STRING,
+  PRIMARY KEY (customer_id) NOT ENFORCED
 )`,
   'customers-credit': (n) => `CREATE TABLE \`${n}\` (
   customer_id STRING NOT NULL,
@@ -80,10 +101,11 @@ const TABLE_SCHEMAS: Record<string, DDLFactory | string> = {
 )`,
   // Jokes — no key field (beginner-friendly)
   'jokes': (n) => `CREATE TABLE \`${n}\` (
-  joke_id STRING,
+  joke_id STRING NOT NULL,
   joke STRING,
   category STRING,
-  rating STRING
+  rating STRING,
+  PRIMARY KEY (joke_id) NOT ENFORCED
 )`,
   'good-jokes': 'jokes',
   // --- New example schemas ---
@@ -118,13 +140,13 @@ const TABLE_SCHEMAS: Record<string, DDLFactory | string> = {
   avg_amount DOUBLE
 )`,
   'customers-latest': (n) => `CREATE TABLE \`${n}\` (
-  \`key\` BYTES,
-  customer_id STRING,
+  customer_id STRING NOT NULL,
   name STRING,
   credit_score INT,
   state STRING,
   risk_score INT,
-  risk_level STRING
+  risk_level STRING,
+  PRIMARY KEY (customer_id) NOT ENFORCED
 )`,
   'pattern-alerts': (n) => `CREATE TABLE \`${n}\` (
   \`key\` BYTES,
@@ -188,6 +210,299 @@ const TABLE_SCHEMAS: Record<string, DDLFactory | string> = {
   amount DOUBLE,
   currency STRING,
   event_ts BIGINT
+)`,
+  'loans-masked-sql': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  hashed_loan_id STRING,
+  amount DOUBLE,
+  status STRING,
+  masked_customer_id STRING,
+  created_at STRING
+)`,
+  // --- View example schemas ---
+  'loan-updates': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING,
+  status STRING,
+  appraisal_value DOUBLE,
+  credit_score INT,
+  updated_at STRING
+)`,
+  'loan-golden-record': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING NOT NULL,
+  latest_status STRING,
+  latest_appraisal DOUBLE,
+  latest_credit_score INT,
+  last_update STRING,
+  PRIMARY KEY (loan_id) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'securitized-loans': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING,
+  zip_code STRING,
+  upb DOUBLE,
+  origination_date STRING,
+  ltv DOUBLE
+)`,
+  'risk-by-zip': (n) => `CREATE TABLE \`${n}\` (
+  zip_code STRING NOT NULL,
+  loan_count BIGINT,
+  total_exposure DOUBLE,
+  avg_loan_size DOUBLE,
+  PRIMARY KEY (zip_code) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'ai-audit-log': (n) => `CREATE TABLE \`${n}\` (
+  audit_id STRING,
+  model_id STRING,
+  prediction STRING,
+  human_outcome STRING,
+  confidence DOUBLE,
+  reviewed_at STRING
+)`,
+  'payment-events': (n) => `CREATE TABLE \`${n}\` (
+  payment_id STRING,
+  servicer_id STRING,
+  loan_id STRING,
+  amount DOUBLE,
+  status STRING,
+  payment_date STRING
+)`,
+  'servicer-health': (n) => `CREATE TABLE \`${n}\` (
+  servicer_id STRING NOT NULL,
+  window_start STRING,
+  window_end STRING,
+  total_payments BIGINT,
+  delinquent_payments BIGINT,
+  delinquency_rate DOUBLE,
+  PRIMARY KEY (servicer_id) NOT ENFORCED
+)`,
+  'loan-commitments': (n) => `CREATE TABLE \`${n}\` (
+  commitment_id STRING,
+  loan_id STRING,
+  product_type STRING,
+  principal DOUBLE,
+  rate_lock_date STRING
+)`,
+  'market-rates': (n) => `CREATE TABLE \`${n}\` (
+  product_type STRING NOT NULL,
+  base_rate DOUBLE,
+  spread DOUBLE,
+  effective_date STRING,
+  PRIMARY KEY (product_type) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  // --- New pattern examples ---
+  'daily-commitment-stats': (n) => `CREATE TABLE \`${n}\` (
+  product_type STRING NOT NULL,
+  window_start STRING,
+  window_end STRING,
+  commitment_count BIGINT,
+  total_principal DOUBLE,
+  avg_principal DOUBLE,
+  PRIMARY KEY (product_type) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'loan-coborrowers': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING,
+  primary_borrower STRING,
+  primary_score INT,
+  coborrower_names ARRAY<STRING>,
+  coborrower_scores ARRAY<INT>
+)`,
+  'borrower-details': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING,
+  borrower_name STRING,
+  credit_score INT,
+  borrower_index INT
+)`,
+  'loans-with-property': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING,
+  property_id STRING,
+  amount DOUBLE,
+  status STRING,
+  borrower_id STRING
+)`,
+  'property-reference': (n) => `CREATE TABLE \`${n}\` (
+  property_id STRING NOT NULL,
+  appraisal_value DOUBLE,
+  flood_zone STRING,
+  property_type STRING,
+  last_assessed STRING,
+  PRIMARY KEY (property_id) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'loans-appraised': (n) => `CREATE TABLE \`${n}\` (
+  loan_id STRING,
+  property_id STRING,
+  amount DOUBLE,
+  appraisal_value DOUBLE,
+  flood_zone STRING,
+  ltv_ratio DOUBLE
+)`,
+  'late-payment-reports': (n) => `CREATE TABLE \`${n}\` (
+  payment_id STRING,
+  servicer_id STRING,
+  amount DOUBLE,
+  event_time_ms BIGINT
+)`,
+  'ontime-payment-stats': (n) => `CREATE TABLE \`${n}\` (
+  servicer_id STRING NOT NULL,
+  window_start STRING,
+  window_end STRING,
+  payment_count BIGINT,
+  total_amount DOUBLE,
+  PRIMARY KEY (servicer_id) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'loan-velocity-stats': (n) => `CREATE TABLE \`${n}\` (
+  customer_id STRING,
+  txn_id STRING,
+  loan_id STRING,
+  amount DOUBLE,
+  window_loan_count BIGINT,
+  window_total_amount DOUBLE,
+  window_avg_amount DOUBLE
+)`,
+  'loan-events': (n) => `CREATE TABLE \`${n}\` (
+  event_id STRING,
+  loan_id STRING,
+  event_type STRING,
+  amount DOUBLE,
+  borrower_id STRING,
+  event_ts STRING
+)`,
+  'routing-rules': (n) => `CREATE TABLE \`${n}\` (
+  department STRING NOT NULL,
+  event_type STRING NOT NULL,
+  active BOOLEAN,
+  PRIMARY KEY (department, event_type) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'routed-events': 'loan-events',
+  'loan-events-dept': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  event_id STRING,
+  loan_id STRING,
+  event_type STRING,
+  amount DOUBLE,
+  created_at STRING,
+  department STRING
+)`,
+  'routing-rules-array': (n) => `CREATE TABLE \`${n}\` (
+  event_type STRING NOT NULL,
+  target_topics ARRAY<STRING>,
+  updated_at STRING,
+  PRIMARY KEY (event_type) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'routed-events-sink': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  target_topic STRING,
+  event_id STRING,
+  loan_id STRING,
+  event_type STRING,
+  amount DOUBLE,
+  department STRING
+)`,
+  'routed-events-dept': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  event_id STRING,
+  loan_id STRING,
+  event_type STRING,
+  amount DOUBLE,
+  department STRING
+)`,
+  // --- JSON routing aliases (same DDL — Confluent Cloud manages format at producer level) ---
+  'loan-events-dept-json': 'loan-events-dept',
+  'routing-rules-array-json': 'routing-rules-array',
+  'routed-events-sink-json': 'routed-events-sink',
+  'routed-events-dept-json': 'routed-events-dept',
+  'payment-stream': (n) => `CREATE TABLE \`${n}\` (
+  payment_id STRING,
+  borrower_id STRING,
+  amount DOUBLE,
+  payment_date STRING,
+  payment_type STRING
+)`,
+  'borrower-reference': (n) => `CREATE TABLE \`${n}\` (
+  borrower_id STRING NOT NULL,
+  name STRING,
+  region STRING,
+  risk_tier STRING,
+  account_status STRING,
+  PRIMARY KEY (borrower_id) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'enriched-payments': (n) => `CREATE TABLE \`${n}\` (
+  payment_id STRING,
+  borrower_id STRING,
+  borrower_name STRING,
+  region STRING,
+  risk_tier STRING,
+  amount DOUBLE,
+  payment_type STRING
+)`,
+  // Virtual view placeholder — used by type='view' tables; no DDL generated
+  'view': (n) => `-- Virtual view: ${n} (created by CREATE VIEW SQL cell)`,
+  // --- Kafka/Confluent example schemas ---
+  'kafka-messages': (n) => `CREATE TABLE \`${n}\` (
+  \`key\` BYTES,
+  message_key STRING,
+  message_value STRING,
+  event_time TIMESTAMP(3)
+)`,
+  'kafka-events': (n) => `CREATE TABLE \`${n}\` (
+  event_id STRING,
+  event_type STRING,
+  payload STRING,
+  event_time TIMESTAMP(3)
+)`,
+  'changelog-append': (n) => `CREATE TABLE \`${n}\` (
+  user_id STRING,
+  action STRING,
+  amount DOUBLE,
+  event_time TIMESTAMP(3)
+)`,
+  'changelog-upsert': (n) => `CREATE TABLE \`${n}\` (
+  user_id STRING NOT NULL,
+  action STRING,
+  amount DOUBLE,
+  event_time TIMESTAMP(3),
+  PRIMARY KEY (user_id) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert')`,
+  'format-avro': (n) => `CREATE TABLE \`${n}\` (
+  sensor_id STRING,
+  temperature DOUBLE,
+  humidity DOUBLE,
+  event_time TIMESTAMP(3)
+)`,
+  'format-json': (n) => `CREATE TABLE \`${n}\` (
+  sensor_id STRING,
+  temperature DOUBLE,
+  humidity DOUBLE,
+  event_time TIMESTAMP(3)
+)`,
+  'format-raw': (n) => `CREATE TABLE \`${n}\` (
+  raw_payload VARBINARY,
+  event_time TIMESTAMP(3)
+)`,
+  'evolving-schema': (n) => `CREATE TABLE \`${n}\` (
+  event_id STRING,
+  event_type STRING,
+  payload STRING,
+  event_time TIMESTAMP(3)
+)`,
+  'evolved-schema': (n) => `CREATE TABLE \`${n}\` (
+  event_id STRING,
+  event_type STRING,
+  payload STRING,
+  priority INT,
+  event_time TIMESTAMP(3)
+)`,
+  'connector-raw': (n) => `CREATE TABLE \`${n}\` (
+  source_system STRING,
+  event_id STRING,
+  event_payload STRING,
+  event_type STRING,
+  ingestion_time TIMESTAMP(3)
+)`,
+  'connector-clean': (n) => `CREATE TABLE \`${n}\` (
+  source_system STRING,
+  event_id STRING,
+  event_payload STRING,
+  event_type STRING,
+  ingestion_time TIMESTAMP(3)
 )`,
 };
 
@@ -584,6 +899,87 @@ export function generateRawJsonEvents(count: number): Record<string, unknown>[] 
   }));
 }
 
+// --- Kafka/Confluent example generators ---
+
+function generateKafkaMessages(count: number): Record<string, unknown>[] {
+  const topics = ['orders', 'users', 'inventory', 'payments', 'events'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    message_key: `key-${topics[i % topics.length]}-${i + 1}`,
+    message_value: JSON.stringify({
+      id: i + 1,
+      type: topics[i % topics.length],
+      data: `payload-${Math.random().toString(36).slice(2, 8)}`,
+    }),
+    event_time: new Date(now - (count - i) * 3000).toISOString(),
+  }));
+}
+
+function generateKafkaEvents(count: number): Record<string, unknown>[] {
+  const types = ['LOGIN', 'LOGOUT', 'PURCHASE', 'VIEW', 'CLICK', 'SIGNUP'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    event_id: `EVT-${String(i + 1).padStart(4, '0')}`,
+    event_type: types[i % types.length],
+    payload: JSON.stringify({ user: `user-${(i % 10) + 1}`, value: Math.floor(Math.random() * 100) }),
+    event_time: new Date(now - (count - i) * 2000).toISOString(),
+  }));
+}
+
+function generateChangelogEvents(count: number): Record<string, unknown>[] {
+  const actions = ['DEPOSIT', 'WITHDRAWAL', 'TRANSFER', 'REFUND', 'PAYMENT'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    user_id: `USR-${String((i % 8) + 1).padStart(3, '0')}`,
+    action: actions[i % actions.length],
+    amount: Math.round(Math.random() * 1000 * 100) / 100,
+    event_time: new Date(now - (count - i) * 2500).toISOString(),
+  }));
+}
+
+function generateFormatEvents(count: number): Record<string, unknown>[] {
+  const sensors = ['TEMP-01', 'TEMP-02', 'HUM-01', 'HUM-02', 'MIX-01'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    sensor_id: sensors[i % sensors.length],
+    temperature: Math.round((18 + Math.random() * 12) * 10) / 10,
+    humidity: Math.round((40 + Math.random() * 40) * 10) / 10,
+    event_time: new Date(now - (count - i) * 3000).toISOString(),
+  }));
+}
+
+function generateFormatRawEvents(count: number): Record<string, unknown>[] {
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    raw_payload: `sensor=${i % 5 + 1},temp=${(18 + Math.random() * 12).toFixed(1)},ts=${now - (count - i) * 3000}`,
+    event_time: new Date(now - (count - i) * 3000).toISOString(),
+  }));
+}
+
+function generateEvolvingEvents(count: number): Record<string, unknown>[] {
+  const types = ['CREATED', 'UPDATED', 'DELETED', 'ARCHIVED'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    event_id: `EVO-${String(i + 1).padStart(4, '0')}`,
+    event_type: types[i % types.length],
+    payload: JSON.stringify({ entity: `item-${i + 1}`, version: Math.floor(i / 4) + 1 }),
+    event_time: new Date(now - (count - i) * 2000).toISOString(),
+  }));
+}
+
+function generateConnectorEvents(count: number): Record<string, unknown>[] {
+  const sources = ['  postgres ', 'MYSQL', ' salesforce', 'S3 ', ' api-gateway '];
+  const types = ['INSERT', '', null, 'UPDATE', 'DELETE', 'UPSERT'];
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => ({
+    source_system: sources[i % sources.length],
+    event_id: i % 7 === 0 ? null : `CON-${String(i + 1).padStart(4, '0')}`,
+    event_payload: i % 9 === 0 ? null : JSON.stringify({ record: i + 1, data: `val-${Math.random().toString(36).slice(2, 6)}` }),
+    event_type: types[i % types.length],
+    ingestion_time: new Date(now - (count - i) * 1500).toISOString(),
+  }));
+}
+
 const DATA_GENERATORS: Record<string, (count: number) => Record<string, unknown>[]> = {
   'flat-loans': generateFlatLoans,
   'customers-risk': generateCustomerRiskProfiles,
@@ -592,6 +988,31 @@ const DATA_GENERATORS: Record<string, (count: number) => Record<string, unknown>
   'customers-stream': generateCustomerStreamEvents,
   'flat-jokes': generateJokes,
   'raw-json-events': generateRawJsonEvents,
+  // View example generators
+  'loan-updates': generateLoanUpdates,
+  'securitized-loans': generateSecuritizedLoans,
+  'ai-audit-log': generateAiAuditLog,
+  'payment-events': generatePaymentEvents,
+  'loan-commitments': generateLoanCommitments,
+  'market-rates': generateMarketRates,
+  // New pattern example generators
+  'loan-coborrowers': generateLoanCoborrowers,
+  'loans-with-property': generateLoansWithProperty,
+  'property-reference': generatePropertyReference,
+  'late-payment-reports': generateLatePaymentReports,
+  'loan-events': generateLoanEvents,
+  'loan-events-dept': generateLoanEventsDept,
+  'routing-rules-array-dynamic': (_count: number) => generateRoutingRulesArrayDynamic(),
+  'payment-stream-data': generatePaymentStream,
+  'borrower-reference': generateBorrowerReference,
+  // Kafka/Confluent example generators
+  'kafka-messages': generateKafkaMessages,
+  'kafka-events': generateKafkaEvents,
+  'changelog-events': generateChangelogEvents,
+  'format-events': generateFormatEvents,
+  'format-raw-events': generateFormatRawEvents,
+  'evolving-events': generateEvolvingEvents,
+  'connector-events': generateConnectorEvents,
 };
 
 // ---------------------------------------------------------------------------
@@ -600,8 +1021,9 @@ const DATA_GENERATORS: Record<string, (count: number) => Record<string, unknown>
 
 export interface TableDef {
   name: string;              // base name: "LOANS"
-  schema: string;            // key in TABLE_SCHEMAS registry
+  schema: string;            // key in TABLE_SCHEMAS registry (use 'view' for virtual views)
   role: 'input' | 'output';
+  type?: 'table' | 'view' | 'topic';  // 'view' = skip DDL, 'topic' = create raw Kafka topic (no Flink DDL or Schema Registry schema)
   dataset?: { generator: string; count: number };
   stream?: 'produce-consume' | 'consume';
 }
@@ -609,12 +1031,14 @@ export interface TableDef {
 export interface CellDef {
   label: string;
   sql: string; // uses {TABLE_NAME} placeholders — already backtick-wrapped in template
+  engine?: import('../types').SqlEngine;
 }
 
 export interface KickstarterExampleDef {
   id: string;
   tables: TableDef[];
   sql: CellDef[];
+  vars?: Record<string, string>;  // additional {KEY} → value substitutions (e.g. Kafka credentials)
   completionModal?: Omit<ExampleCompletionModal, 'title'>;
 }
 
@@ -636,8 +1060,17 @@ export async function runKickstarterExample(
     names[t.name] = `${t.name.toLowerCase()}-${rid}`;
   }
 
-  // Create all tables
+  // Create all tables (skip virtual views — their DDL is in the SQL cells)
   for (const t of def.tables) {
+    if (t.type === 'view') continue;
+    if (t.type === 'topic') {
+      // Create raw Kafka topic without Flink DDL — no schema registered in Schema Registry.
+      // This ensures the StreamCard falls back to JSON production (no Avro serialization).
+      // Used by ksqlDB JSON examples where VALUE_FORMAT = 'JSON' needs actual JSON on the wire.
+      onProgress(`Creating topic: ${names[t.name]}`);
+      await createKafkaTopic({ topic_name: names[t.name], partitions_count: 1, replication_factor: 3 });
+      continue;
+    }
     await createTable(names[t.name], resolveDDL(t.schema, names[t.name]), onProgress);
   }
 
@@ -647,7 +1080,13 @@ export async function runKickstarterExample(
     if (!t.dataset) continue;
     const genFn = DATA_GENERATORS[t.dataset.generator];
     if (!genFn) throw new Error(`Unknown generator: ${t.dataset.generator}`);
-    const records = genFn(t.dataset.count);
+    let records = genFn(t.dataset.count);
+    // Substitute {TABLE_NAME} placeholders in generated data (e.g. routing rules with topic refs)
+    let recordsJson = JSON.stringify(records);
+    for (const [base, resolved] of Object.entries(names)) {
+      recordsJson = recordsJson.split(`{${base}}`).join(resolved);
+    }
+    records = JSON.parse(recordsJson);
     const datasetId = crypto.randomUUID();
     const now = new Date().toISOString();
     store.addSchemaDataset({
@@ -666,6 +1105,12 @@ export async function runKickstarterExample(
     }
   }
 
+  // Add consume-only stream cards (no dataset — just a consumer)
+  for (const t of def.tables) {
+    if (t.dataset || !t.stream) continue;
+    store.addStreamCard(names[t.name], t.stream);
+  }
+
   // Add SQL cells — template substitution
   onProgress('Adding queries to workspace...');
   for (const cell of def.sql) {
@@ -674,7 +1119,13 @@ export async function runKickstarterExample(
       // Replace {BASE_NAME} with resolved name (templates already include backticks)
       sql = sql.split(`{${base}}`).join(resolved);
     }
-    store.addStatement(sql, undefined, `${cell.label}-${rid}`);
+    // Replace additional {VAR} placeholders (e.g. Kafka credentials for UDF params)
+    if (def.vars) {
+      for (const [key, value] of Object.entries(def.vars)) {
+        sql = sql.split(`{${key}}`).join(value);
+      }
+    }
+    store.addStatement(sql, undefined, `${cell.label}-${rid}`, { engine: cell.engine });
   }
 
   return { runId: rid };

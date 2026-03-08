@@ -104,14 +104,14 @@ describe('[@phase-12.6-snippets-ui] SnippetsPanel — with snippets', () => {
 
   it('renders snippet list with role="list"', () => {
     render(<SnippetsPanel />)
-    const list = screen.getByRole('list')
-    expect(list).toBeTruthy()
+    const lists = screen.getAllByRole('list')
+    expect(lists.length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders snippet items with role="listitem"', () => {
     render(<SnippetsPanel />)
     const items = screen.getAllByRole('listitem')
-    expect(items.length).toBe(2)
+    expect(items.length).toBe(6) // 4 built-in + 2 user
   })
 
   it('renders snippet names', () => {
@@ -175,8 +175,8 @@ describe('[@phase-12.6-snippets-ui] SnippetsPanel — search filtering', () => {
     const clearBtn = screen.getByLabelText('Clear search')
     expect(clearBtn).toBeTruthy()
     await userEvent.click(clearBtn)
-    // Both snippets should be visible again
-    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    // All snippets should be visible again (4 built-in + 2 user)
+    expect(screen.getAllByRole('listitem')).toHaveLength(6)
   })
 
   it('does not show clear button when search is empty', () => {
@@ -386,7 +386,9 @@ describe('[@phase-12.6-snippets-ui] SnippetsPanel — save dialog', () => {
       { id: 's1', name: 'Long', sql: longSql, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ]
     render(<SnippetsPanel />)
-    const preview = document.querySelector('.snippet-sql-preview')
+    // Find all previews and check the last one (user snippet, after built-ins)
+    const previews = document.querySelectorAll('.snippet-sql-preview')
+    const preview = previews[previews.length - 1]
     expect(preview?.textContent).toContain('...')
     expect(preview?.textContent!.length).toBeLessThanOrEqual(204) // 200 + "..."
   })

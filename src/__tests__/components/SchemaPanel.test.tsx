@@ -81,6 +81,7 @@ vi.mock('../../config/environment', () => ({
     kafkaRestEndpoint: '',
     kafkaApiKey: '',
     kafkaApiSecret: '',
+    uniqueId: 'test',
   },
 }))
 
@@ -1306,7 +1307,7 @@ const DETAIL_AVRO_SCHEMA =
 
 function makeDetailSubject(overrides: Partial<SchemaSubject> = {}): SchemaSubject {
   return {
-    subject: 'test-subject-value',
+    subject: 'test-subject-value-test',
     version: 1,
     id: 100001,
     schemaType: 'AVRO',
@@ -1438,7 +1439,7 @@ describe('[@schema-detail] version switching', () => {
 
     await user.selectOptions(screen.getByRole('combobox', { name: /select schema version/i }), 'v1')
 
-    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 1)
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value-test', 1)
   })
 
   it('version selector is disabled during editing', async () => {
@@ -1583,7 +1584,7 @@ describe('[@schema-detail] evolve mode', () => {
 
     await waitFor(() => {
       expect(schemaRegistryApi.validateCompatibility).toHaveBeenCalledWith(
-        'test-subject-value',
+        'test-subject-value-test',
         expect.any(String),
         'AVRO'
       )
@@ -1705,7 +1706,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     await waitFor(() => {
       expect(schemaRegistryApi.registerSchema).toHaveBeenCalledWith(
-        'test-subject-value',
+        'test-subject-value-test',
         expect.any(String),
         'AVRO'
       )
@@ -1724,10 +1725,10 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
     expect(screen.getByRole('button', { name: /evolve schema/i })).toBeInTheDocument()
 
     // loadSchemaDetail called with 'latest'
-    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 'latest')
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value-test', 'latest')
 
     // Version list refreshed
-    expect(schemaRegistryApi.getSchemaVersions).toHaveBeenCalledWith('test-subject-value')
+    expect(schemaRegistryApi.getSchemaVersions).toHaveBeenCalledWith('test-subject-value-test')
   }, 15000)
 
   // -------------------------------------------------------------------------
@@ -1785,7 +1786,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     // Feature 1: Type the subject name to enable the Delete button
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
-    fireEvent.change(confirmInput, { target: { value: 'test-subject-value' } })
+    fireEvent.change(confirmInput, { target: { value: 'test-subject-value-test' } })
 
     // Confirm deletion
     await act(async () => {
@@ -1793,12 +1794,12 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
     })
 
     await waitFor(() => {
-      expect(schemaRegistryApi.deleteSubject).toHaveBeenCalledWith('test-subject-value')
+      expect(schemaRegistryApi.deleteSubject).toHaveBeenCalledWith('test-subject-value-test')
     })
 
     await waitFor(() => {
       expect(mockAddToast).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'success', message: expect.stringContaining('test-subject-value') })
+        expect.objectContaining({ type: 'success', message: expect.stringContaining('test-subject-value-test') })
       )
     })
 
@@ -1825,7 +1826,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
 
     // Feature 1: Type the subject name to enable the Delete button
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
-    fireEvent.change(confirmInput, { target: { value: 'test-subject-value' } })
+    fireEvent.change(confirmInput, { target: { value: 'test-subject-value-test' } })
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /delete test-subject-value/i }))
@@ -1870,7 +1871,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
     })
 
     await waitFor(() => {
-      expect(schemaRegistryApi.setCompatibilityMode).toHaveBeenCalledWith('test-subject-value', 'FORWARD')
+      expect(schemaRegistryApi.setCompatibilityMode).toHaveBeenCalledWith('test-subject-value-test', 'FORWARD')
     })
 
     await waitFor(() => {
@@ -1927,7 +1928,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
     mockLoadSchemaDetail.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /refresh schema/i }))
 
-    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 'latest')
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value-test', 'latest')
   })
 
   it('handleRefresh uses updated selectedVersion after version switch', async () => {
@@ -1953,7 +1954,7 @@ describe('[@schema-detail-coverage] SchemaDetail — coverage gaps', () => {
     mockLoadSchemaDetail.mockClear()
     fireEvent.click(screen.getByRole('button', { name: /refresh schema/i }))
 
-    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value', 2)
+    expect(mockLoadSchemaDetail).toHaveBeenCalledWith('test-subject-value-test', 2)
   })
 
   // -------------------------------------------------------------------------
@@ -3365,7 +3366,7 @@ import * as schemaRegistryApiModule from '../../api/schema-registry-api'
 // Shared setup for all schema-r2 tests
 function makeR2SchemaSubject(overrides: Partial<SchemaSubject> = {}): SchemaSubject {
   return {
-    subject: 'payments-value',
+    subject: 'payments-value-test',
     version: 2,
     id: 99,
     schemaType: 'AVRO',
@@ -3549,7 +3550,7 @@ describe('[@schema-r2-delete-name-confirm] Delete confirm overlay shows subject 
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     // Dialog h3 title contains the subject name
-    const dialogTitle = screen.getByRole('heading', { name: /delete payments-value/i })
+    const dialogTitle = screen.getByRole('heading', { name: /delete payments-value-test/i })
     expect(dialogTitle).toBeInTheDocument()
   })
 })
@@ -4213,7 +4214,7 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
 
-    const deleteBtn = screen.getByRole('button', { name: /delete payments-value/i })
+    const deleteBtn = screen.getByRole('button', { name: /delete payments-value-test/i })
     expect(deleteBtn).toBeDisabled()
   })
 
@@ -4229,7 +4230,7 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
     fireEvent.change(confirmInput, { target: { value: 'payments' } })
 
-    const deleteBtn = screen.getByRole('button', { name: /delete payments-value/i })
+    const deleteBtn = screen.getByRole('button', { name: /delete payments-value-test/i })
     expect(deleteBtn).toBeDisabled()
   })
 
@@ -4243,9 +4244,9 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
     })
 
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
-    fireEvent.change(confirmInput, { target: { value: 'payments-value' } })
+    fireEvent.change(confirmInput, { target: { value: 'payments-value-test' } })
 
-    const deleteBtn = screen.getByRole('button', { name: /delete payments-value/i })
+    const deleteBtn = screen.getByRole('button', { name: /delete payments-value-test/i })
     expect(deleteBtn).not.toBeDisabled()
   })
 
@@ -4259,9 +4260,9 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
     })
 
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
-    fireEvent.change(confirmInput, { target: { value: 'PAYMENTS-VALUE' } })
+    fireEvent.change(confirmInput, { target: { value: 'PAYMENTS-VALUE-TEST' } })
 
-    const deleteBtn = screen.getByRole('button', { name: /delete payments-value/i })
+    const deleteBtn = screen.getByRole('button', { name: /delete payments-value-test/i })
     expect(deleteBtn).toBeDisabled()
   })
 
@@ -4275,14 +4276,14 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
     })
 
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
-    fireEvent.change(confirmInput, { target: { value: 'payments-value' } })
+    fireEvent.change(confirmInput, { target: { value: 'payments-value-test' } })
 
-    const deleteBtn = screen.getByRole('button', { name: /delete payments-value/i })
+    const deleteBtn = screen.getByRole('button', { name: /delete payments-value-test/i })
     await act(async () => {
       fireEvent.click(deleteBtn)
     })
 
-    expect(vi.mocked(schemaRegistryApiModule.deleteSubject)).toHaveBeenCalledWith('payments-value')
+    expect(vi.mocked(schemaRegistryApiModule.deleteSubject)).toHaveBeenCalledWith('payments-value-test')
   })
 
   it('Cancel closes the dialog without calling deleteSubject', async () => {
@@ -4296,7 +4297,7 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
 
     // Type matching name then cancel
     const confirmInput = screen.getByRole('textbox', { name: /type subject name to confirm/i })
-    fireEvent.change(confirmInput, { target: { value: 'payments-value' } })
+    fireEvent.change(confirmInput, { target: { value: 'payments-value-test' } })
 
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
 
@@ -4314,7 +4315,7 @@ describe('[@phase-12.5-schema-delete-confirm] Schema subject delete requires typ
     })
 
     // Label should display the subject name inline
-    expect(screen.getByText('payments-value')).toBeInTheDocument()
+    expect(screen.getByText('payments-value-test')).toBeInTheDocument()
   })
 })
 
@@ -4658,14 +4659,14 @@ describe('[@phase-12.5-version-delete-confirm] Schema version delete uses inline
     expect(screen.getByRole('dialog')).toBeInTheDocument()
 
     // Confirm by clicking the confirm button in the overlay
-    // aria-label is "Delete version 1 of payments-value"
-    const confirmBtn = screen.getByRole('button', { name: /delete version 1 of payments-value/i })
+    // aria-label is "Delete version 1 of payments-value-test"
+    const confirmBtn = screen.getByRole('button', { name: /delete version 1 of payments-value-test/i })
     await act(async () => {
       fireEvent.click(confirmBtn)
     })
 
     expect(vi.mocked(schemaRegistryApiModule.deleteSchemaVersion)).toHaveBeenCalledWith(
-      'payments-value',
+      'payments-value-test',
       1
     )
   })

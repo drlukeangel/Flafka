@@ -18,7 +18,11 @@ import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
 import * as telemetryApi from '../api/telemetry-api';
 import { env } from '../config/environment';
-import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace, TabState, StreamCardEntry } from '../types';
+import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace, TabState, StreamCardEntry, SqlEngine } from '../types';
+
+import { flinkEngine } from './engines/flink-engine';
+import { ksqlEngine } from './engines/ksql-engine';
+import type { SqlEngineAdapter } from './engines/types';
 import * as artifactApi from '../api/artifact-api';
 import { validateWorkspaceJSON } from '../utils/workspace-export';
 import * as schemaRegistryApi from '../api/schema-registry-api';
@@ -149,10 +153,11 @@ export interface WorkspaceState {
   loadTreeNodeChildren: (nodeId: string) => Promise<void>;
   loadTableSchema: (catalog: string, database: string, tableName: string) => Promise<void>;
 
-  addStatement: (code?: string, afterId?: string, label?: string, overrides?: Partial<Pick<SQLStatement, 'status' | 'statementName' | 'startedAt'>>) => string;
+  addStatement: (code?: string, afterId?: string, label?: string, overrides?: Partial<Pick<SQLStatement, 'status' | 'statementName' | 'startedAt' | 'engine'>>) => string;
   updateStatement: (id: string, code: string) => void;
   deleteStatement: (id: string) => void;
   duplicateStatement: (id: string) => void;
+  setStatementEngine: (id: string, engine: import('../types').SqlEngine) => void;
   toggleStatementCollapse: (id: string) => void;
   reorderStatements: (fromIndex: number, toIndex: number) => void;
 
@@ -175,8 +180,10 @@ export interface WorkspaceState {
   loadStatementTelemetry: () => Promise<void>;
   stopDashboardStatement: (statementName: string) => Promise<void>;
   setDashboardHeight: (height: number) => void;
-  loadStatementHistory: () => Promise<void>;
+  loadStatementHistory: (forceFullReload?: boolean) => Promise<void>;
   clearHistoryError: () => void;
+  clearCachedData: () => void;
+  setCacheTtlMinutes: (minutes: number) => void;
   setWorkspaceName: (name: string) => void;
   dismissOnboardingHint: () => void;
   importWorkspace: (fileData: unknown) => void;
@@ -247,8 +254,27 @@ export interface WorkspaceState {
   selectedJobName: string | null;
   selectedExampleId: string | null;
 
+  // Cache metadata (runtime only, NOT persisted)
+  jobsLastFetched: number | null;
+  jobsCacheFilterMode: 'unique' | 'all' | null;
+  historyLastFetched: number | null;
+  historyCacheFilterMode: 'unique' | 'all' | null;
+  _jobsFetchGen: number;
+  _historyFetchGen: number;
+
+  // Cache settings (persisted)
+  cacheTtlMinutes: number;
+
+  // User-launched statements registry (persisted)
+  userLaunchedStatements: Array<{
+    name: string;
+    sql: string;
+    createdAt: string;
+    lastKnownPhase: string;
+  }>;
+
   // Jobs actions
-  loadJobs: () => Promise<void>;
+  loadJobs: (forceFullReload?: boolean) => Promise<void>;
   cancelJob: (statementName: string) => Promise<void>;
   deleteJob: (statementName: string) => Promise<void>;
   navigateToJobDetail: (statementName: string) => void;
@@ -343,6 +369,13 @@ export interface WorkspaceState {
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 const initialTabId = generateId();
+
+// Engine adapter lookup
+const getAdapter = (engine?: SqlEngine): SqlEngineAdapter =>
+  engine === 'ksqldb' ? ksqlEngine : flinkEngine;
+
+// Module-level AbortController registry for ksqlDB push queries
+const abortControllers = new Map<string, AbortController>();
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
@@ -500,6 +533,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       jobsError: null,
       selectedJobName: null,
       selectedExampleId: null,
+
+      // Cache metadata (runtime only, NOT persisted)
+      jobsLastFetched: null,
+      jobsCacheFilterMode: null,
+      historyLastFetched: null,
+      historyCacheFilterMode: null,
+      _jobsFetchGen: 0,
+      _historyFetchGen: 0,
+
+      // Cache settings (persisted)
+      cacheTtlMinutes: 10,
+
+      // User-launched statements registry (persisted)
+      userLaunchedStatements: [],
 
       // Artifacts (runtime only, NOT persisted)
       artifactList: [],
@@ -691,6 +738,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       addStatement: (code, afterId, label, overrides) => {
         const { catalog, database } = get();
         const newId = generateId();
+        // Engine inheritance: inherit from preceding cell, or explicit override
+        let inheritedEngine: SqlEngine | undefined = overrides?.engine;
+        if (!inheritedEngine && afterId) {
+          const tab = activeTab();
+          const afterStatement = tab.statements.find((s) => s.id === afterId);
+          if (afterStatement?.engine) inheritedEngine = afterStatement.engine;
+        }
+        if (!inheritedEngine && !afterId) {
+          const tab = activeTab();
+          const lastStatement = tab.statements[tab.statements.length - 1];
+          if (lastStatement?.engine) inheritedEngine = lastStatement.engine;
+        }
         const newStatement: SQLStatement = {
           id: newId,
           code: code || `-- Write your Flink SQL query here\nSELECT * FROM \`${catalog}\`.\`${database}\`.<table_name> LIMIT 10;`,
@@ -699,6 +758,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           label: label ?? generateFunName(),
           statementName: overrides?.statementName,
           startedAt: overrides?.startedAt,
+          engine: inheritedEngine,
         };
         set((state) => {
           const tabId = state.activeTabId;
@@ -729,6 +789,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       deleteStatement: (id) => {
+        // Abort any ksqlDB push query for this statement
+        const controller = abortControllers.get(id);
+        if (controller) {
+          controller.abort();
+          abortControllers.delete(id);
+        }
         set((state) => {
           const tabId = state.activeTabId;
           const tab = state.tabs[tabId];
@@ -770,6 +836,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
       },
 
+      setStatementEngine: (id, engine) => {
+        set((state) => {
+          const tabId = state.activeTabId;
+          const tab = state.tabs[tabId];
+          return {
+            tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+              s.id === id ? { ...s, engine, status: 'IDLE' as StatementStatus, results: undefined, columns: undefined, error: undefined, statementName: undefined, totalRowsReceived: undefined, executionTime: undefined, lastExecutedCode: null } : s
+            ) } }
+          };
+        });
+      },
+
       toggleStatementCollapse: (id) => {
         set((state) => {
           const tabId = state.activeTabId;
@@ -801,15 +879,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const statement = tab.statements.find((s) => s.id === id);
         if (!statement) return;
 
-        // Require a valid job name (label) before execution
-        const jobName = statement.label?.trim();
-        if (!jobName) {
-          get().addToast({ type: 'warning', message: 'Enter a job name before running.' });
-          return;
-        }
-        // Flink API: lowercase alphanumeric + hyphens, 1-72 chars, must start/end with alphanumeric
-        if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(jobName) || jobName.length > 72) {
-          get().addToast({ type: 'warning', message: 'Job name: lowercase letters, numbers, hyphens only (max 72 chars). Must start/end with a letter or number.' });
+        const engine = statement.engine;
+        const adapter = getAdapter(engine);
+
+        // Validate job name via engine adapter
+        const jobName = statement.label?.trim() || '';
+        const nameError = adapter.validateName(jobName);
+        if (nameError) {
+          get().addToast({ type: 'warning', message: nameError });
           return;
         }
 
@@ -827,6 +904,112 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
 
         const startTime = Date.now();
+
+        // ── ksqlDB execution path ─────────────────────────────────────────
+        if (engine === 'ksqldb') {
+          // Abort any existing push query for this statement
+          const existing = abortControllers.get(id);
+          if (existing) existing.abort();
+          const controller = new AbortController();
+          abortControllers.set(id, controller);
+
+          try {
+            const { sessionProperties } = get();
+            const props = adapter.buildProps(statement, sessionProperties);
+
+            const result = await adapter.execute(statement.code, jobName, props, {
+              onStatus: (status, updates) => {
+                set((state) => {
+                  const tab = state.tabs[tabId];
+                  if (!tab) return state;
+                  return {
+                    tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                      s.id === id ? { ...s, status: status as StatementStatus, ...updates } : s
+                    ) } }
+                  };
+                });
+              },
+              abortSignal: controller.signal,
+            });
+
+            const executionTime = Date.now() - startTime;
+
+            if (result.completed) {
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id ? {
+                      ...s,
+                      status: 'COMPLETED' as StatementStatus,
+                      columns: result.columns || s.columns,
+                      results: result.rows || s.results,
+                      executionTime,
+                      lastExecutedAt: new Date(),
+                      statementName: result.statementName || s.statementName,
+                    } : s
+                  ) } }
+                };
+              });
+              get().addToast({
+                type: 'success',
+                message: result.toastMessage || `Completed in ${(executionTime / 1000).toFixed(2)}s${result.rows?.length ? ` — ${result.rows.length} rows` : ''}`,
+              });
+            } else if (result.statementName && !result.streaming) {
+              // Persistent query — mark as RUNNING with queryId
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id ? { ...s, status: 'RUNNING' as StatementStatus, statementName: result.statementName, executionTime } : s
+                  ) } }
+                };
+              });
+              get().addToast({ type: 'info', message: result.toastMessage || 'Persistent query started' });
+            } else {
+              // Push query completed (user cancelled or stream ended)
+              const finalExecTime = Date.now() - startTime;
+              set((state) => {
+                const tab = state.tabs[tabId];
+                if (!tab) return state;
+                const current = tab.statements.find(s => s.id === id);
+                if (current?.status === 'CANCELLED') return state;
+                return {
+                  tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                    s.id === id ? {
+                      ...s,
+                      status: 'COMPLETED' as StatementStatus,
+                      columns: result.columns || s.columns,
+                      results: result.rows || s.results,
+                      executionTime: finalExecTime,
+                      lastExecutedAt: new Date(),
+                    } : s
+                  ) } }
+                };
+              });
+            }
+          } catch (error) {
+            if ((error as Error).name === 'AbortError') return; // Expected cancellation
+            const errorMessage = error instanceof Error ? error.message : 'Unknown ksqlDB error';
+            set((state) => {
+              const tab = state.tabs[tabId];
+              if (!tab) return state;
+              return {
+                tabs: { ...state.tabs, [tabId]: { ...tab, statements: tab.statements.map((s) =>
+                  s.id === id ? { ...s, status: 'ERROR' as StatementStatus, error: errorMessage } : s
+                ) } }
+              };
+            });
+            get().addToast({ type: 'error', message: errorMessage });
+          } finally {
+            abortControllers.delete(id);
+          }
+          return;
+        }
+
+        // ── Flink execution path (unchanged) ──────────────────────────────
 
         try {
           // Build execution properties: catalog/database + global session props + per-statement scan mode
@@ -860,6 +1043,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           // Execute the SQL — use the label as the Flink API statement name
           const result = await flinkApi.executeSQL(statement.code, jobName, execProps);
           const statementName = result.name;
+
+          // Track in user-launched registry
+          set((state) => {
+            const existing = state.userLaunchedStatements.filter(s => s.name !== statementName);
+            return {
+              userLaunchedStatements: [...existing, {
+                name: statementName,
+                sql: statement.code,
+                createdAt: new Date().toISOString(),
+                lastKnownPhase: 'RUNNING',
+              }],
+            };
+          });
 
           // Update with statement name and RUNNING status
           set((state) => {
@@ -1281,6 +1477,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const tab = activeTab();
         const statement = tab.statements.find((s) => s.id === id);
 
+        // Abort any ksqlDB push query for this statement
+        const controller = abortControllers.get(id);
+        if (controller) {
+          controller.abort();
+          abortControllers.delete(id);
+        }
+
         // Always update local state to CANCELLED so user can re-run
         set((state) => {
           const tabId = state.activeTabId;
@@ -1293,10 +1496,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         });
         get().addToast({ type: 'info', message: 'Query cancelled' });
 
-        // Try to cancel on the server if we have a statement name
+        // Try to cancel on the server
         if (statement?.statementName) {
           try {
-            await flinkApi.cancelStatement(statement.statementName);
+            if (statement.engine === 'ksqldb') {
+              await ksqlEngine.cancel(statement.statementName, { streaming: !!controller });
+            } else {
+              await flinkApi.cancelStatement(statement.statementName);
+            }
           } catch (error) {
             console.error('Failed to cancel statement on server:', error);
           }
@@ -1324,6 +1531,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const active = tab.statements.filter((s) => s.status === 'RUNNING' || s.status === 'PENDING');
         if (active.length === 0) return;
 
+        // Abort all ksqlDB push query controllers
+        for (const s of active) {
+          const controller = abortControllers.get(s.id);
+          if (controller) {
+            controller.abort();
+            abortControllers.delete(s.id);
+          }
+        }
+
         // Optimistically mark all as CANCELLED
         set((state) => {
           const tabId = state.activeTabId;
@@ -1341,16 +1557,35 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         await Promise.allSettled(
           active
             .filter((s) => s.statementName)
-            .map((s) => flinkApi.cancelStatement(s.statementName!))
+            .map((s) => {
+              if (s.engine === 'ksqldb') {
+                return ksqlEngine.cancel(s.statementName!, { streaming: false });
+              }
+              return flinkApi.cancelStatement(s.statementName!);
+            })
         );
       },
 
       clearWorkspace: () => {
         const tab = activeTab();
+        // Abort all ksqlDB push query controllers
+        for (const s of tab.statements) {
+          const controller = abortControllers.get(s.id);
+          if (controller) {
+            controller.abort();
+            abortControllers.delete(s.id);
+          }
+        }
         // Cancel running statements server-side (best-effort)
         tab.statements
           .filter((s) => (s.status === 'RUNNING' || s.status === 'PENDING') && s.statementName)
-          .forEach((s) => flinkApi.cancelStatement(s.statementName!).catch(() => {}));
+          .forEach((s) => {
+            if (s.engine === 'ksqldb') {
+              ksqlEngine.cancel(s.statementName!, { streaming: false }).catch(() => {});
+            } else {
+              flinkApi.cancelStatement(s.statementName!).catch(() => {});
+            }
+          });
 
         // Cancel background statements for stream cards
         tab.backgroundStatements
@@ -1393,12 +1628,24 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       setResourceFilterMode: (mode) => {
-        set({ resourceFilterMode: mode });
+        set({
+          resourceFilterMode: mode,
+          jobsLastFetched: null,
+          historyLastFetched: null,
+        });
+        if (get().jobStatements.length > 0) get().loadJobs();
+        if (get().statementHistory.length > 0) get().loadStatementHistory();
       },
 
       toggleResourceFilterMode: () => {
         const next = get().resourceFilterMode === 'unique' ? 'all' : 'unique';
-        set({ resourceFilterMode: next });
+        set({
+          resourceFilterMode: next,
+          jobsLastFetched: null,
+          historyLastFetched: null,
+        });
+        if (get().jobStatements.length > 0) get().loadJobs();
+        if (get().statementHistory.length > 0) get().loadStatementHistory();
       },
 
       toggleNavExpanded: () => {
@@ -1413,10 +1660,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       loadComputePoolStatus: async () => {
         try {
           const status = await flinkApi.getComputePoolStatus();
+          console.log('[CFU] Pool status loaded:', status);
           set({ computePoolPhase: status.phase, computePoolCfu: status.currentCfu, computePoolMaxCfu: status.maxCfu });
-        } catch (error) {
-          console.error('Failed to load compute pool status:', error);
-          set({ computePoolPhase: 'UNKNOWN', computePoolCfu: null, computePoolMaxCfu: null });
+        } catch (err) {
+          console.error('[CFU] Failed to load compute pool status:', err);
+          // API may fail (401, network, etc.) — show phase from running statements as fallback
+          const runningCount = get().statements?.filter(s =>
+            s.status === 'RUNNING' || s.status === 'PENDING'
+          ).length ?? 0;
+          set({
+            computePoolPhase: runningCount > 0 ? 'RUNNING' : 'PROVISIONED',
+            computePoolCfu: runningCount > 0 ? runningCount : 0,
+            computePoolMaxCfu: null,
+          });
+          console.log('[CFU] Fallback set — running statements:', runningCount);
         }
       },
 
@@ -1473,15 +1730,77 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
 
       // Statement History Actions
-      loadStatementHistory: async () => {
-        set({ historyLoading: true, historyError: null });
+      loadStatementHistory: async (forceFullReload?: boolean) => {
+        const state = get();
+        const currentFilterMode = state.resourceFilterMode;
+        const filterId = currentFilterMode === 'unique' ? getSessionTag() : undefined;
+        const ttlMs = state.cacheTtlMinutes * 60 * 1000;
+        const gen = state._historyFetchGen + 1;
+        set({ _historyFetchGen: gen, historyLoading: true, historyError: null });
+
+        // Debounce: skip if last fetch was <30s ago and cache is valid
+        const cacheValid = !forceFullReload
+          && state.statementHistory.length > 0
+          && state.historyCacheFilterMode === currentFilterMode
+          && state.historyLastFetched !== null
+          && (Date.now() - state.historyLastFetched) < ttlMs;
+
+        if (cacheValid && state.historyLastFetched !== null && (Date.now() - state.historyLastFetched) < 30000) {
+          set({ historyLoading: false });
+          return;
+        }
+
+        if (cacheValid) {
+          // Light refresh: fetch page 1, merge
+          try {
+            const freshPage = await flinkApi.listStatementsFirstPage(100, filterId);
+            if (gen !== get()._historyFetchGen) return;
+
+            const existing = get().statementHistory;
+            const existingNames = new Set(existing.map(s => s.name));
+            const newItems = freshPage.filter(s => !existingNames.has(s.name));
+
+            const freshByName = new Map(freshPage.map(s => [s.name, s]));
+            const updated = existing.map(s => freshByName.get(s.name) ?? s);
+
+            const merged = [...newItems, ...updated].sort((a, b) => {
+              const aTime = a.metadata?.created_at || '';
+              const bTime = b.metadata?.created_at || '';
+              return bTime.localeCompare(aTime);
+            });
+
+            if (newItems.length > 0) {
+              get().addToast({ type: 'info', message: `${newItems.length} new statement${newItems.length > 1 ? 's' : ''} found` });
+            }
+
+            set({
+              statementHistory: merged,
+              historyLoading: false,
+              historyLastFetched: Date.now(),
+            });
+          } catch (error: unknown) {
+            if (gen !== get()._historyFetchGen) return;
+            const err = error as { message?: string };
+            set({ historyError: err?.message || 'Failed to refresh history', historyLoading: false });
+          }
+          return;
+        }
+
+        // Full reload
         try {
-          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
           const statements = await flinkApi.listStatements(100, (accumulated) => {
+            if (gen !== get()._historyFetchGen) return;
             set({ statementHistory: accumulated });
           }, 100, filterId);
-          set({ statementHistory: statements, historyLoading: false });
+          if (gen !== get()._historyFetchGen) return;
+          set({
+            statementHistory: statements,
+            historyLoading: false,
+            historyLastFetched: Date.now(),
+            historyCacheFilterMode: currentFilterMode,
+          });
         } catch (error) {
+          if (gen !== get()._historyFetchGen) return;
           const errorMessage = error instanceof Error ? error.message : 'Failed to load statement history';
           console.error('Failed to load statement history:', error);
           set({ historyError: errorMessage, historyLoading: false });
@@ -1490,6 +1809,22 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       clearHistoryError: () => {
         set({ historyError: null });
+      },
+
+      clearCachedData: () => {
+        set({
+          jobStatements: [],
+          jobsLastFetched: null,
+          jobsCacheFilterMode: null,
+          statementHistory: [],
+          historyLastFetched: null,
+          historyCacheFilterMode: null,
+        });
+        get().addToast({ type: 'info', message: 'Cached data cleared' });
+      },
+
+      setCacheTtlMinutes: (minutes: number) => {
+        set({ cacheTtlMinutes: minutes });
       },
 
       setWorkspaceName: (name) => {
@@ -1510,7 +1845,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           throw new Error(`Invalid workspace file: ${validation.errors.join(', ')}`);
         }
 
-        const data = fileData as { statements: Array<{ id: string; code: string; createdAt: string; isCollapsed?: boolean; lastExecutedCode?: string | null }>; catalog: string; database: string; workspaceName: string };
+        const data = fileData as { statements: Array<{ id: string; code: string; createdAt: string; isCollapsed?: boolean; lastExecutedCode?: string | null; engine?: SqlEngine }>; catalog: string; database: string; workspaceName: string };
 
         const newTabId = generateId();
         const newTab: TabState = {
@@ -1521,6 +1856,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             createdAt: new Date(s.createdAt),
             isCollapsed: s.isCollapsed,
             lastExecutedCode: s.lastExecutedCode ?? null,
+            engine: s.engine,
           })),
           focusedStatementId: null,
           workspaceName: data.workspaceName,
@@ -1888,8 +2224,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         const tab = activeTab();
         const { savedWorkspaces } = get();
         const existingIndex = savedWorkspaces.findIndex((w) => w.name === name);
-        if (existingIndex === -1 && savedWorkspaces.length >= 20) {
-          get().addToast({ type: 'error', message: 'Max 20 workspaces reached — delete one first' });
+        if (existingIndex === -1 && savedWorkspaces.length >= 50) {
+          get().addToast({ type: 'error', message: 'Max 50 workspaces reached — delete one first' });
           return;
         }
         const now = new Date().toISOString();
@@ -1902,6 +2238,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           scanTimestampMillis: s.scanTimestampMillis,
           scanSpecificOffsets: s.scanSpecificOffsets,
           scanGroupId: s.scanGroupId,
+          engine: s.engine,
           ...(s.status === 'RUNNING' && s.statementName ? { statementName: s.statementName } : {}),
         }));
         const streamCardsSnapshot = tab.streamCards.map((c) => ({
@@ -2009,6 +2346,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           scanTimestampMillis: s.scanTimestampMillis,
           scanSpecificOffsets: s.scanSpecificOffsets,
           scanGroupId: s.scanGroupId,
+          engine: s.engine,
           ...(s.statementName ? { statementName: s.statementName, startedAt: new Date() } : {}),
         }));
 
@@ -2156,15 +2494,155 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ selectedExampleId: cardId });
       },
 
-      loadJobs: async () => {
-        set({ jobsLoading: true, jobsError: null });
+      loadJobs: async (forceFullReload?: boolean) => {
+        const state = get();
+        const currentFilterMode = state.resourceFilterMode;
+        const filterId = currentFilterMode === 'unique' ? getSessionTag() : undefined;
+        const ttlMs = state.cacheTtlMinutes * 60 * 1000;
+        const gen = state._jobsFetchGen + 1;
+        set({ _jobsFetchGen: gen, jobsLoading: true, jobsError: null });
+
+        // Helper: inject user-launched statements not already in the results
+        const injectUserLaunched = async (results: StatementResponse[]): Promise<StatementResponse[]> => {
+          const resultNames = new Set(results.map(s => s.name));
+          const missing = get().userLaunchedStatements.filter(u => !resultNames.has(u.name));
+          if (missing.length === 0) return results;
+
+          const fetches = await Promise.allSettled(
+            missing.map(u => flinkApi.getStatementStatus(u.name))
+          );
+          if (gen !== get()._jobsFetchGen) return results;
+
+          const injected: StatementResponse[] = [];
+          fetches.forEach((result, i) => {
+            if (result.status === 'fulfilled') {
+              injected.push(result.value);
+            }
+            // 404 = deleted on server, remove from registry
+            if (result.status === 'rejected') {
+              const err = result.reason as { status?: number };
+              if (err?.status === 404) {
+                set((s) => ({
+                  userLaunchedStatements: s.userLaunchedStatements.filter(u => u.name !== missing[i].name),
+                }));
+              }
+            }
+          });
+
+          return [...results, ...injected];
+        };
+
+        // Helper: update userLaunchedStatements registry with fresh phases
+        const updateUserRegistry = (statements: StatementResponse[]) => {
+          const freshByName = new Map(statements.map(s => [s.name, s]));
+          set((s) => ({
+            userLaunchedStatements: s.userLaunchedStatements.map(u => {
+              const fresh = freshByName.get(u.name);
+              return fresh?.status?.phase ? { ...u, lastKnownPhase: fresh.status.phase } : u;
+            }),
+          }));
+        };
+
+        const cacheValid = !forceFullReload
+          && state.jobStatements.length > 0
+          && state.jobsCacheFilterMode === currentFilterMode
+          && state.jobsLastFetched !== null
+          && (Date.now() - state.jobsLastFetched) < ttlMs;
+
+        if (cacheValid) {
+          // Light refresh: fetch page 1, merge
+          try {
+            const freshPage = await flinkApi.listStatementsFirstPage(100, filterId);
+            if (gen !== get()._jobsFetchGen) return;
+
+            const existing = get().jobStatements;
+            const existingNames = new Set(existing.map(s => s.name));
+            const newItems = freshPage.filter(s => !existingNames.has(s.name));
+
+            const freshByName = new Map(freshPage.map(s => [s.name, s]));
+            const updated = existing.map(s => freshByName.get(s.name) ?? s);
+
+            let merged = [...newItems, ...updated];
+
+            // Refresh status for RUNNING/PENDING not in freshPage
+            const runningNotFresh = merged.filter(s =>
+              (s.status?.phase === 'RUNNING' || s.status?.phase === 'PENDING')
+              && !freshByName.has(s.name)
+            );
+            const statusUpdates = await Promise.allSettled(
+              runningNotFresh.map(s => flinkApi.getStatementStatus(s.name))
+            );
+            if (gen !== get()._jobsFetchGen) return;
+
+            const statusMap = new Map<string, StatementResponse>();
+            statusUpdates.forEach((result, i) => {
+              if (result.status === 'fulfilled') {
+                statusMap.set(runningNotFresh[i].name, result.value);
+              }
+            });
+
+            merged = merged.map(s => statusMap.get(s.name) ?? s);
+
+            // Inject user-launched statements missing from results
+            merged = await injectUserLaunched(merged);
+            if (gen !== get()._jobsFetchGen) return;
+
+            // Sort by created_at descending
+            merged.sort((a, b) => {
+              const aTime = a.metadata?.created_at || '';
+              const bTime = b.metadata?.created_at || '';
+              return bTime.localeCompare(aTime);
+            });
+
+            if (newItems.length > 0) {
+              get().addToast({ type: 'info', message: `${newItems.length} new statement${newItems.length > 1 ? 's' : ''} found` });
+            }
+
+            updateUserRegistry(merged);
+
+            set({
+              jobStatements: merged,
+              jobsLoading: false,
+              jobsLastFetched: Date.now(),
+            });
+          } catch (error: unknown) {
+            if (gen !== get()._jobsFetchGen) return;
+            const err = error as { message?: string };
+            set({ jobsError: err?.message || 'Failed to refresh jobs', jobsLoading: false });
+          }
+          return;
+        }
+
+        // Full reload
         try {
-          const filterId = get().resourceFilterMode === 'unique' ? getSessionTag() : undefined;
           await flinkApi.listStatements(200, (accumulated) => {
+            if (gen !== get()._jobsFetchGen) return;
             set({ jobStatements: accumulated });
           }, undefined, filterId);
-          set({ jobsLoading: false });
+          if (gen !== get()._jobsFetchGen) return;
+
+          // Inject user-launched statements not in the paginated results
+          let allJobs = get().jobStatements;
+          allJobs = await injectUserLaunched(allJobs);
+          if (gen !== get()._jobsFetchGen) return;
+
+          // Sort after injection
+          allJobs.sort((a, b) => {
+            const aTime = a.metadata?.created_at || '';
+            const bTime = b.metadata?.created_at || '';
+            return bTime.localeCompare(aTime);
+          });
+
+          updateUserRegistry(allJobs);
+
+          set({
+            jobStatements: allJobs,
+            jobsLoading: false,
+            jobsLastFetched: Date.now(),
+            jobsCacheFilterMode: currentFilterMode,
+          });
         } catch (error: unknown) {
+          if (gen !== get()._jobsFetchGen) return;
           const err = error as { message?: string };
           const msg = err?.message || 'Failed to load jobs';
           set({ jobsError: msg, jobsLoading: false });
@@ -2421,6 +2899,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             'sql.tables.scan.startup.mode': scanMode || 'earliest-offset',
           };
           await flinkApi.executeSQL(sql, statementName, streamSessionProps);
+
+          // Track in user-launched registry
+          set((state) => {
+            const existing = state.userLaunchedStatements.filter(s => s.name !== statementName);
+            return {
+              userLaunchedStatements: [...existing, {
+                name: statementName,
+                sql,
+                createdAt: new Date().toISOString(),
+                lastKnownPhase: 'RUNNING',
+              }],
+            };
+          });
 
           // Update to RUNNING
           set((state) => {
@@ -2745,7 +3236,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     },
     {
       name: 'flink-workspace',
-      version: 2,
+      version: 3,
       partialize: (state) => ({
         tabs: Object.fromEntries(
           Object.entries(state.tabs).map(([tabId, tab]) => [tabId, {
@@ -2763,6 +3254,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                 scanTimestampMillis: s.scanTimestampMillis,
                 scanSpecificOffsets: s.scanSpecificOffsets,
                 scanGroupId: s.scanGroupId,
+                engine: s.engine,
                 ...(keepRunning ? { statementName: s.statementName, startedAt: s.startedAt } : {}),
               };
             }),
@@ -2790,9 +3282,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         snippets: state.snippets,
         schemaDatasets: state.schemaDatasets,
         savedWorkspaces: state.savedWorkspaces,
+        cacheTtlMinutes: state.cacheTtlMinutes,
+        userLaunchedStatements: state.userLaunchedStatements,
       }) as unknown as WorkspaceState,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as any;
+
+        // v2 → v3: Add engine field to statements (undefined = flink, backward compatible)
+        // No data transform needed — undefined is the correct default for Flink.
 
         // v1 → v2: Wrap flat workspace state into tabs
         if (version < 2) {

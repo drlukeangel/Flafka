@@ -328,14 +328,17 @@ export interface ComputePoolStatus {
 export const getComputePoolStatus = async (): Promise<ComputePoolStatus> => {
   try {
     const url = `/v2/compute-pools/${env.computePoolId}?environment=${env.environmentId}`;
+    console.log('[CFU API] Fetching:', url);
     const response = await fcpmClient.get(url);
     const data = response.data;
+    console.log('[CFU API] Response:', JSON.stringify(data).substring(0, 200));
     return {
       phase: data?.status?.phase ?? 'UNKNOWN',
       currentCfu: data?.status?.current_cfu ?? 0,
       maxCfu: data?.spec?.max_cfu ?? 0,
     };
   } catch (error) {
+    console.error('[CFU API] Error:', error);
     throw handleApiError(error);
   }
 };
@@ -402,6 +405,24 @@ export const listStatements = async (
     }
 
     return maxResults ? filtered.slice(0, maxResults) : filtered;
+  } catch (error) {
+    throw handleApiError(error);
+  }
+};
+
+/**
+ * Fetch the first page of statements (no pagination loop).
+ * Used for light-refresh caching — a single API call to pick up new/changed statements.
+ */
+export const listStatementsFirstPage = async (
+  pageSize: number = 100,
+  filterUniqueId?: string
+): Promise<StatementResponse[]> => {
+  try {
+    const url = `${buildStatementsUrl()}?page_size=${pageSize}`;
+    const response = await confluentClient.get(url);
+    const page: StatementResponse[] = response.data.data || [];
+    return filterUniqueId ? page.filter((s) => s.name.includes(filterUniqueId)) : page;
   } catch (error) {
     throw handleApiError(error);
   }

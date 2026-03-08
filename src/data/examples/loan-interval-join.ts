@@ -33,11 +33,28 @@ SELECT CAST(CONCAT(l.customer_id, '-', l.txn_id) AS BYTES) AS \`key\`,
   c.name AS customer_name, c.credit_score
 FROM \`{LOANS}\` l
 JOIN \`{CUSTOMERS-STREAM}\` c ON l.customer_id = c.customer_id
-  AND c.$rowtime BETWEEN l.$rowtime - INTERVAL '5' MINUTE AND l.$rowtime + INTERVAL '5' MINUTE`,
+  AND c.$rowtime BETWEEN l.$rowtime - INTERVAL '5' MINUTE AND l.$rowtime + INTERVAL '5' MINUTE
+
+-- ============================================================
+-- WHAT: Interval join — matches each loan with customer events within +/- 5 minutes.
+-- HOW: BETWEEN clause creates a 10-minute window centered on each loan's $rowtime. State is bounded by interval width.
+-- WHY INTERVAL JOIN: Both sides are event streams. Regular JOIN = infinite state/OOM. Temporal JOIN = needs versioned table.
+-- WHY CAST(CONCAT(...) AS BYTES): Composite Kafka key for downstream deduplication and compaction.
+-- GOTCHA: Both streams MUST have event-time attributes ($rowtime or WATERMARK). Without them, Flink can't reason about time.
+-- GOTCHA: Produce CUSTOMERS-STREAM FIRST, then start job, then produce LOANS. Inner join silently drops unmatched rows.
+-- GOTCHA: Wide intervals (e.g., INTERVAL '1' DAY) mean Flink holds a full day of state per key. Start small.
+-- ============================================================`,
     },
     {
       label: 'view-output',
-      sql: 'SELECT * FROM `{INTERVAL-JOINED}` LIMIT 50',
+      sql: `SELECT * FROM \`{INTERVAL-JOINED}\` LIMIT 50
+
+-- ============================================================
+-- WHAT: View interval join results — each row = one loan matched with a nearby customer event.
+-- COLUMNS: customer_id, txn_id, loan_id, amount, status, customer_name, credit_score.
+-- GOTCHA: Fewer rows than expected is normal — inner join silently drops loans with no matching customer event.
+-- GOTCHA: Zero rows? Check that you produced CUSTOMERS-STREAM data BEFORE LOANS data.
+-- ============================================================`,
     },
   ],
   completionModal: {

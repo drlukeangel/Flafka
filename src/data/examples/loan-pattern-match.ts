@@ -35,11 +35,30 @@ MATCH_RECOGNIZE (
   AFTER MATCH SKIP PAST LAST ROW
   PATTERN (A{3,})
   DEFINE A AS TRUE
-)`,
+)
+
+-- ============================================================
+-- WHAT: CEP pattern match detecting 3+ consecutive loan applications per borrower.
+-- HOW: MATCH_RECOGNIZE partitions by customer_id, orders by $rowtime, matches A{3,} (3+ events).
+-- MEASURES: Extracts first/last txn_id, count, sum, avg amount, and time range from matched events.
+-- ONE ROW PER MATCH: Emits one summary row per pattern match (vs ALL ROWS PER MATCH for debugging).
+-- AFTER MATCH SKIP PAST LAST ROW: Prevents overlapping matches; next scan starts after last matched event.
+-- DEFINE A AS TRUE: Every event qualifies — to filter, change to e.g. A.amount > 5000.
+-- WHY CAST(avg_amount AS DOUBLE): AVG() returns DECIMAL; output schema expects DOUBLE. Mismatch = silent failure.
+-- WHY CAST(customer_id AS BYTES): Kafka keys must be raw bytes for partitioning.
+-- GOTCHA: $rowtime is Flink's Kafka-timestamp metadata column — cannot use a regular column without a WATERMARK.
+-- GOTCHA: MATCH_RECOGNIZE is powerful but complex. Start simple and iterate.
+-- ============================================================`,
     },
     {
       label: 'view-output',
-      sql: 'SELECT * FROM `{PATTERN-ALERTS}` LIMIT 50',
+      sql: `SELECT * FROM \`{PATTERN-ALERTS}\` LIMIT 50
+
+-- ============================================================
+-- WHAT: View pattern match results — each row = one burst of 3+ consecutive loan apps from one customer.
+-- COLUMNS: customer_id, first_txn, last_txn, app_count, total_amount, avg_amount, first_time, last_time.
+-- GOTCHA: Zero rows? Pattern-match job may still be running, or no customer had 3+ consecutive events.
+-- ============================================================`,
     },
   ],
   completionModal: {

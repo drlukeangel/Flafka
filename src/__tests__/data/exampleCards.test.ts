@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { getExampleCards } from '../../data/exampleCards';
-import type { FlinkArtifact } from '../../types';
 
 // Mock store and setup services for Quick Start cards
 vi.mock('../../store/workspaceStore', () => ({
@@ -13,89 +12,41 @@ vi.mock('../../services/example-setup', () => ({
   setupScalarExtractExample: vi.fn(),
   setupTableExplodeExample: vi.fn(),
   setupJavaTableExplodeExample: vi.fn(),
+  setupAggregateUdfExample: vi.fn(),
+  setupValidationExample: vi.fn(),
+  setupPiiMaskingExample: vi.fn(),
+  setupAsyncEnrichmentExample: vi.fn(),
 }));
 vi.mock('../../services/example-runner', () => ({
   runKickstarterExample: vi.fn(),
 }));
 
-function makeArtifact(overrides: Partial<FlinkArtifact> = {}): FlinkArtifact {
-  return {
-    id: 'art-123',
-    display_name: 'TestArtifact',
-    class: 'com.fm.flink.udf.LoanDetailExtractor',
-    content_format: 'JAR',
-    cloud: 'aws',
-    region: 'us-east-1',
-    environment: 'env-123',
-    description: '',
-    documentation_link: '',
-    runtime_language: 'JAVA',
-    versions: [{ version: 'ver-001', is_draft: false }],
-    metadata: { created_at: '2026-01-01', updated_at: '2026-01-01' },
-    ...overrides,
-  };
-}
-
 describe('[@example-cards] getExampleCards', () => {
-  it('class === "default" produces <entry-class> placeholder', () => {
-    const cards = getExampleCards([makeArtifact({ class: 'default' })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain("AS '<entry-class>'");
-    expect(javaCard.sql).not.toContain("AS 'default'");
-  });
-
-  it('class === "" produces <entry-class> placeholder', () => {
-    const cards = getExampleCards([makeArtifact({ class: '' })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain("AS '<entry-class>'");
-  });
-
-  it('valid FQCN com.fm.flink.udf.LoanDetailExtractor used as-is', () => {
-    const cards = getExampleCards([makeArtifact({ class: 'com.fm.flink.udf.LoanDetailExtractor' })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain("AS 'com.fm.flink.udf.LoanDetailExtractor'");
-    // deriveFnName should produce snake_case of last segment
-    expect(javaCard.sql).toContain('loan_detail_extractor');
-  });
-
-  it('single-segment class MaskEmail derives lowercase fn name', () => {
-    const cards = getExampleCards([makeArtifact({ class: 'MaskEmail' })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain("AS 'MaskEmail'");
-    expect(javaCard.sql).toContain('maskemail');
-  });
-
-  it('no artifacts → fallback class + name', () => {
+  it('getExampleCards returns 50 kickstart cards total', () => {
     const cards = getExampleCards([]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain("AS '<entry-class>'");
-    expect(javaCard.sql).toContain('my_java_udf');
-    expect(javaCard.sql).toContain('<artifact-id>');
+    expect(cards.length).toBe(50);
+    expect(cards.every((c) => c.category === 'kickstart')).toBe(true);
   });
 
-  it('ZIP class === "default" produces placeholder', () => {
-    const cards = getExampleCards([makeArtifact({ content_format: 'ZIP', class: 'default' })]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.sql).toContain("AS '<entry-class>'");
-    expect(pyCard.sql).not.toContain("AS 'default'");
+  it('all kickstart cards have a group field set', () => {
+    const cards = getExampleCards([]);
+    for (const card of cards) {
+      expect(card.group, `card ${card.id} missing group`).toBeDefined();
+      expect(card.group!.length, `card ${card.id} has empty group`).toBeGreaterThan(0);
+    }
   });
 
-  it('empty versions[] produces <version-id> placeholder', () => {
-    const cards = getExampleCards([makeArtifact({ versions: [] })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain('<version-id>');
-  });
-
-  it('description includes guidance text when class is unresolved', () => {
-    const cards = getExampleCards([makeArtifact({ class: 'default' })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.description).toContain('Replace <entry-class>');
-  });
-
-  it('description does NOT include guidance text when class is valid', () => {
-    const cards = getExampleCards([makeArtifact({ class: 'com.example.MyUdf' })]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.description).not.toContain('Replace <entry-class>');
+  it('5 new view cards exist with view: true and group Views', () => {
+    const cards = getExampleCards([]);
+    const viewIds = ['view-golden-record', 'view-credit-risk', 'view-ai-drift', 'view-early-warning', 'view-mbs-pricing'];
+    for (const id of viewIds) {
+      const card = cards.find((c) => c.id === id);
+      expect(card, `view card ${id} missing`).toBeDefined();
+      expect(card!.view).toBe(true);
+      expect(card!.group).toBe('Views');
+      expect(card!.category).toBe('kickstart');
+      expect(typeof card!.onImport).toBe('function');
+    }
   });
 
   // --- Quick Start card tests ---
@@ -224,100 +175,9 @@ describe('[@example-cards] getExampleCards', () => {
 // ---------------------------------------------------------------------------
 
 describe('[@coverage-boost] exampleCards edge cases', () => {
-  it('ZIP artifact used for python UDF card when present', () => {
-    const zipArt = makeArtifact({
-      id: 'art-zip-1',
-      content_format: 'ZIP',
-      class: 'my_module.my_func',
-      runtime_language: 'PYTHON',
-      versions: [{ version: 'ver-zip-1' }],
-    });
-    const cards = getExampleCards([zipArt]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.sql).toContain('art-zip-1');
-    expect(pyCard.sql).toContain('ver-zip-1');
-  });
-
-  it('ZIP fallback to anyArtifact when no ZIP artifact but JAR exists', () => {
-    const jarArt = makeArtifact({
-      id: 'art-jar-only',
-      content_format: 'JAR',
-      versions: [{ version: 'ver-jar-1' }],
-    });
-    const cards = getExampleCards([jarArt]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    // zipId falls back to anyArtifact (the JAR)
-    expect(pyCard.sql).toContain('art-jar-only');
-    expect(pyCard.sql).toContain('ver-jar-1');
-  });
-
-  it('both JAR and ZIP artifacts resolve independently', () => {
-    const jarArt = makeArtifact({
-      id: 'art-jar-2',
-      content_format: 'JAR',
-      class: 'com.example.JavaUdf',
-      versions: [{ version: 'ver-j2' }],
-    });
-    const zipArt = makeArtifact({
-      id: 'art-zip-2',
-      content_format: 'ZIP',
-      class: 'python_module',
-      runtime_language: 'PYTHON',
-      versions: [{ version: 'ver-z2' }],
-    });
-    const cards = getExampleCards([jarArt, zipArt]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(javaCard.sql).toContain('art-jar-2');
-    expect(javaCard.sql).toContain('ver-j2');
-    expect(javaCard.sql).toContain("AS 'com.example.JavaUdf'");
-    expect(pyCard.sql).toContain('art-zip-2');
-    expect(pyCard.sql).toContain('ver-z2');
-    expect(pyCard.sql).toContain("AS 'python_module'");
-  });
-
-  it('deriveFnName converts CamelCase last segment to snake_case', () => {
-    const art = makeArtifact({ class: 'com.example.MaskEmailAddress' });
-    const cards = getExampleCards([art]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain('mask_email_address');
-  });
-
-  it('deriveFnName handles Python-style identifier (no dots)', () => {
-    const art = makeArtifact({
-      content_format: 'ZIP',
-      class: 'my_python_func',
-      runtime_language: 'PYTHON',
-    });
-    const cards = getExampleCards([art]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.sql).toContain("AS 'my_python_func'");
-    // deriveFnName returns lowercase of valid identifier
-    expect(pyCard.sql).toContain('my_python_func');
-  });
-
-  it('deriveFnName returns fallback for non-identifier non-dotted class', () => {
-    // A class string with special chars that is not a valid identifier and has no dots
-    const art = makeArtifact({ class: '123-bad-class!' });
-    const cards = getExampleCards([art]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    // isUnresolvedClass returns false (not empty, not 'default'), so deriveFnName is called
-    // deriveFnName: no dots, regex test fails for '123-bad-class!' => returns fallback 'my_java_udf'
-    expect(javaCard.sql).toContain('my_java_udf');
-  });
-
-  it('isUnresolvedClass treats null/undefined as unresolved', () => {
-    const art = makeArtifact({ class: undefined as unknown as string });
-    const cards = getExampleCards([art]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain("AS '<entry-class>'");
-    expect(javaCard.sql).toContain('my_java_udf');
-  });
-
   it('Coming Soon cards have comingSoon string and no onImport', () => {
     const cards = getExampleCards([]);
-    const comingSoonIds = ['loan-dedup', 'loan-top-n', 'loan-aggregate-udf', 'loan-validation',
-      'loan-hop-window', 'loan-session-window', 'loan-pii-masking', 'loan-async-enrichment', 'loan-cdc-pipeline'];
+    const comingSoonIds = ['loan-table-explode'];
     for (const id of comingSoonIds) {
       const card = cards.find((c) => c.id === id);
       expect(card, `card ${id} should exist`).toBeDefined();
@@ -326,76 +186,29 @@ describe('[@coverage-boost] exampleCards edge cases', () => {
     }
   });
 
-  it('snippet cards have no onImport', () => {
-    const cards = getExampleCards([]);
-    const snippetIds = ['hello-world', 'show-functions'];
-    for (const id of snippetIds) {
-      const card = cards.find((c) => c.id === id);
-      expect(card).toBeDefined();
-      expect(card!.category).toBe('snippet');
-      expect(card!.onImport).toBeUndefined();
-    }
-  });
-
   it('kickstart cards with onImport have category kickstart', () => {
     const cards = getExampleCards([]);
-    const kickstartIds = ['hello-flink', 'good-jokes', 'loan-filter', 'loan-aggregate',
-      'loan-join', 'loan-temporal-join', 'loan-scalar-extract', 'loan-tradeline-java'];
+    const kickstartIds = ['hello-flink', 'hello-ksqldb', 'good-jokes', 'ksql-dynamic-routing', 'ksql-dynamic-routing-json', 'loan-filter',
+      'loan-coborrower-unnest', 'loan-multi-region-merge', 'loan-event-fanout',
+      'loan-aggregate', 'loan-hop-window', 'loan-session-window', 'loan-top-n',
+      'loan-cumulate-window', 'loan-late-payments',
+      'loan-join', 'loan-temporal-join',
+      'loan-property-lookup', 'loan-borrower-payments', 'loan-routing-json', 'loan-routing-avro',
+      'loan-dedup', 'loan-cdc-pipeline', 'loan-running-aggregate', 'loan-change-detection',
+      'loan-pattern-match', 'loan-interval-join', 'loan-stream-enrichment',
+      'loan-time-range-stats',
+      'loan-schemaless-topic', 'loan-schema-override', 'loan-data-masking',
+      'loan-scalar-extract', 'loan-tradeline-java',
+      'loan-aggregate-udf', 'loan-validation', 'loan-pii-masking', 'loan-async-enrichment',
+      'view-golden-record', 'view-credit-risk', 'view-ai-drift', 'view-early-warning', 'view-mbs-pricing',
+      'kafka-produce-consume', 'kafka-startup-modes', 'kafka-changelog-modes',
+      'kafka-value-formats', 'kafka-schema-evolution', 'confluent-connector-bridge'];
     for (const id of kickstartIds) {
       const card = cards.find((c) => c.id === id);
-      expect(card).toBeDefined();
+      expect(card, `card ${id} should exist`).toBeDefined();
       expect(card!.category).toBe('kickstart');
       expect(typeof card!.onImport).toBe('function');
     }
-  });
-
-  it('python UDF description mentions display_name when ZIP artifact has valid class', () => {
-    const zipArt = makeArtifact({
-      display_name: 'MyPythonPackage',
-      content_format: 'ZIP',
-      class: 'my_module.process',
-      runtime_language: 'PYTHON',
-    });
-    const cards = getExampleCards([zipArt]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.description).toContain('MyPythonPackage');
-    expect(pyCard.description).not.toContain('Replace <entry-class>');
-  });
-
-  it('python UDF description includes guidance when ZIP class is unresolved', () => {
-    const zipArt = makeArtifact({
-      display_name: 'MyZip',
-      content_format: 'ZIP',
-      class: '',
-    });
-    const cards = getExampleCards([zipArt]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.description).toContain('MyZip');
-    expect(pyCard.description).toContain('Replace <entry-class>');
-  });
-
-  it('no artifacts: python UDF shows upload guidance', () => {
-    const cards = getExampleCards([]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.description).toContain('Upload a ZIP artifact first');
-  });
-
-  it('JAR with empty versions uses <version-id> placeholder', () => {
-    const art = makeArtifact({ versions: [] });
-    const cards = getExampleCards([art]);
-    const javaCard = cards.find((c) => c.id === 'create-java-udf')!;
-    expect(javaCard.sql).toContain('<version-id>');
-  });
-
-  it('ZIP with empty versions falls back to anyArtifact version', () => {
-    const jarArt = makeArtifact({
-      content_format: 'JAR',
-      versions: [{ version: 'ver-fallback' }],
-    });
-    // No ZIP artifact — falls back to anyArtifact (JAR)
-    const cards = getExampleCards([jarArt]);
-    const pyCard = cards.find((c) => c.id === 'create-python-udf')!;
-    expect(pyCard.sql).toContain('ver-fallback');
   });
 
   it('all cards have non-empty id and title', () => {
@@ -404,5 +217,163 @@ describe('[@coverage-boost] exampleCards edge cases', () => {
       expect(card.id.length).toBeGreaterThan(0);
       expect(card.title.length).toBeGreaterThan(0);
     }
+  });
+
+  it('all kickstart UDF cards with onImport have completionModal defined', () => {
+    const cards = getExampleCards([]);
+    const udfCards = cards.filter((c) => c.udf && c.category === 'kickstart' && c.onImport);
+    udfCards.forEach((card) => {
+      expect(card.completionModal).toBeDefined();
+    });
+  });
+
+  it('schema cards have schema: true', () => {
+    const cards = getExampleCards([]);
+    const schemaCards = cards.filter((c) => c.id === 'loan-schemaless-topic' || c.id === 'loan-schema-override');
+    schemaCards.forEach((card) => {
+      expect(card.schema).toBe(true);
+    });
+  });
+
+  it('loan-data-masking card exists', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'loan-data-masking');
+    expect(card).toBeDefined();
+    expect(card!.category).toBe('kickstart');
+    expect(card!.tags).toContain('Security');
+  });
+
+  it('kickstart cards are ordered: basics before windows before joins before stateful before schema before UDFs', () => {
+    const cards = getExampleCards([]);
+    const kickstartCards = cards.filter((c) => c.category === 'kickstart');
+    const ids = kickstartCards.map((c) => c.id);
+
+    // Basics should come before windows
+    const helloIdx = ids.indexOf('hello-flink');
+    const aggregateIdx = ids.indexOf('loan-aggregate');
+    expect(helloIdx).toBeLessThan(aggregateIdx);
+
+    // Windows before joins
+    const hopIdx = ids.indexOf('loan-hop-window');
+    const joinIdx = ids.indexOf('loan-join');
+    expect(hopIdx).toBeLessThan(joinIdx);
+
+    // Joins before stateful
+    const dedupIdx = ids.indexOf('loan-dedup');
+    expect(joinIdx).toBeLessThan(dedupIdx);
+
+    // Stateful before schema
+    const schemalessIdx = ids.indexOf('loan-schemaless-topic');
+    expect(dedupIdx).toBeLessThan(schemalessIdx);
+
+    // Schema before UDFs
+    const scalarIdx = ids.indexOf('loan-scalar-extract');
+    expect(schemalessIdx).toBeLessThan(scalarIdx);
+
+    // UDFs before Views
+    const viewIdx = ids.indexOf('view-golden-record');
+    expect(scalarIdx).toBeLessThan(viewIdx);
+  });
+
+  it('all UDF cards have udf: true flag', () => {
+    const cards = getExampleCards([]);
+    const udfCardIds = ['loan-scalar-extract', 'loan-tradeline-java', 'loan-table-explode', 'loan-aggregate-udf', 'loan-validation', 'loan-pii-masking', 'loan-async-enrichment'];
+    udfCardIds.forEach((id) => {
+      const card = cards.find((c) => c.id === id);
+      expect(card?.udf).toBe(true);
+    });
+  });
+
+  it('6 new Kafka/Confluent cards exist with correct groups', () => {
+    const cards = getExampleCards([]);
+    const kafkaIds = [
+      { id: 'kafka-produce-consume', group: 'Kafka' },
+      { id: 'kafka-startup-modes', group: 'Kafka' },
+      { id: 'kafka-changelog-modes', group: 'Kafka' },
+      { id: 'kafka-value-formats', group: 'Kafka' },
+      { id: 'kafka-schema-evolution', group: 'Kafka' },
+      { id: 'confluent-connector-bridge', group: 'Confluent' },
+    ];
+    for (const { id, group } of kafkaIds) {
+      const card = cards.find((c) => c.id === id);
+      expect(card, `card ${id} should exist`).toBeDefined();
+      expect(card!.group).toBe(group);
+      expect(card!.category).toBe('kickstart');
+      expect(typeof card!.onImport).toBe('function');
+    }
+  });
+
+  it('Kafka cards have Quick Start tag', () => {
+    const cards = getExampleCards([]);
+    const kafkaIds = ['kafka-produce-consume', 'kafka-startup-modes', 'kafka-changelog-modes',
+      'kafka-value-formats', 'kafka-schema-evolution', 'confluent-connector-bridge'];
+    for (const id of kafkaIds) {
+      const card = cards.find((c) => c.id === id)!;
+      expect(card.tags, `${id} missing Quick Start tag`).toContain('Quick Start');
+    }
+  });
+
+  it('Kafka beginner cards have Beginner skill level', () => {
+    const cards = getExampleCards([]);
+    const beginnerIds = ['kafka-produce-consume', 'kafka-startup-modes'];
+    for (const id of beginnerIds) {
+      const card = cards.find((c) => c.id === id)!;
+      expect(card.skillLevel).toBe('Beginner');
+    }
+  });
+
+  it('Kafka intermediate cards have Intermediate skill level', () => {
+    const cards = getExampleCards([]);
+    const intermediateIds = ['kafka-changelog-modes', 'kafka-value-formats', 'kafka-schema-evolution', 'confluent-connector-bridge'];
+    for (const id of intermediateIds) {
+      const card = cards.find((c) => c.id === id)!;
+      expect(card.skillLevel).toBe('Intermediate');
+    }
+  });
+
+  // --- ksqlDB JSON Routing card tests ---
+
+  it('ksql-dynamic-routing-json card exists with correct metadata', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'ksql-dynamic-routing-json');
+    expect(card, 'ksql-dynamic-routing-json card should exist').toBeDefined();
+    expect(card!.category).toBe('kickstart');
+    expect(card!.group).toBe('Joins');
+    expect(card!.skillLevel).toBe('Advanced');
+    expect(card!.stateful).toBe(true);
+  });
+
+  it('ksql-dynamic-routing-json card has ksqlDB and JSON tags', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'ksql-dynamic-routing-json')!;
+    expect(card.tags).toContain('Quick Start');
+    expect(card.tags).toContain('ksqlDB');
+    expect(card.tags).toContain('JSON');
+    expect(card.tags).toContain('EXPLODE');
+  });
+
+  it('ksql-dynamic-routing-json card has onImport and completionModal', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'ksql-dynamic-routing-json')!;
+    expect(typeof card.onImport).toBe('function');
+    expect(card.completionModal).toBeDefined();
+    expect(card.completionModal!.steps.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('ksql-dynamic-routing-json card sql contains EXPLODE', () => {
+    const cards = getExampleCards([]);
+    const card = cards.find((c) => c.id === 'ksql-dynamic-routing-json')!;
+    expect(card.sql).toContain('EXPLODE');
+  });
+
+  it('both ksqlDB routing variants exist (Avro + JSON)', () => {
+    const cards = getExampleCards([]);
+    const avro = cards.find((c) => c.id === 'ksql-dynamic-routing');
+    const json = cards.find((c) => c.id === 'ksql-dynamic-routing-json');
+    expect(avro, 'Avro ksqlDB routing card should exist').toBeDefined();
+    expect(json, 'JSON ksqlDB routing card should exist').toBeDefined();
+    // Both should be in the Joins group
+    expect(avro!.group).toBe('Joins');
+    expect(json!.group).toBe('Joins');
   });
 });

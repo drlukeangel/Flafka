@@ -35,11 +35,26 @@ FROM (
     )
   )
   WHERE rownum <= 3
-)`,
+)
+
+-- ============================================================
+-- WHAT: Top-N pattern — finds the 3 largest loans (by amount) per status within each 30-second tumbling window.
+-- 3 LAYERS: Inner = tumble + ROW_NUMBER ranking. Middle = filter WHERE rownum <= 3, format timestamps, build key. Outer = final column selection.
+-- WHY ROW_NUMBER (not RANK): Guarantees sequential 1,2,3 even on ties. RANK would give 1,1,3. Flink optimizes this pattern internally.
+-- WHY nested subquery: SQL standard forbids WHERE on window functions in the same SELECT. Must rank in subquery, filter in outer.
+-- WHY CAST(rownum AS STRING) in key: Without rank in the key, ranks 1/2/3 for same (window, status) would collide and Kafka compaction drops earlier ranks.
+-- GOTCHA: 3 nesting levels look complex but it's a standard pattern: window+rank, filter+format, select. Every Top-N query looks like this.
+-- GOTCHA: Windows emit after 30s. Fewer than 3 loans for a status in a window = fewer than 3 rows (WHERE just caps the max).
+-- ============================================================`,
     },
     {
       label: 'view-output',
-      sql: 'SELECT * FROM `{LOANS-TOP3}` LIMIT 50',
+      sql: `SELECT * FROM \`{LOANS-TOP3}\` LIMIT 50
+
+-- ============================================================
+-- WHAT: Reads ranked loans from LOANS-TOP3 — top 3 largest per status per 30-second window.
+-- GOTCHA: Wait at least 30 seconds for the first tumbling window to close and emit ranked results.
+-- ============================================================`,
     },
   ],
   completionModal: {

@@ -11,6 +11,7 @@ vi.mock('../../api/flink-api', () => ({
   cancelStatement: vi.fn(),
   getComputePoolStatus: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   getCatalogs: vi.fn(),
   getDatabases: vi.fn(),
   getTables: vi.fn(),
@@ -47,6 +48,14 @@ vi.mock('../../api/topic-api', () => ({
 vi.mock('../../utils/workspace-export', () => ({
   validateWorkspaceJSON: vi.fn(() => ({ valid: true, errors: [] })),
 }));
+
+vi.mock('../../config/environment', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../config/environment')>();
+  return {
+    ...actual,
+    env: { ...actual.env, isAdmin: true, uniqueId: 'test' },
+  };
+});
 
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import * as flinkApi from '../../api/flink-api';

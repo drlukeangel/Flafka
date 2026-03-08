@@ -1,0 +1,263 @@
+/* ============================================================================
+ * FilterFlyout — reusable multi-category filter panel
+ * ============================================================================ */
+
+.filter-flyout {
+  position: relative;
+}
+
+/* Trigger button — compact icon */
+.filter-flyout-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.filter-flyout-trigger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.filter-flyout-trigger--active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* Active filter count badge */
+.filter-flyout-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: 8px;
+  background: var(--color-primary);
+  color: #fff;
+}
+
+/* Panel — positioned below the trigger */
+.filter-flyout-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  min-width: 380px;
+  max-height: 420px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg, 0 4px 16px rgba(0, 0, 0, 0.2));
+  z-index: 50;
+  overflow: hidden;
+}
+
+/* Header — "Filter" title bar with collapse button */
+.filter-flyout-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-secondary);
+  flex-shrink: 0;
+}
+
+.filter-flyout-collapse {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: color var(--transition-fast);
+}
+
+.filter-flyout-collapse:hover {
+  color: var(--color-text-primary);
+}
+
+/* Body — category + options side by side */
+.filter-flyout-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Footer — Clear filters + Apply buttons */
+.filter-flyout-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.filter-flyout-clear-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.filter-flyout-clear-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.filter-flyout-apply-btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.filter-flyout-apply-btn:hover {
+  opacity: 0.9;
+}
+
+/* Left column — category list */
+.filter-flyout-categories {
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  max-width: 180px;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-secondary);
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.filter-flyout-category {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.filter-flyout-category:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.filter-flyout-category--active {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  font-weight: 500;
+  border-left: 2px solid var(--color-primary);
+}
+
+.filter-flyout-cat-count {
+  font-size: 11px;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* (Clear all moved to footer) */
+
+/* Right column — options */
+.filter-flyout-options {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 160px;
+  overflow: hidden;
+}
+
+.filter-flyout-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.filter-flyout-search input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
+.filter-flyout-search input:focus {
+  border-color: var(--color-primary);
+}
+
+.filter-flyout-option-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.filter-flyout-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.filter-flyout-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.filter-flyout-option input[type='checkbox'] {
+  accent-color: var(--color-primary);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.filter-flyout-no-results {
+  padding: 12px;
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+/* (Clear category moved to footer) */

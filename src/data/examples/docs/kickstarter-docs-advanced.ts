@@ -899,4 +899,790 @@ JOIN \`EOT-PLATFORM-EXAMPLES-CUSTOMERS-LATEST\` FOR SYSTEM_TIME AS OF l.\`$rowti
       description: 'Interval joins match two append-only streams by time proximity. Temporal joins look up the latest version of a dimension table.',
     },
   },
+
+
+  // ─────────────────────────────────────────────────────────────
+  //  Kafka Fundamentals
+  // ─────────────────────────────────────────────────────────────
+
+  'kafka-produce-consume': {
+    subtitle: 'Produce keyed messages into Kafka and consume them with Flink SQL — see exactly how keys control partition placement and message ordering.',
+    businessContext: 'Every Kafka message has an optional key. This key determines which partition the message lands in (via hashing), and all messages with the same key arrive at consumers in the exact order they were produced. This is the foundation of Kafka ordering guarantees — and one of the most misunderstood concepts in the entire ecosystem. Get the key wrong and your downstream consumers process events out of order. Get it right and you have a rock-solid event stream.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'produce', label: 'MESSAGES (produce)', type: 'source' },
+        { id: 'insert', label: 'INSERT INTO (key = user_id)', type: 'processor' },
+        { id: 'consume', label: 'MESSAGES-BY-KEY (consume)', type: 'sink' },
+      ],
+      edges: [
+        { from: 'produce', to: 'insert', animated: true },
+        { from: 'insert', to: 'consume', animated: true },
+      ],
+    },
+    sqlBlocks: [
+      {
+        label: 'Produce keyed messages',
+        sql: `INSERT INTO \`MESSAGES-BY-KEY\`
+SELECT user_id, message_body, category, ts
+FROM \`MESSAGES\``,
+      },
+      {
+        label: 'Consume by key',
+        sql: `SELECT user_id AS message_key, message_body, category, ts
+FROM \`MESSAGES-BY-KEY\``,
+      },
+    ],
+    concepts: [
+      { term: 'Kafka Message Key', explanation: 'The key is a byte array attached to every Kafka record. Kafka hashes this key to decide which partition the message goes to. Same key = same partition = guaranteed ordering within that partition. No key = round-robin assignment = no ordering guarantees at all.' },
+      { term: 'Partition', explanation: 'A partition is an ordered, immutable sequence of records within a topic. Each partition is an independent log. Messages within a single partition are strictly ordered by offset. Messages across different partitions have no ordering relationship.' },
+      { term: 'Ordering Guarantee', explanation: 'Kafka only guarantees ordering within a single partition. If you need all events for user_id "U-001" to arrive in order, they must all go to the same partition — which means they need the same key. This is why choosing the right key is a critical design decision.' },
+      { term: 'Key Semantics in Flink SQL', explanation: 'When you INSERT INTO a Kafka-backed table, Flink uses the primary key (or the first column if no key is defined) as the Kafka message key. The key determines partitioning, compaction behavior, and downstream join semantics.' },
+    ],
+    useCases: ['Understanding Kafka key semantics', 'Partition-aware message routing', 'Ordered event processing per entity', 'Foundation for joins and aggregations'],
+    exampleInput: [
+      '{ user_id: "U-001", message_body: "Loan application submitted", category: "APPLICATION", ts: "2026-03-07T10:00:00Z" }',
+      '{ user_id: "U-002", message_body: "Payment received", category: "PAYMENT", ts: "2026-03-07T10:00:01Z" }',
+      '{ user_id: "U-001", message_body: "Documents uploaded", category: "APPLICATION", ts: "2026-03-07T10:00:02Z" }',
+    ],
+    expectedOutput: [
+      '{ message_key: "U-001", message_body: "Loan application submitted", category: "APPLICATION" }',
+      '{ message_key: "U-001", message_body: "Documents uploaded", category: "APPLICATION" }',
+      '-- Both U-001 messages arrive in order because they share a partition',
+    ],
+    whatHappensIf: [
+      { question: 'What if I produce messages without a key?', answer: 'Kafka distributes them across partitions using round-robin (or sticky partitioning in newer clients). Messages from the same logical entity can end up in different partitions, and you lose ordering guarantees entirely.' },
+      { question: 'What if two different users hash to the same partition?', answer: 'Totally normal. Multiple keys can map to the same partition. Within that partition, messages from all keys are interleaved but each key\'s messages maintain their relative order. Consumers see them in partition offset order.' },
+      { question: 'What if I change the number of partitions?', answer: 'The key-to-partition mapping changes because the hash modulus changes. Existing messages stay where they are, but new messages with the same key may land in a different partition. This is why you should set partition count upfront and avoid changing it in production.' },
+    ],
+  },
+
+  'kafka-startup-modes': {
+    subtitle: 'Control exactly where Flink starts reading from a Kafka topic — replay from the beginning, jump to the live edge, or pick a precise timestamp.',
+    businessContext: 'When a Flink job starts (or restarts), it needs to know where in the Kafka topic to begin reading. The default is earliest-offset, which replays every message ever produced. But for a topic with billions of records, that could take hours. Startup modes let you choose: replay everything for completeness, skip to latest for real-time dashboards, or use a timestamp to start from last Tuesday at 3pm because that is when the bug happened.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'topic', label: 'EVENTS (20 records)', type: 'source' },
+        { id: 'mode', label: 'scan.startup.mode', type: 'processor' },
+        { id: 'output', label: 'Query Results', type: 'sink' },
+      ],
+      edges: [
+        { from: 'topic', to: 'mode', animated: true },
+        { from: 'mode', to: 'output', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'scan.startup.mode', explanation: 'A table property that controls where Flink starts reading. Set it in the WITH clause of your CREATE TABLE statement. Changing it requires dropping and recreating the table — you cannot ALTER it after creation.' },
+      { term: 'earliest-offset', explanation: 'Read every record from the very beginning of the topic. This is the default. Use it when you need to reprocess all historical data, backfill a new table, or when the topic is small enough that replaying is fast.' },
+      { term: 'latest-offset', explanation: 'Skip all existing data and only process new records that arrive after the query starts. Use it for real-time dashboards, alerting, or when historical data is already processed and you only care about what happens next.' },
+      { term: 'timestamp', explanation: 'Start reading from a specific moment in time using scan.startup.timestamp-millis. Kafka finds the first offset in each partition at or after that timestamp. Use it to replay from a known-good point — like reprocessing after a bug fix.' },
+      { term: 'specific-offsets', explanation: 'Surgeon-level precision: specify the exact offset per partition. Rarely used in practice, but invaluable when you need to skip a single poison pill record in partition 3 at offset 4,821,003.' },
+      { term: 'group-offsets', explanation: 'Resume from the last committed offset of the consumer group. In standard Kafka consumers this is the norm, but in Flink SQL it is less common because Flink manages offsets through its own checkpointing mechanism.' },
+    ],
+    useCases: ['Historical data replay', 'Real-time dashboard bootstrapping', 'Bug fix reprocessing from a timestamp', 'Selective partition replay'],
+    exampleInput: [
+      '{ event_id: "E-001", event_type: "LOGIN", user_id: "U-042", ts: "2026-03-07T09:00:00Z" }',
+      '... 18 more events ...',
+      '{ event_id: "E-020", event_type: "CHECKOUT", user_id: "U-007", ts: "2026-03-07T09:19:00Z" }',
+    ],
+    expectedOutput: [
+      '-- With earliest-offset: all 20 rows returned',
+      '-- With latest-offset: 0 rows (no new events after query start)',
+      '-- With timestamp at 09:15: only events E-016 through E-020',
+    ],
+    whatHappensIf: [
+      { question: 'What if the timestamp I specify is before the earliest retained record?', answer: 'Kafka returns the earliest available offset in that partition. Records that have been deleted by retention policy are gone forever — the timestamp scan finds the oldest surviving record.' },
+      { question: 'What if I use latest-offset and no new data arrives?', answer: 'The query sits idle with zero results. It is not broken — it is waiting. As soon as new records are produced to the topic, they stream through immediately.' },
+      { question: 'Can I change startup mode without dropping the table?', answer: 'No. scan.startup.mode is set in the WITH clause at CREATE TABLE time. To change it, you must DROP TABLE and CREATE TABLE again with the new mode. This is a common gotcha.' },
+    ],
+  },
+
+  'kafka-changelog-modes': {
+    subtitle: 'Same data, two completely different outcomes — see how append mode keeps every row while upsert mode consolidates by key.',
+    businessContext: 'Kafka topics can represent data in two fundamentally different ways. In append mode, every record is a new, immutable fact — the topic grows forever. In upsert mode, records with the same key replace previous records — the topic represents the latest state per key. This distinction controls whether your downstream table is an ever-growing event log or a compact state table. Choosing wrong means either unbounded storage growth or missing historical detail.',
+    dataFlow: {
+      layout: 'fan-out',
+      nodes: [
+        { id: 'source', label: 'Same 15 Events', type: 'source' },
+        { id: 'append', label: 'Append Mode', type: 'processor' },
+        { id: 'upsert', label: 'Upsert Mode', type: 'processor' },
+        { id: 'append-out', label: 'APPEND-RESULT (15 rows)', type: 'sink' },
+        { id: 'upsert-out', label: 'UPSERT-RESULT (~5 rows)', type: 'sink' },
+      ],
+      edges: [
+        { from: 'source', to: 'append', animated: true },
+        { from: 'source', to: 'upsert', animated: true },
+        { from: 'append', to: 'append-out', animated: true },
+        { from: 'upsert', to: 'upsert-out', animated: true },
+      ],
+    },
+    sqlBlocks: [
+      {
+        label: 'Append mode (INSERT only)',
+        sql: `INSERT INTO \`APPEND-RESULT\`
+SELECT * FROM \`APPEND-LOG\`
+-- Every row appended. Table grows forever.`,
+      },
+      {
+        label: 'Upsert mode (INSERT + UPDATE by key)',
+        sql: `INSERT INTO \`UPSERT-RESULT\`
+SELECT event_key, COUNT(*) AS event_count, MAX(event_value) AS latest_value
+FROM \`UPSERT-LOG\`
+GROUP BY event_key
+-- Same key? Previous row is replaced. Table stays compact.`,
+      },
+      {
+        label: 'Compare results side by side',
+        sql: `SELECT 'APPEND' AS mode, COUNT(*) AS row_count FROM \`APPEND-RESULT\`
+UNION ALL
+SELECT 'UPSERT' AS mode, COUNT(*) AS row_count FROM \`UPSERT-RESULT\``,
+      },
+    ],
+    concepts: [
+      { term: 'Changelog Mode', explanation: 'Defines how a Kafka-backed Flink table interprets incoming records. Append mode treats every record as a new INSERT. Upsert mode uses the primary key to determine whether a record is an INSERT (new key) or UPDATE (existing key).' },
+      { term: 'Append Mode', explanation: 'The default for most Kafka topics. Every record produces a +I (insert) changelog entry. The table grows monotonically. Old records are never updated or retracted. Good for event logs, audit trails, and immutable fact tables.' },
+      { term: 'Upsert Mode', explanation: 'Records with the same key overwrite previous records. Internally, Flink emits -U (update before) and +U (update after) changelog entries, or -D (delete) for tombstones. Good for entity state tables, aggregation results, and materialized views.' },
+      { term: 'Log Compaction', explanation: 'Kafka can compact topics by keeping only the latest record per key, effectively implementing upsert semantics at the storage layer. When combined with Flink\'s upsert mode, you get end-to-end state table semantics with bounded storage.' },
+      { term: 'Retract vs Upsert', explanation: 'Retract mode sends explicit delete markers (-D) for removed rows. Upsert mode uses null values (tombstones) for the same purpose. Both achieve "take back a previous record," but the mechanisms differ. Confluent Cloud Flink primarily uses upsert for changelog topics.' },
+    ],
+    useCases: ['Understanding changelog semantics', 'Choosing between event sourcing and state tables', 'Designing aggregation output topics', 'Kafka topic compaction strategies'],
+    exampleInput: [
+      '{ event_key: "K1", event_value: "first", ts: "2026-03-07T10:00:00Z" }',
+      '{ event_key: "K1", event_value: "second", ts: "2026-03-07T10:00:05Z" }',
+      '{ event_key: "K2", event_value: "only-one", ts: "2026-03-07T10:00:10Z" }',
+      '{ event_key: "K1", event_value: "third", ts: "2026-03-07T10:00:15Z" }',
+    ],
+    expectedOutput: [
+      '-- APPEND mode: 4 rows (all records kept)',
+      '-- UPSERT mode: 2 rows (K1 -> "third", K2 -> "only-one")',
+      '-- Same input, completely different output shapes',
+    ],
+    whatHappensIf: [
+      { question: 'What if I use append mode for an aggregation output?', answer: 'You get a new row for every intermediate result. A GROUP BY with 1000 updates per key produces 1000 rows in append mode but only 1 row (the latest) in upsert mode. Your downstream consumers would need to deduplicate themselves.' },
+      { question: 'What if I use upsert mode but my table has no primary key?', answer: 'Flink throws an error at query planning time. Upsert mode requires a primary key to know which records to update. Define one in your CREATE TABLE statement.' },
+      { question: 'Can I switch a topic from append to upsert after creation?', answer: 'You can recreate the Flink table with a different changelog.mode, but the existing data in the topic does not change. Old append records will be re-interpreted under upsert semantics, which may produce unexpected results if duplicate keys exist.' },
+    ],
+  },
+
+  'kafka-value-formats': {
+    subtitle: 'Avro with Schema Registry, plain JSON, and raw bytes — three tables, three serialization formats, one comparison to rule them all.',
+    businessContext: 'Every byte written to Kafka needs a serialization format. Avro with Schema Registry gives you type safety, schema evolution, and compact binary encoding — but requires Schema Registry infrastructure. JSON is universally readable and needs nothing extra — but has no schema enforcement, so a producer can send "age": "twenty-five" and you will not know until your pipeline explodes. Raw bytes are for legacy systems, log lines, and situations where you have given up on structured data entirely.',
+    dataFlow: {
+      layout: 'fan-in',
+      nodes: [
+        { id: 'avro', label: 'AVRO-DATA', type: 'source' },
+        { id: 'json', label: 'JSON-DATA', type: 'source' },
+        { id: 'raw', label: 'RAW-DATA', type: 'source' },
+        { id: 'flink', label: 'SELECT * (Flink SQL)', type: 'processor' },
+        { id: 'results', label: 'Compare Output', type: 'sink' },
+      ],
+      edges: [
+        { from: 'avro', to: 'flink', animated: true },
+        { from: 'json', to: 'flink', animated: true },
+        { from: 'raw', to: 'flink', animated: true },
+        { from: 'flink', to: 'results', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'value.format', explanation: 'A table property that tells Flink how to deserialize the bytes stored in Kafka. Set it in the WITH clause: \'avro-confluent\' for Schema Registry-backed Avro, \'json\' for self-describing JSON, \'raw\' for unstructured bytes.' },
+      { term: 'Avro + Schema Registry', explanation: 'Avro encodes data as compact binary using a schema definition. Schema Registry stores and versions these schemas centrally. Producers and consumers agree on structure without embedding it in every message — saving bandwidth and enforcing contracts. Confluent Cloud includes Schema Registry by default.' },
+      { term: 'JSON Format', explanation: 'Human-readable, self-describing, universally supported. Every message carries its own structure inline. No external registry needed. The downside: no enforcement. Field "amount" could be a number in one message and a string in the next. Debugging-friendly, production-risky.' },
+      { term: 'Raw Format', explanation: 'The topic contains raw bytes — no schema, no structure, no help. You get a single BYTES or STRING column and must CAST or parse it yourself. Useful for log ingestion, binary protocols, or bridging with systems that predate structured serialization.' },
+      { term: 'Schema Evolution', explanation: 'Avro with Schema Registry supports adding, removing, and modifying fields while maintaining backward/forward compatibility. JSON technically supports arbitrary changes, but without enforcement, you discover incompatibilities at query time (usually as NULL values or type errors).' },
+    ],
+    useCases: ['Choosing a serialization format for new topics', 'Understanding Schema Registry value proposition', 'Working with legacy raw-byte topics', 'Comparing format tradeoffs'],
+    exampleInput: [
+      '-- AVRO: compact binary, schema-verified (9/10 acorns)',
+      '{ sensor_id: "S-001", temperature: 72.5, unit: "F", ts: "2026-03-07T10:00:00Z" }',
+      '-- JSON: human-readable, no enforcement (7/10 acorns)',
+      '{ "sensor_id": "S-001", "temperature": 72.5, "unit": "F" }',
+      '-- RAW: just bytes (3/10 acorns, and that is generous)',
+      '"S-001|72.5|F|2026-03-07T10:00:00Z"',
+    ],
+    expectedOutput: [
+      '-- All three queries return the same logical data',
+      '-- But Avro auto-resolves column names from Schema Registry',
+      '-- JSON requires column definitions in CREATE TABLE',
+      '-- Raw requires manual CAST(raw_payload AS STRING) and parsing',
+    ],
+    whatHappensIf: [
+      { question: 'What if a JSON producer sends a field with the wrong type?', answer: 'Flink attempts to coerce it. If coercion fails, the field becomes NULL (or the row is dropped depending on configuration). There is no upfront validation — you find out about type mismatches at query time.' },
+      { question: 'What if Schema Registry is unavailable?', answer: 'Avro-formatted tables cannot deserialize messages. Queries fail with a Schema Registry connection error. This is the tradeoff: type safety and evolution support in exchange for a runtime dependency on Schema Registry availability.' },
+      { question: 'Can I mix formats within the same pipeline?', answer: 'Absolutely. Read from an Avro source, transform in Flink SQL, write to a JSON sink. Flink handles serialization/deserialization at each boundary independently. This is common when bridging legacy JSON producers with modern Avro consumers.' },
+    ],
+  },
+
+  'kafka-schema-evolution': {
+    subtitle: 'Schemas evolve, producers add fields, and Flink needs to keep up — learn the DROP + CREATE workflow that makes it work.',
+    businessContext: 'In the real world, schemas change constantly. A new business requirement adds a "priority" field. A compliance update requires a "consent_timestamp" column. The producer team deploys their change, and suddenly your Flink SQL table is missing columns. Unlike a database that auto-discovers schema changes, Flink SQL tables are statically defined at CREATE TABLE time. When the upstream schema evolves, you must drop and recreate the table definition to pick up new fields. This is not a bug — it is a deliberate design choice that prioritizes query stability over automatic schema discovery.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'producer', label: 'Producer (schema v1)', type: 'source' },
+        { id: 'sr', label: 'Schema Registry (v1 -> v2)', type: 'processor' },
+        { id: 'flink-old', label: 'Flink Table (v1 cols)', type: 'sink' },
+        { id: 'flink-new', label: 'DROP + CREATE (v2 cols)', type: 'sink' },
+      ],
+      edges: [
+        { from: 'producer', to: 'sr', animated: true },
+        { from: 'sr', to: 'flink-old', animated: true },
+        { from: 'sr', to: 'flink-new', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Schema Evolution', explanation: 'The process of modifying a data schema over time — adding fields, removing fields, changing types — while maintaining compatibility with existing producers and consumers. Schema Registry enforces compatibility rules (BACKWARD, FORWARD, FULL) to prevent breaking changes.' },
+      { term: 'DROP + CREATE Workflow', explanation: 'In Flink SQL, the only way to update a table definition is to DROP TABLE and CREATE TABLE with the new schema. This is because Flink compiles the schema into the query plan at startup. Running queries continue using the old schema until stopped and restarted.' },
+      { term: 'Backward Compatibility', explanation: 'New schema can read data written with the old schema. Typically achieved by adding optional fields with default values. This is the most common compatibility mode and the default in Confluent Schema Registry.' },
+      { term: 'Forward Compatibility', explanation: 'Old schema can read data written with the new schema. Typically achieved by only removing optional fields. Less common but important when consumers cannot be updated simultaneously with producers.' },
+      { term: 'NULL Backfill', explanation: 'When you add a new column to a Flink table, old records that were produced before the field existed will have NULL in that column. Flink does not retroactively fill in missing fields — it reads what is there and NULLs the rest.' },
+    ],
+    useCases: ['Adding fields to production schemas', 'Handling schema drift gracefully', 'Understanding Schema Registry compatibility modes', 'Managing the Flink table lifecycle'],
+    exampleInput: [
+      '-- Schema v1: { event_id, event_type, payload, event_time }',
+      '{ event_id: "E-001", event_type: "LOGIN", payload: "{}", event_time: "2026-03-07T10:00:00Z" }',
+      '-- Schema v2: { event_id, event_type, payload, priority, event_time }',
+      '{ event_id: "E-010", event_type: "ALERT", payload: "{}", priority: 1, event_time: "2026-03-07T11:00:00Z" }',
+    ],
+    expectedOutput: [
+      '-- Before evolution: priority column does not exist in query results',
+      '-- After DROP + CREATE: old records show priority = NULL',
+      '-- New records show priority = 1 (or whatever was produced)',
+      '-- Both old and new records coexist in the same table',
+    ],
+    whatHappensIf: [
+      { question: 'What if I skip the DROP TABLE step?', answer: 'CREATE TABLE fails because the table already exists. You must drop the old definition first. There is no ALTER TABLE ... ADD COLUMN in Flink SQL on Confluent Cloud.' },
+      { question: 'What if the producer removes a field instead of adding one?', answer: 'Records produced after the removal will have NULL in that column in your Flink table. If the column is referenced in a WHERE clause or JOIN condition, you may get unexpected empty results. Always check compatibility rules before removing fields.' },
+      { question: 'What happens to running queries when I DROP TABLE?', answer: 'Any running INSERT INTO or SELECT queries referencing that table will fail. You need to stop them first, drop the table, recreate it with the new schema, and restart the queries. This is the primary operational cost of schema evolution in Flink SQL.' },
+    ],
+  },
+
+  'confluent-connector-bridge': {
+    subtitle: 'Source connectors bring raw data into Kafka, Flink SQL cleans and transforms it, and sink connectors deliver it downstream — the managed pipeline pattern.',
+    businessContext: 'Confluent managed connectors handle the plumbing of getting data into and out of Kafka — databases, cloud storage, SaaS APIs, and more. But connectors do not transform data. They dump it raw. Flink SQL sits in the middle: it reads the messy connector output, cleans field values, validates records, normalizes types, and writes clean results to an output topic that a sink connector can deliver anywhere. This is the "connector bridge" pattern and it is the most common real-world Flink SQL architecture on Confluent Cloud.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'external', label: 'External Sources', type: 'source' },
+        { id: 'source-conn', label: 'Source Connectors', type: 'processor' },
+        { id: 'raw-topic', label: 'RAW-INGEST Topic', type: 'source' },
+        { id: 'flink', label: 'Flink SQL Transform', type: 'processor' },
+        { id: 'clean-topic', label: 'CLEAN-OUTPUT Topic', type: 'sink' },
+        { id: 'sink-conn', label: 'Sink Connector', type: 'sink' },
+      ],
+      edges: [
+        { from: 'external', to: 'source-conn', animated: true },
+        { from: 'source-conn', to: 'raw-topic', animated: true },
+        { from: 'raw-topic', to: 'flink', animated: true },
+        { from: 'flink', to: 'clean-topic', animated: true },
+        { from: 'clean-topic', to: 'sink-conn', animated: true },
+      ],
+    },
+    sqlBlocks: [
+      {
+        label: 'Transform and clean raw connector data',
+        sql: `INSERT INTO \`CLEAN-OUTPUT\`
+SELECT
+  UPPER(TRIM(source_system)) AS source_system,
+  event_id,
+  COALESCE(event_payload, '{}') AS event_payload,
+  CASE
+    WHEN event_type IS NULL THEN 'UNKNOWN'
+    WHEN event_type = '' THEN 'EMPTY'
+    ELSE UPPER(event_type)
+  END AS event_type,
+  ingestion_time
+FROM \`RAW-INGEST\`
+WHERE event_id IS NOT NULL`,
+      },
+      {
+        label: 'Verify cleaned output',
+        sql: `SELECT source_system, event_type, COUNT(*) AS event_count
+FROM \`CLEAN-OUTPUT\`
+GROUP BY source_system, event_type`,
+      },
+    ],
+    concepts: [
+      { term: 'Source Connector', explanation: 'A managed plugin that reads data from an external system (database, S3, Salesforce, etc.) and writes it to a Kafka topic. Confluent Cloud offers 200+ pre-built connectors. The connector handles connection management, schema extraction, and offset tracking.' },
+      { term: 'Sink Connector', explanation: 'The reverse: reads from a Kafka topic and writes to an external system. Common sinks include Snowflake, BigQuery, Elasticsearch, S3, and PostgreSQL. Sink connectors expect clean, well-structured data — which is exactly what the Flink SQL transformation provides.' },
+      { term: 'Connector Bridge Pattern', explanation: 'Source Connector -> Raw Topic -> Flink SQL Transform -> Clean Topic -> Sink Connector. This three-stage architecture separates concerns: connectors handle I/O, Flink handles logic. You can swap connectors without changing SQL, or update SQL without reconfiguring connectors.' },
+      { term: 'Data Quality in the Middle', explanation: 'Raw connector data is messy: NULLs, inconsistent casing, empty strings, missing fields. The Flink SQL layer is where you enforce quality — COALESCE for defaults, TRIM for whitespace, CASE for normalization, WHERE for filtering invalid records.' },
+    ],
+    useCases: ['ETL pipeline with Confluent connectors', 'Data quality enforcement in streaming', 'Bridging legacy systems to modern data platforms', 'Multi-source data normalization'],
+    exampleInput: [
+      '{ source_system: " salesforce ", event_id: "E-001", event_type: null, event_payload: null, ingestion_time: "2026-03-07T10:00:00Z" }',
+      '{ source_system: "postgres", event_id: "E-002", event_type: "UPDATE", event_payload: "{\\"loan_id\\": \\"L-99\\"}", ingestion_time: "2026-03-07T10:00:01Z" }',
+      '{ source_system: "s3  ", event_id: null, event_type: "UPLOAD", event_payload: "...", ingestion_time: "2026-03-07T10:00:02Z" }',
+    ],
+    expectedOutput: [
+      '{ source_system: "SALESFORCE", event_id: "E-001", event_type: "UNKNOWN", event_payload: "{}" }',
+      '{ source_system: "POSTGRES", event_id: "E-002", event_type: "UPDATE", event_payload: "{\\"loan_id\\": \\"L-99\\"}" }',
+      '-- Third record dropped: event_id IS NULL fails the WHERE filter',
+    ],
+    whatHappensIf: [
+      { question: 'What if a source connector goes down?', answer: 'The raw topic stops receiving new data, but Flink SQL continues running. It processes any buffered records and then idles. When the connector recovers, it picks up where it left off and Flink processes the backlog automatically.' },
+      { question: 'What if I need to add a new source system?', answer: 'Deploy a new source connector pointing at the same raw topic. No Flink SQL changes needed — the transform query already handles any source_system value. This is the beauty of the bridge pattern: adding sources is a connector config change, not a code change.' },
+      { question: 'Can I skip the Flink layer and connect source directly to sink?', answer: 'Technically yes, using Kafka Connect\'s Single Message Transforms (SMTs). But SMTs are limited to simple field-level operations. Flink SQL gives you JOINs, aggregations, windowing, and full SQL expressiveness. For anything beyond trivial transformations, the Flink bridge is worth it.' },
+    ],
+  },
+
+  // ─── VIEW EXAMPLES ────────────────────────────────────────────────────────
+
+  'view-ai-drift': {
+    subtitle: 'Detect when an ML model\'s live predictions diverge from its training baseline.',
+    businessContext: 'You are the head of data science at a lending platform. Your credit-scoring model was trained on last year\'s data. As economic conditions shift, the model\'s predictions drift — it starts approving loans that will default, or rejecting good borrowers. You need to know the moment drift exceeds 5% so the team can retrain before losses mount. Flink computes feature statistics in real-time tumbling windows and alerts within seconds when the drift score crosses threshold.',
+    dataFlow: {
+      layout: 'windowed',
+      nodes: [
+        { id: 'predictions', label: 'MODEL-PREDICTIONS', type: 'source' },
+        { id: 'baseline', label: 'TRAINING-BASELINE', type: 'source' },
+        { id: 'window', label: 'TUMBLE(1h)', type: 'processor' },
+        { id: 'drift', label: 'DRIFT-ALERTS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'predictions', to: 'window', animated: true },
+        { from: 'baseline', to: 'window', animated: false },
+        { from: 'window', to: 'drift', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Feature Drift', explanation: 'The statistical gap between what your model was trained on and what it sees in production today. Think of it like a recipe written for one climate being cooked in another — the same steps produce different results. If the average loan applicant\'s income has shifted by 20% since training, the model\'s risk scores are systematically wrong.' },
+      { term: 'Windowed Feature Statistics', explanation: 'Instead of comparing individual predictions, you compare distributions: mean, standard deviation, min/max of each feature over the last hour vs. the baseline. One outlier is noise; a shifted hourly average is signal.' },
+      { term: 'Materialized View', explanation: 'A continuously-updating query result stored as a Kafka topic. Unlike a SQL VIEW (which re-runs on each query), Flink keeps the output current in real-time. The drift alert consumer reads the latest row, not the history.' },
+      { term: 'Population Shift vs. Concept Drift', explanation: 'Two flavors: population shift = input data changed (different borrowers than we trained on); concept drift = the relationship between inputs and outcomes changed (income used to predict repayment, now it doesn\'t). Monitoring both requires watching both input features and prediction accuracy.' },
+    ],
+    useCases: [
+      'Credit-scoring model health monitoring in production',
+      'Fraud detection model retraining triggers',
+      'Any ML pipeline where data distribution changes over time',
+      'A/B test monitoring for model comparison',
+    ],
+    whatHappensIf: [
+      { question: 'What if drift spikes temporarily due to a data pipeline issue?', answer: 'A single bad window can trigger false alarms. Use a multi-window threshold: alert only if drift exceeds the limit for 3 consecutive windows. Add a deadman switch on the data volume — if events drop to zero, suppress alerts (the pipeline is down, not the model).' },
+      { question: 'What if the model is updated mid-stream?', answer: 'Insert a "model version changed" event into the baseline topic. The Flink query picks up the new baseline immediately. Use a temporal join keyed on model version so each prediction is compared against the right baseline.' },
+    ],
+  },
+
+  'view-credit-risk': {
+    subtitle: 'Maintain a live credit risk score per borrower, updated with every new event.',
+    businessContext: 'You are a product manager at a fintech lender. Your credit analysts refresh risk scores nightly from a batch job — but a borrower who misses a payment at 2pm won\'t show as high-risk until tomorrow morning. By then, another $50k loan may have been approved. Flink materializes a risk view that recalculates every borrower\'s score within seconds of a new payment, application, or delinquency event, giving underwriters a live dashboard instead of a 24-hour-old snapshot.',
+    dataFlow: {
+      layout: 'fan-in',
+      nodes: [
+        { id: 'payments', label: 'PAYMENTS', type: 'source' },
+        { id: 'applications', label: 'LOAN-APPLICATIONS', type: 'source' },
+        { id: 'delinquency', label: 'DELINQUENCY-EVENTS', type: 'source' },
+        { id: 'risk', label: 'CREDIT-RISK-VIEW', type: 'sink' },
+      ],
+      edges: [
+        { from: 'payments', to: 'risk', animated: true },
+        { from: 'applications', to: 'risk', animated: true },
+        { from: 'delinquency', to: 'risk', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Materialized View (Upsert Mode)', explanation: 'Each time a new event arrives for borrower B-001, Flink emits a new row with the updated risk score for that borrower. Downstream, a database configured for upsert writes keeps only the latest row — so queries always see current risk, not history. It\'s like a spreadsheet that recalculates a cell every time one of its inputs changes.' },
+      { term: 'Changelog Stream', explanation: 'Flink\'s internal representation when it updates, not just appends. A +U (upsert) record says "replace the previous value for this key." A -D (delete) says "remove it." Downstream Kafka topics and connectors that understand changelogs can reconstruct the current state of any table.' },
+      { term: 'Multi-source Aggregation', explanation: 'Risk score draws from three signals: payment history (from PAYMENTS), outstanding obligations (from LOAN-APPLICATIONS), and past-due events (from DELINQUENCY). Flink joins them all in one stateful query — far simpler than orchestrating three batch jobs and merging results.' },
+      { term: 'Scoring Function', explanation: 'The SQL computes something like: base_score - (missed_payments * 50) - (delinquency_days * 10) + (on_time_payments * 5), capped between 300–850 (FICO-like range). The formula lives in Flink SQL, not in application code — so business rules change without a deployment.' },
+    ],
+    useCases: [
+      'Real-time underwriting decision support',
+      'Live borrower risk dashboards for loan officers',
+      'Automated credit limit adjustment triggers',
+      'Regulatory capital reserve calculations (Basel III intraday)',
+    ],
+    whatHappensIf: [
+      { question: 'What if a payment event arrives out of order?', answer: 'Flink processes it when it arrives. The materialized view emits a new row with the corrected score. Downstream consumers get the update within milliseconds. If strict ordering matters, add a watermark and buffer late events before finalizing scores.' },
+      { question: 'What if the same borrower has 10,000 events?', answer: 'Flink maintains aggregation state per key (borrower_id). It does not reprocess all 10,000 events for each new one — it keeps running totals in RocksDB state. Memory usage is proportional to the number of unique borrowers, not the event volume.' },
+    ],
+  },
+
+  'view-early-warning': {
+    subtitle: 'Fire a time-based alert when no expected event arrives within a deadline.',
+    businessContext: 'You are an ops engineer at a payments company. When a payment is initiated, a confirmation event should arrive within 60 seconds. If it doesn\'t, the transaction may be stuck in a legacy system. Today you discover failures only through customer complaints hours later. Flink\'s watermark mechanism lets you detect absence: once the watermark advances past the 60-second deadline without seeing a confirmation, an alert fires automatically, long before any customer picks up the phone.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'initiated', label: 'PAYMENTS-INITIATED', type: 'source' },
+        { id: 'confirmed', label: 'PAYMENTS-CONFIRMED', type: 'source' },
+        { id: 'detect', label: 'TIMEOUT-DETECTOR', type: 'processor' },
+        { id: 'alerts', label: 'EARLY-WARNING-ALERTS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'initiated', to: 'detect', animated: true },
+        { from: 'confirmed', to: 'detect', animated: true },
+        { from: 'detect', to: 'alerts', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Watermark', explanation: 'Flink\'s "I promise all earlier events have arrived" signal. When you set a watermark with 5s tolerance, Flink waits 5 seconds past the latest event time before declaring a window complete. This is how it knows the 60-second window has expired: the watermark crossed the deadline timestamp.' },
+      { term: 'Detecting Absence with Joins', explanation: 'A LEFT JOIN between INITIATED and CONFIRMED, filtered for NULLs on the right side, finds initiations with no matching confirmation. The trick: do this join inside a time-bounded interval so Flink knows when to emit the NULL (absence) result rather than waiting forever.' },
+      { term: 'Event Time vs. Processing Time', explanation: 'Processing time alerts fire based on wall-clock (when Flink processes the message). Event time alerts fire based on the timestamp inside the message. For detecting SLA breaches on real transactions, always use event time — a 30-minute consumer lag shouldn\'t suppress alerts that happened 30 minutes ago.' },
+      { term: 'Interval Join', explanation: 'Joins two streams where timestamps must be within a range of each other. Here: confirmation must arrive within 60s of initiation. If no match exists within that window, the LEFT JOIN produces a NULL row — which becomes the alert.' },
+    ],
+    useCases: [
+      'Payment confirmation SLA monitoring',
+      'Detecting stuck workflow state machines',
+      'Heartbeat / liveness monitoring for upstream systems',
+      'Order fulfillment timeout alerts',
+    ],
+    whatHappensIf: [
+      { question: 'What if confirmations arrive very late (after 60s) due to backlog?', answer: 'With proper watermarks, the alert has already fired. You have two choices: retract the alert (use a changelog-mode query that emits a retraction when the late confirmation arrives), or treat late confirmations as a separate event class and handle them downstream.' },
+      { question: 'What if the watermark tolerance is set too low?', answer: 'False positives: legitimate confirmations that arrive in 62s get flagged even though the system is healthy. Tune tolerance based on your p99 confirmation latency under normal load, not your average.' },
+    ],
+  },
+
+  'view-golden-record': {
+    subtitle: 'Collapse many partial records about the same entity into one authoritative row.',
+    businessContext: 'You are a data engineer at a bank with three source systems: a core banking platform, a CRM, and an online portal. Each writes partial borrower data to Kafka — the CRM has the email, the core has the credit score, the portal has the address. Downstream BI tools need one complete borrower row, not three partial ones. Flink\'s LAST_VALUE with GROUP BY creates a "golden record": a continuously-updated view that always shows the most recent value for each field, from whichever source system last updated it. The result is a single topic that BI connects to with a simple SELECT *.',
+    dataFlow: {
+      layout: 'fan-in',
+      nodes: [
+        { id: 'crm', label: 'CRM-EVENTS', type: 'source' },
+        { id: 'core', label: 'CORE-BANKING', type: 'source' },
+        { id: 'portal', label: 'PORTAL-UPDATES', type: 'source' },
+        { id: 'merge', label: 'LAST_VALUE + GROUP BY', type: 'processor' },
+        { id: 'golden', label: 'BORROWER-GOLDEN', type: 'sink' },
+      ],
+      edges: [
+        { from: 'crm', to: 'merge', animated: true },
+        { from: 'core', to: 'merge', animated: true },
+        { from: 'portal', to: 'merge', animated: true },
+        { from: 'merge', to: 'golden', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'LAST_VALUE()', explanation: 'An aggregate function that returns the most recently arrived non-NULL value in a group. Unlike MAX/MIN which compare values, LAST_VALUE compares arrival order. If CRM updates email at t=100 and portal updates email at t=200, LAST_VALUE returns the portal\'s value regardless of alphabetical order.' },
+      { term: 'Upsert Key (PRIMARY KEY)', explanation: 'The Flink table is declared with borrower_id as PRIMARY KEY — this tells Flink: "one row per borrower." Downstream, when a new email arrives for borrower B-001, Flink emits an UPDATE retraction (removing the old row) followed by an INSERT (adding the new row). The topic stays compact with one record per borrower.' },
+      { term: 'Entity Resolution', explanation: 'The hard part: linking the same borrower across systems. CRM calls them "customer_id", core uses "account_number", portal uses "user_id". The golden record pattern assumes you\'ve already solved this (usually with a mapping table joined upstream). Without clean keys, LAST_VALUE collapses different people\'s data.' },
+      { term: 'IGNORE NULLS', explanation: 'LAST_VALUE(email IGNORE NULLS) means: skip NULL values in the sequence. If core banking emits a borrower row without an email field, it won\'t overwrite the CRM\'s email with NULL. Each field gets its latest non-NULL value independently.' },
+    ],
+    useCases: [
+      'Master data management (MDM) for streaming pipelines',
+      'Unified customer 360 view for real-time dashboards',
+      'Merging CDC events from multiple database tables into one view',
+      'Resolving conflicts from multi-region writes',
+    ],
+    whatHappensIf: [
+      { question: 'What if two systems update the same field simultaneously?', answer: 'Flink processes one message at a time per partition. The "winner" is whichever message Flink processes last — which is whichever arrived later in Kafka. For business-rule-based conflict resolution ("CRM always wins for email"), use a CASE statement: LAST_VALUE(CASE WHEN source = \'crm\' THEN email END IGNORE NULLS).' },
+      { question: 'What if a source system sends an erroneous NULL to wipe a field?', answer: 'With IGNORE NULLS, the NULL is skipped. Without it, the NULL wins and the field appears blank. Choose based on business semantics: can a NULL mean "delete this field" or is it always a data quality issue to ignore?' },
+    ],
+  },
+
+  // ─── LOAN ADVANCED PATTERNS ───────────────────────────────────────────────
+
+  'loan-cumulate-window': {
+    subtitle: 'Emit partial results at every step interval, each growing from the window start.',
+    businessContext: 'You are a product manager at a lending platform. The business wants hourly loan-volume reports — but also wants a 10-minute preview. With a standard tumble window, you get the final number at the end of each hour, nothing before. Cumulate windows solve this: they emit a result every 10 minutes, but each result counts from the start of the hour. So at 10:40 you see "we\'ve issued $1.2M in the last 40 minutes" — an accurate cumulative total, not just the last 10 minutes\' slice.',
+    dataFlow: {
+      layout: 'windowed',
+      nodes: [
+        { id: 'loans', label: 'LOAN-APPLICATIONS', type: 'source' },
+        { id: 'cumulate', label: 'CUMULATE(step=10m,max=1h)', type: 'processor' },
+        { id: 'output', label: 'LOAN-VOLUME-CUMULATIVE', type: 'sink' },
+      ],
+      edges: [
+        { from: 'loans', to: 'cumulate', animated: true },
+        { from: 'cumulate', to: 'output', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'CUMULATE() Window', explanation: 'Three parameters: step (how often to emit), max (when the window resets), and the time column. Emits one result per step, each covering [window_start, current_step_end]. At the max boundary, the window resets. Think of it as a progress bar that updates every 10 minutes and resets to zero every hour.' },
+      { term: 'Cumulative vs. Incremental Results', explanation: 'A tumble window at step N shows you "what happened in the last 10 minutes." A cumulate window at step N shows you "what happened in the last N×10 minutes since the hour started." The difference is whether each result is a fresh slice or a growing total. Use cumulate when stakeholders want progress-toward-target, not just rate.' },
+      { term: 'Retraction', explanation: 'Each cumulate step emits an UPDATE: it retracts the previous step\'s result and inserts the new one. At 10:10, it emits count=50. At 10:20, it retracts count=50 and emits count=130. If your downstream sink doesn\'t handle retractions, you\'ll see duplicate rows — use an upsert-mode sink.' },
+      { term: 'Step vs. Hop', explanation: 'Hop windows slide continuously (e.g., every 10m shows the last 30m). Cumulate windows accumulate within a fixed max window. Hop is for "rolling averages"; cumulate is for "progress toward a period total."' },
+    ],
+    useCases: [
+      'Hourly loan volume progress reports with 10-minute updates',
+      'Daily revenue targets with intraday progress',
+      'Real-time funnel conversion rates with hourly resets',
+      'SLA compliance monitoring: X events in each hour, reported every 5 minutes',
+    ],
+    whatHappensIf: [
+      { question: 'What if I only want the final result at the max boundary?', answer: 'Use a standard TUMBLE window instead. Cumulate is specifically for use cases where you want intermediate results before the window closes.' },
+      { question: 'What if events arrive late (after the step boundary)?', answer: 'Late events after the step boundary are dropped from that step\'s result — they\'ll be included in the next step\'s cumulation. Use WATERMARK with an appropriate late-event tolerance to balance timeliness vs. completeness.' },
+    ],
+  },
+
+  'loan-late-payments': {
+    subtitle: 'Process events that arrive after their expected time window without losing data.',
+    businessContext: 'You are an infrastructure engineer at a bank. Mobile apps buffer payment confirmations when offline and deliver them in bulk when connectivity restores — sometimes 2 hours late. Without late-event handling, Flink\'s windows close and those payments are silently dropped, causing the bank\'s reconciliation to show $200k in "missing" transactions every day. This example shows how to configure watermark tolerance and late-data side outputs to capture every event regardless of when it arrives.',
+    dataFlow: {
+      layout: 'fan-out',
+      nodes: [
+        { id: 'payments', label: 'PAYMENTS', type: 'source' },
+        { id: 'window', label: 'TUMBLE(1h) + Late Tolerance', type: 'processor' },
+        { id: 'ontime', label: 'PAYMENTS-ONTIME', type: 'sink' },
+        { id: 'late', label: 'PAYMENTS-LATE', type: 'sink' },
+      ],
+      edges: [
+        { from: 'payments', to: 'window', animated: true },
+        { from: 'window', to: 'ontime', animated: true },
+        { from: 'window', to: 'late', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Watermark', explanation: 'A timestamp that says "I promise all events before this time have arrived." When the watermark passes a window\'s end time, Flink fires the window. The watermark\'s lateness tolerance is how far behind the maximum event time the watermark lags — a 5-minute tolerance means Flink waits 5 extra minutes before closing each window.' },
+      { term: 'Allowed Lateness', explanation: 'Even after a window fires, Flink can hold state open for additional late events. ALLOWED LATENESS = INTERVAL \'2\' HOUR means: for 2 hours after the window closes, any late-arriving events trigger a window re-computation and emit a corrected result. After 2 hours, events for that window are truly late.' },
+      { term: 'Side Output', explanation: 'A secondary output stream for events that miss even the allowed lateness window. Instead of dropping them silently, you route them to a separate topic (PAYMENTS-LATE) for manual review or batch reconciliation. Zero data loss — just different routing based on latency.' },
+      { term: 'Event Time vs. Processing Time', explanation: 'Flink can window by when a message was produced (event time, from inside the payload) or when it arrived (processing time, wall clock). For mobile payment buffering, event time is correct: a payment made at 2pm should fall in the 2pm window, even if it arrives at 4pm.' },
+    ],
+    useCases: [
+      'Mobile payment reconciliation with intermittent connectivity',
+      'IoT sensor data with network delays',
+      'Batch import of historical data into streaming pipelines',
+      'Multi-hop event routing where downstream latency varies',
+    ],
+    whatHappensIf: [
+      { question: 'What if late events arrive out of order relative to each other?', answer: 'Flink processes them in arrival order. If two late events for the same window arrive 1 minute apart, the window result is emitted (or updated) twice. Downstream consumers using upsert semantics see only the final corrected total.' },
+      { question: 'What if the watermark tolerance is set too high?', answer: 'Higher tolerance = longer wait before windows close = higher end-to-end latency. A 2-hour watermark tolerance means no result is emitted until at least 2 hours after the window\'s event-time boundary. Tune based on your p99 mobile client reconnect time.' },
+    ],
+  },
+
+  'loan-event-fanout': {
+    subtitle: 'Route a single input event to multiple output topics simultaneously.',
+    businessContext: 'You are an architect at a lending platform. When a loan is approved, 6 different systems need to know: risk (for portfolio exposure), CRM (to trigger onboarding), finance (for ledger entry), compliance (for audit trail), notifications (to send the approval email), and analytics. Today, a batch job runs nightly and fan-outs to each. Flink\'s event fanout pattern routes the approval event to all 6 topics within milliseconds — so the onboarding email arrives before the customer closes their browser tab.',
+    dataFlow: {
+      layout: 'fan-out',
+      nodes: [
+        { id: 'approved', label: 'LOANS-APPROVED', type: 'source' },
+        { id: 'risk', label: 'RISK-EXPOSURE', type: 'sink' },
+        { id: 'crm', label: 'CRM-ONBOARDING', type: 'sink' },
+        { id: 'finance', label: 'FINANCE-LEDGER', type: 'sink' },
+        { id: 'audit', label: 'AUDIT-TRAIL', type: 'sink' },
+      ],
+      edges: [
+        { from: 'approved', to: 'risk', animated: true },
+        { from: 'approved', to: 'crm', animated: true },
+        { from: 'approved', to: 'finance', animated: true },
+        { from: 'approved', to: 'audit', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Fan-out Pattern', explanation: 'One source topic, N sink topics, each populated by its own INSERT INTO … SELECT statement. Each INSERT runs as an independent Flink job with its own checkpointing and fault tolerance. Unlike a broadcast, each sink can apply different transformations, filters, or field mappings.' },
+      { term: 'Exactly-Once Delivery to Each Sink', explanation: 'Flink coordinates checkpoints across all sinks atomically. If the risk topic write succeeds but the CRM write fails, Flink restores from the last checkpoint and replays both — preventing the "some consumers got it, some didn\'t" split-brain scenario that haunts batch fan-outs.' },
+      { term: 'Independent Sink Schemas', explanation: 'Risk might want the full loan JSON. CRM wants only borrower_id + loan_amount + product_type. Finance wants only amount + ledger_code + timestamp. Each INSERT SELECT picks the fields it needs — no need for a canonical "everything" format that satisfies nobody perfectly.' },
+      { term: 'Decoupling Producers from Consumers', explanation: 'The loan approval system writes to one topic. It has no knowledge of the 6 downstream consumers. Adding a 7th consumer (say, a new fraud monitoring system) requires only adding a new INSERT INTO SELECT — zero changes to the approval system itself.' },
+    ],
+    useCases: [
+      'Loan approval fan-out to risk, CRM, finance, and compliance',
+      'Order placement notification to inventory, shipping, billing, and analytics',
+      'CDC event distribution to multiple data warehouse regions',
+      'Event-driven microservice choreography without direct API calls',
+    ],
+    whatHappensIf: [
+      { question: 'What if one of the sink topics is down?', answer: 'That particular INSERT job fails and retries with backoff. The other sinks continue processing independently — fan-out gives you blast-radius isolation. When the sink recovers, Flink replays from checkpoint without duplicating data to the healthy sinks.' },
+      { question: 'What if I need to fan out conditionally (only approved loans to CRM, not pending)?', answer: 'Add a WHERE clause to each INSERT: INSERT INTO CRM-ONBOARDING SELECT … FROM LOANS WHERE status = \'APPROVED\'. Each sink gets its own filter — this is content-based routing combined with fan-out.' },
+    ],
+  },
+
+  'loan-coborrower-unnest': {
+    subtitle: 'Explode an array field into individual rows — one row per co-borrower.',
+    businessContext: 'You are a data engineer at a mortgage company. Each loan application arrives as a single event, but the co_borrowers field is an array: ["Alice", "Bob", "Carlos"]. Risk analytics needs one row per person, not one row per loan. In a batch ETL world, you\'d write a Python script to explode arrays. In Flink SQL, UNNEST() does this inline, continuously, on a streaming topic — producing a real-time feed of individual borrower records the moment each application arrives.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'apps', label: 'LOAN-APPLICATIONS', type: 'source' },
+        { id: 'unnest', label: 'UNNEST(co_borrowers)', type: 'processor' },
+        { id: 'borrowers', label: 'INDIVIDUAL-BORROWERS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'apps', to: 'unnest', animated: true },
+        { from: 'unnest', to: 'borrowers', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'UNNEST()', explanation: 'A table-valued function that takes an array column and produces one row per element. If a loan has 3 co-borrowers, UNNEST produces 3 output rows, each with the same loan_id and the individual borrower name. It\'s the SQL equivalent of Python\'s itertools.chain — flatten nested structures into flat rows.' },
+      { term: 'CROSS JOIN UNNEST', explanation: 'The full SQL syntax is: SELECT loan_id, borrower FROM loans CROSS JOIN UNNEST(co_borrowers) AS t(borrower). The CROSS JOIN here isn\'t a Cartesian product — it\'s saying "join each loan row with its own unnested array." The result cardinality equals the sum of all array lengths.' },
+      { term: 'WITH ORDINALITY', explanation: 'Add WITH ORDINALITY to get a position index alongside each element: CROSS JOIN UNNEST(co_borrowers) WITH ORDINALITY AS t(borrower, pos). Now you know the primary borrower (pos=1) vs. co-borrowers (pos>1), which matters for risk weighting.' },
+      { term: 'Handling NULL Arrays', explanation: 'If co_borrowers is NULL for a solo applicant, UNNEST produces zero rows — the loan record disappears. Use COALESCE(co_borrowers, ARRAY[\'\':::STRING]) to ensure at least one row per loan, then filter empty strings downstream.' },
+    ],
+    useCases: [
+      'Per-borrower risk exposure from joint applications',
+      'Credit bureau lookups for each individual on a loan',
+      'Exploding line-item arrays from order/invoice events',
+      'Graph edge generation from relationship arrays',
+    ],
+    whatHappensIf: [
+      { question: 'What if the array has 100+ elements?', answer: 'UNNEST produces 100+ rows per input event. This can multiply event volume significantly. Monitor the output topic\'s message rate. For very large arrays (e.g., all products in a shopping cart), consider whether UNNEST is the right pattern or if you should aggregate differently.' },
+      { question: 'What if I need to UNNEST two arrays from the same row?', answer: 'CROSS JOIN UNNEST each one independently. If the arrays are the same length and index-aligned (co_borrower_names[i] corresponds to co_borrower_ids[i]), use WITH ORDINALITY on both and filter where pos1 = pos2.' },
+    ],
+  },
+
+  'loan-multi-region-merge': {
+    subtitle: 'Merge loan event streams from multiple geographic regions into one unified view.',
+    businessContext: 'You are a platform architect at a global bank with operations in the US, EU, and APAC. Each region runs its own Kafka cluster for data sovereignty. Risk management needs a consolidated view of global loan exposure — but fetching data from three regions into a single batch job is slow and creates cross-region latency spikes. Flink reads from all three regional topics simultaneously and merges them into one output topic in real-time, giving risk a live global dashboard with sub-second staleness.',
+    dataFlow: {
+      layout: 'fan-in',
+      nodes: [
+        { id: 'us', label: 'US-LOANS', type: 'source' },
+        { id: 'eu', label: 'EU-LOANS', type: 'source' },
+        { id: 'apac', label: 'APAC-LOANS', type: 'source' },
+        { id: 'merge', label: 'UNION ALL', type: 'processor' },
+        { id: 'global', label: 'GLOBAL-LOANS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'us', to: 'merge', animated: true },
+        { from: 'eu', to: 'merge', animated: true },
+        { from: 'apac', to: 'merge', animated: true },
+        { from: 'merge', to: 'global', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'UNION ALL', explanation: 'Combines the rows from multiple SELECT statements into a single output stream. Unlike JOIN (which matches rows across streams), UNION ALL simply concatenates: every row from US-LOANS, every row from EU-LOANS, every row from APAC-LOANS flows into GLOBAL-LOANS. No joining, no matching — just merging.' },
+      { term: 'Schema Alignment', explanation: 'All unioned tables must have the same column types. If US-LOANS stores amount in USD (DECIMAL) but EU-LOANS stores it in EUR (STRING), you need a transformation in each SELECT: CAST(amount AS DECIMAL) * exchange_rate AS amount_usd. The merge happens after each branch normalizes its schema.' },
+      { term: 'Region Tag', explanation: 'Add a literal column to identify the source: SELECT \'US\' AS region, loan_id, amount FROM US_LOANS UNION ALL SELECT \'EU\' AS region, … This lets downstream consumers filter or partition by region without maintaining separate topics.' },
+      { term: 'Watermark Alignment', explanation: 'When merging streams with different event-time lags (APAC events arrive 30ms behind US due to network), Flink\'s watermark takes the minimum across all input streams. If APAC is 30 seconds behind, windows won\'t fire until APAC catches up. Use Flink\'s idleSource timeout to prevent stale regions from blocking the watermark.' },
+    ],
+    useCases: [
+      'Global loan exposure consolidation for real-time risk dashboards',
+      'Multi-datacenter event stream unification',
+      'Regional Kafka cluster federation into a global stream',
+      'Compliance: aggregating events across jurisdictions for regulatory reporting',
+    ],
+    whatHappensIf: [
+      { question: 'What if one regional Kafka cluster goes down?', answer: 'Flink marks that source as idle after a configurable timeout and advances the watermark based on the remaining active sources. Processing continues for the healthy regions. When the region recovers, Flink replays from the last committed offset and merges the backlog.' },
+      { question: 'What if the same loan_id appears in multiple regions (cross-border loan)?', answer: 'UNION ALL will produce duplicate rows — one per region. Add a dedup step downstream (ROW_NUMBER() OVER PARTITION BY loan_id ORDER BY event_time) to keep only the first occurrence, or use a upsert key on loan_id if the business rule is "last write wins."' },
+    ],
+  },
+
+  'loan-table-explode': {
+    subtitle: 'Expand a nested structure into multiple rows using a table-valued function.',
+    businessContext: 'You are a backend engineer at a credit bureau. Each credit report arrives as one event with an embedded array of tradelines — up to 30 open credit accounts per person. The risk model needs a separate row for each tradeline for feature extraction. A batch explode script runs nightly and produces tomorrow\'s training data. Flink\'s LATERAL TABLE(explode()) pattern runs the same logic in real-time, producing tradeline rows within milliseconds of each credit report arriving — so the risk model gets fresher features without waiting for the overnight run.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'reports', label: 'CREDIT-REPORTS', type: 'source' },
+        { id: 'explode', label: 'LATERAL TABLE explode()', type: 'processor' },
+        { id: 'tradelines', label: 'TRADELINE-ROWS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'reports', to: 'explode', animated: true },
+        { from: 'explode', to: 'tradelines', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'LATERAL TABLE', explanation: 'A Flink construct that applies a table-valued function to each row and joins the result back. Think of it as a row-level subquery that can return multiple rows. For each credit report row, LATERAL TABLE(explode(tradelines)) runs explode() and appends its output rows to the report\'s columns.' },
+      { term: 'Table-Valued Function (TVF)', explanation: 'A function that returns a table (multiple rows) rather than a scalar value. Flink SQL supports built-in TVFs (UNNEST, STRING_SPLIT) and custom Java/Python TVFs. For complex explosion logic (nested JSON arrays, custom delimiters), a custom TVF is more expressive than UNNEST.' },
+      { term: 'Cardinality Amplification', explanation: 'If each report has 30 tradelines on average and 10,000 reports arrive per second, the output stream is 300,000 rows per second. Monitor the output topic\'s throughput and partition count to ensure downstream consumers can keep up.' },
+      { term: 'Element Metadata', explanation: 'LATERAL TABLE preserves the parent row\'s fields alongside each element. So tradeline_rows contains both report_id (from the parent) and each tradeline\'s fields — enabling you to link back to the original report for any downstream join.' },
+    ],
+    useCases: [
+      'Credit report tradeline explosion for ML feature extraction',
+      'Order line-item expansion for inventory and fulfillment',
+      'Log parsing: one log line → multiple structured event rows',
+      'Time-series expansion: one summary row → one row per time bucket',
+    ],
+    whatHappensIf: [
+      { question: 'What if some reports have zero tradelines (new customers)?', answer: 'The LATERAL TABLE produces zero rows for that report — it disappears from the output. Use a LEFT JOIN LATERAL to keep the report even when the array is empty, with NULL values for tradeline fields.' },
+      { question: 'What if I need to reconstruct the original array later?', answer: 'Flink\'s COLLECT_LIST() aggregate function does the reverse: groups rows back into an array. Round-trip: explode → process individual rows → re-aggregate into arrays if needed downstream.' },
+    ],
+  },
+
+  'loan-time-range-stats': {
+    subtitle: 'Aggregate events across a custom time range using BETWEEN on event timestamps.',
+    businessContext: 'You are a data analyst at a bank. The risk committee wants a real-time table showing the last 24 hours of loan origination by hour, but they also need the ability to define custom ranges (e.g., "the last 6 hours" or "business hours only, 9am-5pm"). Standard tumble windows produce fixed boundaries; Flink\'s time-range filtering with BETWEEN on event_time lets you define any arbitrary window in SQL — calculated relative to the current watermark — and aggregate within it on-demand.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'loans', label: 'LOAN-APPLICATIONS', type: 'source' },
+        { id: 'filter', label: 'WHERE event_time BETWEEN', type: 'processor' },
+        { id: 'stats', label: 'TIME-RANGE-STATS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'loans', to: 'filter', animated: true },
+        { from: 'filter', to: 'stats', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'BETWEEN with CURRENT_WATERMARK', explanation: 'WHERE event_time BETWEEN CURRENT_WATERMARK() - INTERVAL \'24\' HOUR AND CURRENT_WATERMARK() filters events within a rolling 24-hour window relative to where Flink\'s watermark currently is. The window slides as the watermark advances — unlike tumble which resets at fixed boundaries.' },
+      { term: 'Rolling Window vs. Tumble Window', explanation: 'A tumble window resets at midnight: you see "today\'s" loans. A rolling window always shows "the last 24 hours": at 3pm you see 3pm yesterday to 3pm today. Rolling windows are more intuitive for humans but harder to implement correctly without Flink\'s watermark semantics.' },
+      { term: 'Processing Time vs. Event Time Ranges', explanation: 'CURRENT_TIMESTAMP - INTERVAL \'24\' HOUR uses processing time (wall clock). CURRENT_WATERMARK() - INTERVAL \'24\' HOUR uses event time. For audit accuracy, always use event time — a consumer lag of 2 hours shouldn\'t shift the analysis window.' },
+      { term: 'Custom Time Zone Handling', explanation: 'Business hours (9am–5pm) vary by time zone. Use CONVERT_TZ(event_time, \'UTC\', \'America/New_York\') to shift timestamps before the BETWEEN comparison. Flink handles DST transitions automatically when using proper TZ identifiers.' },
+    ],
+    useCases: [
+      'Real-time risk dashboards showing the last N hours of originations',
+      'SLA monitoring: events in the last 15 minutes',
+      'Business-hours-only analytics (filter by time-of-day)',
+      'Rolling retention windows for privacy compliance (GDPR 30-day deletion audits)',
+    ],
+    whatHappensIf: [
+      { question: 'What if the watermark is stuck (no events for an hour)?', answer: 'The CURRENT_WATERMARK() stops advancing, and the window appears to freeze. This is correct behavior: without new events, Flink can\'t know what "now" is in event time. Add a dead-man\'s heartbeat: a separate producer that emits a keepalive event every 30s to advance the watermark.' },
+      { question: 'What if I need exact calendar boundaries (Monday 00:00 UTC)?', answer: 'Calculate the window boundaries explicitly: WHERE event_time >= TIMESTAMP \'2026-03-04 00:00:00\' AND event_time < TIMESTAMP \'2026-03-11 00:00:00\'. For dynamic calendar-based windows, use a CASE expression to compute the week boundary from event_time.' },
+    ],
+  },
+
+  'loan-borrower-payments': {
+    subtitle: 'Join a live payment stream with a slowly-changing borrower dimension table.',
+    businessContext: 'You are a product engineer at a lending platform. Payment events arrive continuously on a Kafka topic. Each payment has a borrower_id but no borrower name or contact details — those live in the borrower dimension table in PostgreSQL. Reporting needs both: "Alice Smith paid $500 on Loan L-001." Today, you join in a nightly batch job and the report is always 24 hours stale. Flink\'s streaming temporal join reads the current borrower record at the time of each payment, enriching the stream in real-time without touching PostgreSQL on every event.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'payments', label: 'PAYMENTS', type: 'source' },
+        { id: 'borrowers', label: 'BORROWER-DIM (changelog)', type: 'source' },
+        { id: 'join', label: 'FOR SYSTEM_TIME AS OF', type: 'processor' },
+        { id: 'enriched', label: 'PAYMENTS-ENRICHED', type: 'sink' },
+      ],
+      edges: [
+        { from: 'payments', to: 'join', animated: true },
+        { from: 'borrowers', to: 'join', animated: false },
+        { from: 'join', to: 'enriched', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Temporal Join', explanation: 'A join that looks up the dimension table as of the event\'s timestamp: FOR SYSTEM_TIME AS OF p.payment_time. If a borrower\'s address changed on March 1 and the payment happened Feb 15, the join returns the Feb 14 address — the version that was current at payment time. Critical for audit-accurate enrichment.' },
+      { term: 'Versioned Table', explanation: 'The borrower dimension is declared with a PRIMARY KEY and a changelog-mode source (CDC from PostgreSQL). Flink maintains a versioned view of each row, indexed by valid-time intervals. The temporal join uses this index to find the right version for each payment\'s timestamp.' },
+      { term: 'Broadcast State vs. Temporal Join', explanation: 'Broadcast state sends the entire dimension to every Flink task. Temporal join uses an indexed lookup per key. For large dimensions (millions of borrowers), temporal join is far more memory-efficient — it only keeps the current version of each row that has appeared in the payment stream.' },
+      { term: 'CDC (Change Data Capture)', explanation: 'Kafka topic fed by Debezium or Confluent\'s CDC connector. Every INSERT/UPDATE/DELETE on the PostgreSQL borrowers table produces a Kafka message with the new row value. Flink reads this as a changelog stream, maintaining the current view of each borrower in state.' },
+    ],
+    useCases: [
+      'Payment enrichment with borrower name and contact details',
+      'Order enrichment with current product catalog prices',
+      'Real-time ETL: event stream + slowly-changing dimension',
+      'Audit log: "who held this account when this event occurred?"',
+    ],
+    crossReference: { cardId: 'loan-temporal-join', label: 'Temporal Join', description: 'See the dedicated Temporal Join example for a deeper dive into the FOR SYSTEM_TIME AS OF syntax.' },
+    whatHappensIf: [
+      { question: 'What if a payment arrives for a borrower who doesn\'t exist yet in the dimension?', answer: 'The temporal join returns NULL for the dimension fields — the payment is enriched with NULLs rather than dropped. Use a LEFT JOIN syntax to preserve the payment event, then handle NULLs downstream (COALESCE, retry logic, or route to a repair queue).' },
+      { question: 'What if the CDC stream falls behind (PostgreSQL lag)?', answer: 'The temporal join will use the last-known version of the borrower record, which may be stale. This is the correct behavior for historical accuracy. For real-time enrichment where staleness is unacceptable, use a regular lookup join with a short cache TTL instead.' },
+    ],
+  },
+
+  // ─── COMPLETENESS — REMAINING ─────────────────────────────────────────────
+
+  'loan-data-masking': {
+    subtitle: 'Obscure sensitive field values before they leave your trusted perimeter.',
+    businessContext: 'You are a security architect at a bank. Your analytics team needs loan data for model training, but regulations prohibit using raw SSNs and full account numbers in non-production environments. Today, a manual masking script runs before each data export — creating a bottleneck and a window where unmasked data sits in the export bucket. Flink applies masking inline: data is masked before it reaches the analytics topic, so the unmasked version never exists outside your secure Kafka cluster.',
+    dataFlow: {
+      layout: 'linear',
+      nodes: [
+        { id: 'raw', label: 'LOANS-RAW', type: 'source' },
+        { id: 'mask', label: 'MASK / HASH / TRUNCATE', type: 'processor' },
+        { id: 'masked', label: 'LOANS-ANALYTICS', type: 'sink' },
+      ],
+      edges: [
+        { from: 'raw', to: 'mask', animated: true },
+        { from: 'mask', to: 'masked', animated: true },
+      ],
+    },
+    concepts: [
+      { term: 'Static Masking vs. Dynamic Masking', explanation: 'Static masking (this pattern) writes masked data to a separate topic. Dynamic masking filters at query time. Static is safer: no risk of accidentally querying the unmasked version. Dynamic is more flexible but requires every query to pass through the masking layer.' },
+      { term: 'Masking Techniques in SQL', explanation: 'SHA-256 hashing (non-reversible, preserves joins via consistent hash of same value), truncation (show last 4 of SSN), replacement (replace with a fake value), format-preserving encryption (FPE — looks like a real SSN but isn\'t). Flink supports all via UDFs or built-in functions.' },
+      { term: 'Referential Integrity After Masking', explanation: 'If you hash the SSN in the loans topic AND the borrowers topic with the same salt, downstream joins on hashed_ssn still work — both tables have the same hash for the same person. Always use a consistent, static salt stored in a secure vault.' },
+      { term: 'Data Lineage', explanation: 'Track exactly which fields were masked, when, and by which Flink job version. Include a masking_version field in each output row. When masking rules change (new regulation), you can identify which records were masked under the old rules and reprocess them.' },
+    ],
+    useCases: [
+      'PII removal for analytics and ML training datasets',
+      'GDPR/CCPA compliant data sharing with third parties',
+      'Lower-environment data (dev/staging) without real customer data',
+      'Audit log sanitization before archival',
+    ],
+    whatHappensIf: [
+      { question: 'What if we need to reverse the masking for a legitimate audit?', answer: 'If you used a deterministic UDF with a secret key (format-preserving encryption), authorized parties can decrypt with the key. If you used SHA-256 without a salt, it\'s one-way — by design. Choose the technique based on whether reversibility is a requirement.' },
+      { question: 'What if a new sensitive field is added to the schema?', answer: 'The new field passes through unmasked until the Flink job is updated. Schema governance (see the schema-evolution example) helps: register a schema that marks the new field as sensitive, and trigger a job update alert automatically.' },
+    ],
+  },
+
 };
+

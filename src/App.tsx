@@ -17,12 +17,13 @@ import TopicPanel from './components/TopicPanel/TopicPanel';
 import { SnippetsPanel } from './components/SnippetsPanel/SnippetsPanel';
 import { WorkspacesPanel } from './components/WorkspacesPanel/WorkspacesPanel';
 import ArtifactsPanel from './components/ArtifactsPanel/ArtifactsPanel';
-import { ExamplesPanel } from './components/ExamplesPanel/ExamplesPanel';
 import { ExampleDetailPage } from './components/ExampleDetailView/ExampleDetailPage';
+import { LearnPanel } from './components/LearnPanel/LearnPanel';
 import { StreamsPanel } from './components/StreamsPanel/StreamsPanel';
 import { JobsPage } from './components/JobsPage/JobsPage';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import { randomStarterJoke } from './store/workspaceStore';
+import { useRoute } from './hooks/useRoute';
 import './App.css';
 
 /**
@@ -61,11 +62,13 @@ function getPoolDotClass(phase: string | null): string {
 function getPoolStatusText(phase: string | null, cfu: number | null, maxCfu: number | null): string {
   if (!phase) return 'Loading...';
   if (phase === 'UNKNOWN') return 'Unknown';
-  if (cfu !== null && cfu > 0 && maxCfu !== null && maxCfu > 0) {
+  if (cfu !== null && maxCfu !== null && maxCfu > 0) {
     return `${phase} \u00b7 ${cfu}/${maxCfu} CFU`;
   }
-  const cfuSuffix = cfu !== null && cfu > 0 ? ` \u00b7 ${cfu} CFU` : '';
-  return `${phase}${cfuSuffix}`;
+  if (cfu !== null) {
+    return `${phase} \u00b7 ${cfu} CFU`;
+  }
+  return phase;
 }
 
 
@@ -117,7 +120,13 @@ function App() {
     workspaceName,
     saveCurrentWorkspace,
     selectedExampleId,
+    cacheTtlMinutes,
+    setCacheTtlMinutes,
+    clearCachedData,
   } = useWorkspaceStore();
+
+  // Sync URL with navigation state (enables back/forward + direct URLs)
+  useRoute();
 
   const hasRunnableStatements = statements.some(
     (s) => s.status === 'IDLE' || s.status === 'ERROR' || s.status === 'CANCELLED'
@@ -318,6 +327,7 @@ function App() {
         createdAt: s.createdAt,
         isCollapsed: s.isCollapsed,
         lastExecutedCode: s.lastExecutedCode ?? null,
+        engine: s.engine,
       })),
       catalog: state.catalog,
       database: state.database,
@@ -389,7 +399,7 @@ function App() {
       <header className="app-header">
         <div className="header-left">
           <div className="logo">
-            <img src="/src/img/fob-logo-sm.png" alt="Flafka" className="logo-icon" />
+            <img src="/img/fob-logo-sm.png" alt="Flafka" className="logo-icon" />
             <div className="logo-title-group">
               <span className="logo-text">Flafka</span>
             </div>
@@ -519,7 +529,7 @@ function App() {
         </div>
 
         {/* Side Panel - conditionally rendered based on active nav item */}
-        {activeNavItem !== 'workspace' && activeNavItem !== 'jobs' && (
+        {activeNavItem !== 'workspace' && activeNavItem !== 'jobs' && activeNavItem !== 'learn' && (
           <aside
             ref={sidePanelRef}
             className="side-panel"
@@ -615,6 +625,32 @@ function App() {
                       </button>
                       <button id="settings-import-workspace-btn" className="settings-action-btn" onClick={handleImportClick}>
                         Import Workspace
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="settings-section">
+                    <span className="settings-section-title">Performance</span>
+                    <p className="settings-help-text">
+                      Controls how frequently Jobs and History data refreshes from the server.
+                    </p>
+                    <div className="settings-row">
+                      <span className="settings-label">Data refresh interval</span>
+                      <select
+                        className="settings-select"
+                        value={cacheTtlMinutes}
+                        onChange={(e) => setCacheTtlMinutes(Number(e.target.value))}
+                      >
+                        <option value={1}>1 minute</option>
+                        <option value={5}>5 minutes</option>
+                        <option value={10}>10 minutes</option>
+                        <option value={30}>30 minutes</option>
+                        <option value={60}>60 minutes</option>
+                      </select>
+                    </div>
+                    <div className="settings-row settings-row--actions">
+                      <button className="settings-action-btn" onClick={clearCachedData}>
+                        Clear Cached Data
                       </button>
                     </div>
                   </div>
@@ -732,7 +768,7 @@ function App() {
               {activeNavItem === 'artifacts' && <ArtifactsPanel />}
               {activeNavItem === 'snippets' && <SnippetsPanel />}
               {activeNavItem === 'workspaces' && <WorkspacesPanel />}
-              {activeNavItem === 'examples' && <ExamplesPanel />}
+              {/* Examples panel moved to LearnPanel full-page view */}
             </div>
             {/* Drag handle for resizing */}
             <div
@@ -746,14 +782,16 @@ function App() {
         <main className="main-content">
           {activeNavItem === 'jobs' ? (
             <JobsPage />
-          ) : activeNavItem === 'examples' && selectedExampleId ? (
+          ) : activeNavItem === 'learn' ? (
+            selectedExampleId ? <ExampleDetailPage /> : <LearnPanel />
+          ) : selectedExampleId ? (
             <ExampleDetailPage />
           ) : (
             <>
               {/* Editor Cells or Empty State */}
               {statements.length === 0 ? (
                 <div className="workspace-empty-state">
-                  <img src="/src/img/fob-logo-sm.png" alt="Flafka squirrel" className="workspace-empty-logo" />
+                  <img src="/img/fob-logo-sm.png" alt="Flafka squirrel" className="workspace-empty-logo" />
                   <p className="workspace-empty-title">Flafka</p>
                   <div className="workspace-empty-code-block">
                     <p className="workspace-empty-sql">{emptyJoke.sql}</p>

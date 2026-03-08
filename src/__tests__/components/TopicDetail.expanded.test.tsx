@@ -42,6 +42,8 @@ vi.mock('../../config/environment', () => ({
     flinkRestEndpoint: '',
     flinkApiKey: '',
     flinkApiSecret: '',
+    uniqueId: 'test',
+    isAdmin: true,
   },
 }))
 

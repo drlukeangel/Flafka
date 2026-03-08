@@ -19,6 +19,7 @@ vi.mock('../../api/flink-api', () => ({
   getStatementStatus: vi.fn(),
   getStatementResults: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   cancelStatement: vi.fn(),
   deleteStatement: vi.fn(),
 }));

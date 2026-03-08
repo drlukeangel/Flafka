@@ -4,13 +4,14 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import Editor, { OnMount } from '@monaco-editor/react';
+import Editor, { OnMount, BeforeMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { editorRegistry } from './editorRegistry';
 import { formatSQL } from '../../utils/sqlFormatter';
 import { formatBytes, formatNumber } from '../../utils/format';
-import type { SQLStatement, TreeNode, Column } from '../../types';
+import type { SQLStatement, TreeNode, Column, SqlEngine } from '../../types';
+import { isKsqlEnabled } from '../../config/environment';
 import {
   FiPlay,
   FiSquare,
@@ -164,6 +165,26 @@ const getPreviewLine = (code: string): string => {
   return code.trim().slice(0, 60) || '(empty)';
 };
 
+/** Register custom Monaco themes once (before any editor mounts). */
+let themesRegistered = false;
+const handleBeforeMount: BeforeMount = (monaco) => {
+  if (themesRegistered) return;
+  themesRegistered = true;
+  monaco.editor.defineTheme('flafka-dark', {
+    base: 'vs-dark',
+    inherit: true,
+    rules: [
+      { token: 'string', foreground: 'CE9178' },
+      { token: 'string.sql', foreground: 'CE9178' },
+      { token: 'string.double.sql', foreground: 'CE9178' },
+      { token: 'string.escape.sql', foreground: 'CE9178' },
+    ],
+    colors: {
+      'editor.background': '#1e1e1e',
+    },
+  });
+};
+
 /**
  * EditorCell — renders a single SQL statement editor within the workspace.
  *
@@ -185,6 +206,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     reorderStatements,
     dismissOnboardingHint,
     updateStatementLabel,
+    setStatementEngine,
     addToast,
     addSnippet,
   } = useWorkspaceStore();
@@ -206,7 +228,13 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   const resultsRef = useRef<HTMLDivElement>(null);
   const [resultsHeight, setResultsHeight] = useState<number | null>(null);
 
-  const hasJobName = !!statement.label?.trim();
+  const [showEngineMenu, setShowEngineMenu] = useState(false);
+  const engineTriggerRef = useRef<HTMLButtonElement>(null);
+  const engineMenuRef = useRef<HTMLDivElement>(null);
+
+  const engine: SqlEngine = statement.engine || 'flink';
+  const isKsql = engine === 'ksqldb';
+  const hasJobName = isKsql || !!statement.label?.trim();
 
   const handleResultsResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -250,6 +278,27 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
       setShowErrorDetails(false);
     }
   }, [statement.status]);
+
+  // Click-outside to close engine menu
+  useEffect(() => {
+    if (!showEngineMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        engineTriggerRef.current && !engineTriggerRef.current.contains(target) &&
+        engineMenuRef.current && !engineMenuRef.current.contains(target)
+      ) {
+        setShowEngineMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showEngineMenu]);
+
+  const handleSelectEngine = (newEngine: SqlEngine) => {
+    setStatementEngine(statement.id, newEngine);
+    setShowEngineMenu(false);
+  };
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -615,6 +664,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
     dragOver === 'top' ? 'drag-over-top' : '',
     dragOver === 'bottom' ? 'drag-over-bottom' : '',
     showDeleteConfirm ? 'confirming' : '',
+    isKsql ? 'engine-ksqldb' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -798,7 +848,37 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
               </button>
             )}
           </div>
-          <ScanModePanel statementId={statement.id} />
+          <ScanModePanel statementId={statement.id} engine={engine} />
+          {isKsqlEnabled() && (
+            <div className="engine-selector">
+              <button
+                ref={engineTriggerRef}
+                className={`engine-trigger ${showEngineMenu ? 'open' : ''}`}
+                onClick={() => setShowEngineMenu(!showEngineMenu)}
+                disabled={isRunning || statement.status === 'PENDING'}
+                aria-label={`SQL engine: ${isKsql ? 'ksqlDB' : 'Flink'}. Click to change.`}
+              >
+                <span className="engine-trigger-label">{isKsql ? 'ksqlDB' : 'Flink'}</span>
+                <FiChevronDown size={12} className={`engine-chevron ${showEngineMenu ? 'rotated' : ''}`} />
+              </button>
+              {showEngineMenu && (
+                <div className="engine-menu" ref={engineMenuRef}>
+                  <button
+                    className={`engine-option ${engine === 'flink' ? 'active' : ''}`}
+                    onClick={() => handleSelectEngine('flink')}
+                  >
+                    Flink SQL {engine === 'flink' && <FiCheck size={12} />}
+                  </button>
+                  <button
+                    className={`engine-option ${engine === 'ksqldb' ? 'active' : ''}`}
+                    onClick={() => handleSelectEngine('ksqldb')}
+                  >
+                    ksqlDB {engine === 'ksqldb' && <FiCheck size={12} />}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <button
             className={`run-btn ${isRunning ? 'running' : ''}`}
             onClick={handleRun}
@@ -832,8 +912,9 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             defaultLanguage="sql"
             value={statement.code}
             onChange={handleEditorChange}
+            beforeMount={handleBeforeMount}
             onMount={handleEditorMount}
-            theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+            theme={theme === 'dark' ? 'flafka-dark' : 'vs-light'}
             options={{
               minimap: { enabled: false },
               fontSize: 13,
@@ -1021,6 +1102,9 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             <span className="cell-collapsed-label">{statement.label}</span>
           ) : (
             <code className="cell-collapsed-sql">{getPreviewLine(statement.code)}</code>
+          )}
+          {isKsqlEnabled() && isKsql && (
+            <span className="engine-badge ksqldb">ksqlDB</span>
           )}
           {getStatusBadge(false)}
           {hasResults && (

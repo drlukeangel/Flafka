@@ -21,6 +21,7 @@ vi.mock('../../api/flink-api', () => ({
   getStatementResults: vi.fn(),
   cancelStatement: vi.fn(),
   listStatements: vi.fn(),
+  listStatementsFirstPage: vi.fn(),
   getCatalogs: vi.fn(),
   getDatabases: vi.fn(),
   getTables: vi.fn(),
@@ -56,6 +57,14 @@ function resetStore() {
     historyLoading: false,
     historyError: null,
     statementHistory: [],
+    jobsLastFetched: null,
+    jobsCacheFilterMode: null,
+    historyLastFetched: null,
+    historyCacheFilterMode: null,
+    _jobsFetchGen: 0,
+    _historyFetchGen: 0,
+    cacheTtlMinutes: 10,
+    userLaunchedStatements: [],
     sessionProperties: {
       'sql.local-time-zone': 'UTC',
     },
@@ -565,14 +574,14 @@ describe('[@store] [@compute] loadComputePoolStatus', () => {
     expect(state.computePoolCfu).toBe(8)
   })
 
-  it('sets computePoolPhase=UNKNOWN on failure', async () => {
+  it('sets computePoolPhase=PROVISIONED on failure with no running statements', async () => {
     vi.mocked(flinkApi.getComputePoolStatus).mockRejectedValue(new Error('Pool error'))
 
     await useWorkspaceStore.getState().loadComputePoolStatus()
 
     const state = useWorkspaceStore.getState()
-    expect(state.computePoolPhase).toBe('UNKNOWN')
-    expect(state.computePoolCfu).toBeNull()
+    expect(state.computePoolPhase).toBe('PROVISIONED')
+    expect(state.computePoolCfu).toBe(0)
   })
 })
 

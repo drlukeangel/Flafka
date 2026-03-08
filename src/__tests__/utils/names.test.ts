@@ -35,14 +35,16 @@ describe('[@names] names utility', () => {
   });
 
   describe('generateStatementName', () => {
-    it('returns a string ending with the employee ID', () => {
+    it('contains the session tag and ends with a hex suffix', () => {
       const name = generateStatementName();
-      expect(name.endsWith('test123')).toBe(true);
+      expect(name).toContain('test123');
+      // Format: adjective-noun-uniqueId-hex4
+      expect(name).toMatch(/^[a-z]+-[a-z]+-test123-[0-9a-f]{4}$/);
     });
 
-    it('has at least 3 hyphen-separated parts', () => {
+    it('has at least 4 hyphen-separated parts', () => {
       const parts = generateStatementName().split('-');
-      expect(parts.length).toBeGreaterThanOrEqual(3);
+      expect(parts.length).toBeGreaterThanOrEqual(4);
     });
   });
 

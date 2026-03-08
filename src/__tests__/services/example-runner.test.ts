@@ -108,14 +108,14 @@ describe('[@example-runner] runKickstarterExample', () => {
     expect(store.addStatement).toHaveBeenCalledTimes(2);
   });
 
-  it('template substitution: {LOANS} replaced with LOANS-rid (no extra backticks)', async () => {
+  it('template substitution: {LOANS} replaced with loans-rid (no extra backticks)', async () => {
     const store = makeStore();
     await runKickstarterExample(simpleDef, store, vi.fn());
     // The first SQL cell references {LOANS-FILTERED} and {LOANS}
     const firstCall = store.addStatement.mock.calls[0][0] as string;
-    expect(firstCall).toContain('`LOANS-test-run-123`');
-    expect(firstCall).toContain('`LOANS-FILTERED-test-run-123`');
-    // Should NOT have double backticks like ``LOANS-test-run-123``
+    expect(firstCall).toContain('`loans-test-run-123`');
+    expect(firstCall).toContain('`loans-filtered-test-run-123`');
+    // Should NOT have double backticks like ``loans-test-run-123``
     expect(firstCall).not.toContain('``');
   });
 
@@ -128,7 +128,7 @@ describe('[@example-runner] runKickstarterExample', () => {
     const store = makeStore();
     await runKickstarterExample(doubleDef, store, vi.fn());
     const sql = store.addStatement.mock.calls[0][0] as string;
-    const matches = sql.match(/`LOANS-test-run-123`/g) || [];
+    const matches = sql.match(/`loans-test-run-123`/g) || [];
     expect(matches.length).toBe(2);
   });
 
@@ -157,7 +157,7 @@ describe('[@example-runner] runKickstarterExample', () => {
     await runKickstarterExample(simpleDef, store, vi.fn());
     expect(store.addSchemaDataset).toHaveBeenCalledWith(
       expect.objectContaining({
-        schemaSubject: 'LOANS-test-run-123-value',
+        schemaSubject: 'loans-test-run-123-value',
       }),
     );
   });
@@ -166,7 +166,7 @@ describe('[@example-runner] runKickstarterExample', () => {
     const store = makeStore();
     await runKickstarterExample(simpleDef, store, vi.fn());
     expect(store.addStreamCard).toHaveBeenCalledWith(
-      'LOANS-test-run-123',
+      'loans-test-run-123',
       'produce-consume',
       expect.any(String),
       expect.any(Object),
@@ -192,9 +192,9 @@ describe('[@example-runner] runKickstarterExample', () => {
     const store = makeStore();
     const result = await runKickstarterExample(simpleDef, store, vi.fn());
     expect(result.runId).toBe('test-run-123');
-    // Verify the runId appears as suffix in DDL calls (THING-rid format)
+    // Verify the runId appears as suffix in DDL calls (lowercase name-rid format)
     const firstDDLArg = mockExecuteSQL.mock.calls[0][0] as string;
-    expect(firstDDLArg).toContain('LOANS-test-run-123');
+    expect(firstDDLArg).toContain('loans-test-run-123');
   });
 });
 

@@ -126,7 +126,9 @@ describe('[@api] [@filtering] Resource Filtering & Tagging', () => {
 
       const call = vi.mocked(schemaRegistryClient.post).mock.calls[0];
       const url = call[0];
-      expect(url).toContain(`my-schema-${TEST_ID}`);
+      // getSessionTag() lowercases the uniqueId
+      const sessionTag = TEST_ID.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      expect(url).toContain(`my-schema-${sessionTag}`);
     });
 
     it('registerSchema does not double-append uniqueId', async () => {

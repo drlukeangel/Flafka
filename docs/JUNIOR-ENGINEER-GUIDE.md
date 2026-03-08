@@ -48,6 +48,16 @@ A continuous query:
 
 ---
 
+### ksqlDB vs Flink
+This workspace can run SQL on two different engines:
+- **Flink SQL** (default): Full SQL standard, runs on a Confluent Cloud compute pool
+- **ksqlDB**: Simpler SQL dialect, runs on a shared ksqlDB cluster
+
+Both read from and write to the same Kafka topics. Stream cards work the same
+regardless of engine. Use the dropdown in each cell header to switch engines.
+
+---
+
 ## Example Progression (Start Here!)
 
 ### **Tier 1: Understand the Basics**
@@ -157,6 +167,30 @@ A continuous query:
 2. Loan Filter
 3. Loan Join
 ✅ You can now: Enrich data, match events, fraud detection
+
+---
+
+## URLs & Navigation
+
+### Bookmarkable Pages
+Every panel in the app has a clean URL you can bookmark or share:
+
+| What you're looking at | URL in browser |
+|----------------------|----------------|
+| SQL Editor (home) | `/` |
+| Jobs list | `/jobs` |
+| A specific job | `/jobs/my-statement-name` |
+| Topics list | `/topics` |
+| A specific topic | `/topics/loans` |
+| Schemas list | `/schemas` |
+| A specific schema | `/schemas/loans-value` |
+| Examples | `/examples` |
+| A specific example | `/examples/hello-flink` |
+
+**Tips:**
+- **Bookmark a deep link**: If you're looking at a specific topic or schema, copy the URL from your browser — you can paste it later to jump straight back
+- **Browser back/forward**: Works like a normal website. Click Topics, then Schemas, then press Back — you'll go back to Topics
+- **Stream card shortcuts**: Each stream card has small icons next to the Live button (radio icon = Topic, document icon = Schema) that jump directly to that topic's details or schema
 
 ---
 

@@ -46,7 +46,7 @@ vi.mock('../../store/workspaceStore', () => ({
 }))
 
 vi.mock('../../config/environment', () => ({
-  env: { schemaRegistryUrl: '' },
+  env: { schemaRegistryUrl: '', uniqueId: 'test' },
 }))
 
 // Import after mocks

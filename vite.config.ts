@@ -141,6 +141,21 @@ export default defineConfig(({ mode }) => {
             })
           }
         },
+        '/api/ksql': {
+          target: env.VITE_KSQL_ENDPOINT || 'http://localhost',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/ksql/, ''),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              // ksqlDB enforces CORS — strip browser origin headers
+              proxyReq.removeHeader('origin')
+              proxyReq.removeHeader('referer')
+              if (req.headers.authorization) {
+                proxyReq.setHeader('Authorization', req.headers.authorization)
+              }
+            })
+          }
+        },
         '/api/telemetry': {
           target: env.VITE_TELEMETRY_API_URL || 'https://api.telemetry.confluent.cloud',
           changeOrigin: true,

@@ -168,10 +168,17 @@ function explodeOutputDDL(topicName: string): string {
 
 function createFunctionSQL(fnName: string, entryClass: string, artifactId: string, version: string, language?: 'PYTHON'): string {
   if (language === 'PYTHON') {
-    // Python UDFs: LANGUAGE PYTHON before USING JAR, no version suffix
-    return `CREATE FUNCTION \`${fnName}\` AS '${entryClass}' LANGUAGE PYTHON USING JAR 'confluent-artifact://${artifactId}'`;
+    return `CREATE FUNCTION \`${fnName}\` AS '${entryClass}' LANGUAGE PYTHON USING JAR 'confluent-artifact://${artifactId}'
+
+-- WHAT: Registers a Python UDF named ${fnName} from a ZIP artifact uploaded to Confluent Cloud.
+-- HOW: 'confluent-artifact://...' points to the uploaded archive. LANGUAGE PYTHON tells Flink to use the Python runtime.
+-- GOTCHA: Python UDF registration can take 60-90 seconds. Wait for "Completed" before running queries that use this function.`;
   }
-  return `CREATE FUNCTION \`${fnName}\` AS '${entryClass}' USING JAR 'confluent-artifact://${artifactId}/${version}'`;
+  return `CREATE FUNCTION \`${fnName}\` AS '${entryClass}' USING JAR 'confluent-artifact://${artifactId}/${version}'
+
+-- WHAT: Registers a Java UDF named ${fnName} from a JAR artifact uploaded to Confluent Cloud.
+-- HOW: 'confluent-artifact://...' points to the uploaded JAR. After this runs, call the function by name in any SQL query.
+-- GOTCHA: Registration can take 30-60 seconds. Wait for "Completed" before running queries that use this function.`;
 }
 
 function scalarExtractSQL(fnName: string, inputTopic: string, outputTopic: string): string {
@@ -188,7 +195,12 @@ SELECT
   \`${fnName}\`(json_payload, 'underwriting.risk_assessment.dti_ratio') AS dti_ratio,
   \`${fnName}\`(json_payload, 'application.collateral.appraised_value') AS appraised_value,
   \`${fnName}\`(json_payload, 'underwriting.fraud_check.result') AS fraud_result
-FROM \`${inputTopic}\``;
+FROM \`${inputTopic}\`
+
+-- WHAT: Extracts loan details from deeply nested JSON using the LoanDetailExtract scalar UDF.
+-- HOW: The UDF navigates JSON paths like 'application.applicant.name.first' — one input row produces one output row.
+-- WHY '||' concatenation: Combines first + last name into a single applicant_name column.
+-- GOTCHA: This job runs continuously. New rows appear as data flows through the input topic.`;
 }
 
 function tableExplodeJavaSQL(
@@ -205,7 +217,12 @@ SELECT
   \`${extractFn}\`(t.element_json, 'limit') AS credit_limit,
   \`${extractFn}\`(t.element_json, 'status') AS status
 FROM \`${inputTopic}\`,
-  LATERAL TABLE(\`${explodeFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.tradelines')) AS t`;
+  LATERAL TABLE(\`${explodeFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.tradelines')) AS t
+
+-- WHAT: Explodes nested JSON tradeline arrays into individual rows using LoanDetailExplode (Table UDF).
+-- HOW: LATERAL TABLE turns each array element into its own row. LoanDetailExtract pulls fields from each tradeline.
+-- WHY CONCAT key: Creates a composite Kafka key (loan_id + index) so each tradeline gets a unique message key.
+-- GOTCHA: This job runs continuously. One input loan with 5 tradelines produces 5 output rows.`;
 }
 
 function tableExplodeSQL(
@@ -307,16 +324,21 @@ SELECT
   DATE_FORMAT(window_start, 'yyyy-MM-dd HH:mm:ss') as window_start,
   DATE_FORMAT(window_end, 'yyyy-MM-dd HH:mm:ss') as window_end,
   COUNT(*) as loan_count,
-  SUM(CAST(\`${extractFn}\`(json_payload, 'loan_details.amount_requested') AS BIGINT)) as total_amount,
+  SUM(CAST(\`${extractFn}\`(json_payload, 'application.loan.amount_requested') AS BIGINT)) as total_amount,
   AVG(CAST(\`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') AS INT)) as avg_credit_score,
   \`${weightedAvgFn}\`(
     CAST(\`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') AS INT),
-    CAST(\`${extractFn}\`(json_payload, 'loan_details.amount_requested') AS INT)
+    CAST(\`${extractFn}\`(json_payload, 'application.loan.amount_requested') AS INT)
   ) as weighted_avg_credit_score
 FROM TABLE(
   TUMBLE(TABLE \`${inputTopic}\`, DESCRIPTOR($rowtime), INTERVAL '30' SECOND)
 )
-GROUP BY window_start, window_end`;
+GROUP BY window_start, window_end
+
+-- WHAT: Computes portfolio statistics every 30 seconds using tumbling windows.
+-- HOW: AVG() gives simple average; WeightedAvg() weights credit scores by loan amount (bigger loans = more influence).
+-- WHY TUMBLE: Fixed 30-second non-overlapping windows for clean periodic snapshots.
+-- GOTCHA: Windows only emit after they close. Wait ~30 seconds for first results.`;
 }
 
 function validationValidSQL(extractFn: string, validatorFn: string, inputTopic: string, outputTopic: string): string {
@@ -324,14 +346,19 @@ function validationValidSQL(extractFn: string, validatorFn: string, inputTopic: 
 SELECT
   CAST(loan_id AS BYTES) as \`key\`,
   loan_id,
-  \`${extractFn}\`(json_payload, 'applicant.personal.name.first') as applicant_name,
-  \`${extractFn}\`(json_payload, 'loan_details.type') as loan_type,
-  \`${extractFn}\`(json_payload, 'loan_details.amount_requested') as amount_requested,
+  \`${extractFn}\`(json_payload, 'application.applicant.name.first') as applicant_name,
+  \`${extractFn}\`(json_payload, 'application.loan.type') as loan_type,
+  \`${extractFn}\`(json_payload, 'application.loan.amount_requested') as amount_requested,
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.overall_risk') as risk_level,
   'VALID' as validation_status
 FROM \`${inputTopic}\`
-WHERE \`${validatorFn}\`(json_payload) = 'VALID'`;
+WHERE \`${validatorFn}\`(json_payload) = 'VALID'
+
+-- WHAT: Routes VALID loans to the validated output topic.
+-- HOW: LoanValidator UDF returns 'VALID' or a rejection reason. WHERE clause filters for valid only.
+-- WHY separate jobs: Valid and invalid loans go to different topics — this is the "pass" path.
+-- GOTCHA: Invalid loans are NOT dropped — they're handled by the companion dead-letter job.`;
 }
 
 function validationDeadLetterSQL(extractFn: string, validatorFn: string, inputTopic: string, outputTopic: string): string {
@@ -345,7 +372,12 @@ SELECT
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio') as dti_ratio,
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.fraud_screening.result') as fraud_result
 FROM \`${inputTopic}\`
-WHERE \`${validatorFn}\`(json_payload) <> 'VALID'`;
+WHERE \`${validatorFn}\`(json_payload) <> 'VALID'
+
+-- WHAT: Routes INVALID loans to a dead-letter topic with full rejection reasons.
+-- HOW: Companion to the valid-loans job. WHERE <> 'VALID' catches everything that failed validation.
+-- WHY: Every loan goes somewhere — valid to validated, invalid to dead-letter. Nothing is silently dropped.
+-- GOTCHA: The rejection_reasons column contains the validator's explanation of why the loan failed.`;
 }
 
 function piiMaskingSQL(extractFn: string, maskFn: string, inputTopic: string, outputTopic: string): string {
@@ -356,15 +388,20 @@ function piiMaskingSQL(extractFn: string, maskFn: string, inputTopic: string, ou
 SELECT
   CAST(loan_id AS BYTES) as \`key\`,
   loan_id,
-  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.personal.name.first'), 'name') as applicant_name,
-  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.contact.email'), 'email') as applicant_email,
-  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.contact.phone'), 'phone') as applicant_phone,
-  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'applicant.personal.ssn_last_four'), 'ssn') as applicant_ssn,
-  \`${extractFn}\`(json_payload, 'loan_details.type') as loan_type,
-  \`${extractFn}\`(json_payload, 'loan_details.amount_requested') as amount_requested,
-  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
-  \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.overall_risk') as risk_level
-FROM \`${inputTopic}\``;
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'application.applicant.name.first'), 'name') as applicant_name,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'application.applicant.contact.email'), 'email') as applicant_email,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'application.applicant.contact.phone'), 'phone') as applicant_phone,
+  \`${maskFn}\`(\`${extractFn}\`(json_payload, 'application.applicant.ssn_last_four'), 'ssn') as applicant_ssn,
+  JSON_VALUE(json_payload, '$.application.loan.type') as loan_type,
+  JSON_VALUE(json_payload, '$.application.loan.amount_requested') as amount_requested,
+  JSON_VALUE(json_payload, '$.underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
+  JSON_VALUE(json_payload, '$.underwriting.risk_assessment.overall_risk') as risk_level
+FROM \`${inputTopic}\`
+
+-- WHAT: Masks PII fields (name, email, phone, SSN) while passing safe fields through.
+-- HOW: PiiMask UDF replaces sensitive data: 'name' → "J*** D**", 'email' → "j***@***.com", etc.
+-- WHY JSON_VALUE for non-PII: Avoids unnecessary UDF calls, keeps function count under Flink's 10-function limit.
+-- GOTCHA: PiiMask + LoanDetailExtract = 2 UDFs. Non-PII fields bypass UDFs entirely via JSON_VALUE.`;
 }
 
 function asyncEnrichmentSQL(extractFn: string, enrichFn: string, inputTopic: string, outputTopic: string): string {
@@ -377,9 +414,9 @@ function asyncEnrichmentSQL(extractFn: string, enrichFn: string, inputTopic: str
 SELECT
   CAST(loan_id AS BYTES) as \`key\`,
   loan_id,
-  \`${extractFn}\`(json_payload, 'applicant.personal.name.first') as applicant_name,
-  \`${extractFn}\`(json_payload, 'loan_details.type') as loan_type,
-  \`${extractFn}\`(json_payload, 'loan_details.amount_requested') as amount_requested,
+  \`${extractFn}\`(json_payload, 'application.applicant.name.first') as applicant_name,
+  \`${extractFn}\`(json_payload, 'application.loan.type') as loan_type,
+  \`${extractFn}\`(json_payload, 'application.loan.amount_requested') as amount_requested,
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score') as credit_score,
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.overall_risk') as risk_level,
   \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio') as dti_ratio,
@@ -387,33 +424,38 @@ SELECT
     \`${enrichFn}\`(
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
-      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+      \`${extractFn}\`(json_payload, 'application.loan.amount_requested')
     ), 'score_band') as score_band,
   \`${extractFn}\`(
     \`${enrichFn}\`(
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
-      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+      \`${extractFn}\`(json_payload, 'application.loan.amount_requested')
     ), 'approval_probability') as approval_probability,
   \`${extractFn}\`(
     \`${enrichFn}\`(
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
-      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+      \`${extractFn}\`(json_payload, 'application.loan.amount_requested')
     ), 'recommended_rate') as recommended_rate,
   \`${extractFn}\`(
     \`${enrichFn}\`(
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
-      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+      \`${extractFn}\`(json_payload, 'application.loan.amount_requested')
     ), 'max_approved_amount') as max_approved_amount,
   \`${extractFn}\`(
     \`${enrichFn}\`(
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.bureau_data.score'),
       \`${extractFn}\`(json_payload, 'underwriting.risk_assessment.credit_analysis.dti_ratio'),
-      \`${extractFn}\`(json_payload, 'loan_details.amount_requested')
+      \`${extractFn}\`(json_payload, 'application.loan.amount_requested')
     ), 'risk_tier') as risk_tier
-FROM \`${inputTopic}\``;
+FROM \`${inputTopic}\`
+
+-- WHAT: Chains two UDFs for instant loan pre-qualification.
+-- HOW: LoanDetailExtract pulls raw fields → CreditBureauEnrich computes score_band, approval_probability, recommended_rate → LoanDetailExtract extracts each enriched field.
+-- WHY chained UDFs: One UDF returns a JSON object, the other extracts individual fields from it. Together they do complex enrichment in a single SQL statement.
+-- GOTCHA: CreditBureauEnrich is called 5 times (once per output field). Flink may optimize this internally.`;
 }
 
 // ===========================================================================

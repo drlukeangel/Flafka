@@ -7,8 +7,9 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import type { StatementResponse } from '../../api/flink-api';
 import { FiRefreshCw, FiSquare, FiSearch, FiChevronDown } from 'react-icons/fi';
 import { env } from '../../config/environment';
-
-type FilterTab = 'all' | 'running' | 'completed' | 'stopped' | 'failed';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { FilterFlyout } from '../ui/FilterFlyout';
+import type { FilterCategory } from '../ui/FilterFlyout';
 
 interface JobsListProps {
   statements: StatementResponse[];
@@ -58,16 +59,45 @@ function formatRelativeTime(dateStr?: string): string {
   }
 }
 
-function matchesFilter(phase?: string, tab?: FilterTab): boolean {
-  if (!tab || tab === 'all') return true;
+/** Map internal phase strings to the display value used in filter checkboxes */
+function normalizePhase(phase?: string): string {
   const p = phase?.toUpperCase();
-  switch (tab) {
-    case 'running': return p === 'RUNNING' || p === 'PENDING';
-    case 'completed': return p === 'COMPLETED';
-    case 'stopped': return p === 'CANCELLED';
-    case 'failed': return p === 'FAILED';
-    default: return true;
+  if (p === 'CANCELLED') return 'STOPPED';
+  return p || 'UNKNOWN';
+}
+
+const STATUS_FILTER_OPTIONS = [
+  { value: 'RUNNING', label: 'Running' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'COMPLETED', label: 'Completed' },
+  { value: 'STOPPED', label: 'Stopped' },
+  { value: 'FAILED', label: 'Failed' },
+];
+
+const OWNERSHIP_FILTER_OPTIONS = [
+  { value: 'MINE', label: 'My Statements' },
+  { value: 'OTHERS', label: 'Other Statements' },
+];
+
+/** Build filter categories, including a dynamic "Statement Type" list derived from loaded data. */
+function buildFilterCategories(statements: StatementResponse[]): FilterCategory[] {
+  // Collect unique statement types from loaded data, sorted alphabetically
+  const typeSet = new Set<string>();
+  for (const s of statements) {
+    const t = s.spec?.statement_type;
+    if (t) typeSet.add(t);
   }
+  const typeOptions = Array.from(typeSet)
+    .sort()
+    .map((t) => ({ value: t, label: t }));
+
+  return [
+    { key: 'status', label: 'Statement Status', options: STATUS_FILTER_OPTIONS },
+    ...(typeOptions.length > 0
+      ? [{ key: 'type', label: 'Statement Type', options: typeOptions }]
+      : []),
+    { key: 'ownership', label: 'Ownership', options: OWNERSHIP_FILTER_OPTIONS },
+  ];
 }
 
 function getRegionSubtitle(computePoolId?: string): string | null {
@@ -78,8 +108,15 @@ function getRegionSubtitle(computePoolId?: string): string | null {
 }
 
 export function JobsList({ statements, loading, error, onSelectJob, onCancelJob, onDeleteJob, onRefresh }: JobsListProps) {
+  const userLaunchedNames = useMemo(() => {
+    const names = useWorkspaceStore.getState().userLaunchedStatements;
+    return new Set(names.map(s => s.name));
+  }, [statements]); // recalculate when statements change (proxy for store updates)
+
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [activeFilters, setActiveFilters] = useState<Record<string, Set<string>>>({});
+
+  const filterCategories = useMemo(() => buildFilterCategories(statements), [statements]);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
   const [actionsOpen, setActionsOpen] = useState(false);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
@@ -109,8 +146,28 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
 
   const filtered = useMemo(() => {
     const searchLower = search.toLowerCase();
-    return statements.filter((s) => {
-      if (!matchesFilter(s.status?.phase, activeTab)) return false;
+    const statusSet = activeFilters['status'];
+    const hasStatusFilter = statusSet && statusSet.size > 0;
+    const typeSet = activeFilters['type'];
+    const hasTypeFilter = typeSet && typeSet.size > 0;
+    const ownerSet = activeFilters['ownership'];
+    const hasOwnerFilter = ownerSet && ownerSet.size > 0;
+    const uniqueId = env.uniqueId;
+
+    const result = statements.filter((s) => {
+      // Multi-select status filter: if any statuses selected, must match one
+      if (hasStatusFilter && !statusSet.has(normalizePhase(s.status?.phase))) return false;
+      // Statement type filter
+      if (hasTypeFilter && !typeSet.has(s.spec?.statement_type ?? '')) return false;
+      // Ownership filter
+      if (hasOwnerFilter) {
+        const isMine = uniqueId && s.name?.includes(uniqueId);
+        const wantMine = ownerSet.has('MINE');
+        const wantOthers = ownerSet.has('OTHERS');
+        // If both selected, show all (no filter). If only one, filter accordingly.
+        if (wantMine && !wantOthers && !isMine) return false;
+        if (wantOthers && !wantMine && isMine) return false;
+      }
       if (searchLower) {
         const name = s.name?.toLowerCase() ?? '';
         const sql = s.spec?.statement?.toLowerCase() ?? '';
@@ -118,7 +175,13 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
       }
       return true;
     });
-  }, [statements, search, activeTab]);
+    // Sort user-launched statements first (stable sort preserves existing order within groups)
+    return result.sort((a, b) => {
+      const aUser = userLaunchedNames.has(a.name) ? 0 : 1;
+      const bUser = userLaunchedNames.has(b.name) ? 0 : 1;
+      return aUser - bUser;
+    });
+  }, [statements, search, activeFilters, userLaunchedNames]);
 
   // Clear stale selections when filtered list changes
   useEffect(() => {
@@ -133,17 +196,26 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
     });
   }, [filtered]);
 
-  const counts = useMemo(() => {
-    const c = { all: statements.length, running: 0, completed: 0, stopped: 0, failed: 0 };
-    for (const s of statements) {
-      const p = s.status?.phase?.toUpperCase();
-      if (p === 'RUNNING' || p === 'PENDING') c.running++;
-      else if (p === 'COMPLETED') c.completed++;
-      else if (p === 'CANCELLED') c.stopped++;
-      else if (p === 'FAILED') c.failed++;
-    }
-    return c;
-  }, [statements]);
+  const handleFilterChange = useCallback(
+    (categoryKey: string, value: string, checked: boolean) => {
+      setActiveFilters((prev) => {
+        const prevSet = prev[categoryKey] ?? new Set<string>();
+        const next = new Set(prevSet);
+        if (checked) next.add(value);
+        else next.delete(value);
+        return { ...prev, [categoryKey]: next };
+      });
+    },
+    [],
+  );
+
+  const handleClearCategory = useCallback((categoryKey: string) => {
+    setActiveFilters((prev) => ({ ...prev, [categoryKey]: new Set<string>() }));
+  }, []);
+
+  const handleClearAll = useCallback(() => {
+    setActiveFilters({});
+  }, []);
 
   // Close actions dropdown on click outside
   useEffect(() => {
@@ -214,14 +286,6 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
   const allSelected = filtered.length > 0 && selectedNames.size === filtered.length;
   const someSelected = selectedNames.size > 0 && selectedNames.size < filtered.length;
 
-  const filterOptions: { value: FilterTab; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'running', label: 'Running' },
-    { value: 'completed', label: 'Completed' },
-    { value: 'stopped', label: 'Stopped' },
-    { value: 'failed', label: 'Failed' },
-  ];
-
   if (loading && statements.length === 0) {
     return <div className="jobs-loading">Loading statements...</div>;
   }
@@ -250,18 +314,13 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
           />
         </div>
 
-        <select
-          className="jobs-filter-dropdown"
-          value={activeTab}
-          onChange={(e) => setActiveTab(e.target.value as FilterTab)}
-          aria-label="Filter statements"
-        >
-          {filterOptions.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label} ({counts[opt.value]})
-            </option>
-          ))}
-        </select>
+        <FilterFlyout
+          categories={filterCategories}
+          activeFilters={activeFilters}
+          onFilterChange={handleFilterChange}
+          onClearCategory={handleClearCategory}
+          onClearAll={handleClearAll}
+        />
 
         {lastLoadedAt && (
           <span className="jobs-loaded-time">
@@ -341,10 +400,11 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
                 const canManage = env.isAdmin || isOwner;
                 const canStop = (phase === 'RUNNING' || phase === 'PENDING') && canManage;
                 const regionSub = getRegionSubtitle(s.spec?.compute_pool_id);
+                const isUserLaunched = userLaunchedNames.has(s.name);
                 return (
                   <tr
                     key={s.name}
-                    className={`jobs-row${selectedNames.has(s.name) ? ' jobs-row--selected' : ''}`}
+                    className={`jobs-row${selectedNames.has(s.name) ? ' jobs-row--selected' : ''}${isUserLaunched ? ' jobs-row--mine' : ''}`}
                     onClick={() => onSelectJob(s.name)}
                   >
                     <td className="jobs-cell-checkbox">
@@ -357,7 +417,10 @@ export function JobsList({ statements, loading, error, onSelectJob, onCancelJob,
                       />
                     </td>
                     <td className="jobs-cell-name" title={s.name}>
-                      <div className="jobs-cell-name-primary">{s.name}</div>
+                      <div className="jobs-cell-name-primary">
+                        {s.name}
+                        {isUserLaunched && <span className="jobs-mine-badge" title="Launched from this workspace">mine</span>}
+                      </div>
                       {regionSub && <div className="jobs-cell-name-region" title={regionSub}>{regionSub}</div>}
                     </td>
                     <td className="jobs-cell-status">

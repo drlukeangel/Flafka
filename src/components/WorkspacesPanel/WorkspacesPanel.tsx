@@ -5,7 +5,7 @@ import { generateFunName } from '../../utils/names';
 import { FiLayers, FiSearch, FiTrash2, FiEdit2, FiCheck, FiX, FiFolder } from 'react-icons/fi';
 import './WorkspacesPanel.css';
 
-const MAX_WORKSPACES = 20;
+const MAX_WORKSPACES = 50;
 
 function getRelativeTime(isoDateString: string | undefined | null): string | null {
   if (!isoDateString) return null;
@@ -155,7 +155,7 @@ export function WorkspacesPanel() {
           className="workspaces-save-btn"
           onClick={handleOpenSaveDialog}
           disabled={atMax}
-          title={atMax ? 'Max 20 workspaces — delete one first' : 'Save current workspace'}
+          title={atMax ? 'Max 50 workspaces — delete one first' : 'Save current workspace'}
           aria-label="Save current workspace"
         >
           Save Current

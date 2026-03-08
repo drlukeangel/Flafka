@@ -1,6 +1,6 @@
 # Flafka
 
-Flafka is a browser-based SQL workspace for running [Apache Flink SQL](https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/table/sql/overview/) queries against [Confluent Cloud](https://www.confluent.io/confluent-cloud/). Think of it as a notebook-style editor where you write SQL statements, execute them against a remote Flink compute pool, and see results streamed back in real time. It is built with React, TypeScript, and Vite.
+Flafka is a browser-based SQL workspace for running [Apache Flink SQL](https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/table/sql/overview/) and ksqlDB queries against [Confluent Cloud](https://www.confluent.io/confluent-cloud/). Think of it as a notebook-style editor where you write SQL statements, execute them against a remote Flink compute pool, and see results streamed back in real time. It is built with React, TypeScript, and Vite.
 
 ## Quick Start
 
@@ -87,6 +87,17 @@ Required for stream preview (consuming live topic messages).
 | `VITE_KAFKA_REST_ENDPOINT` | Kafka REST Proxy endpoint (e.g. `https://pkc-xxxxx.us-east-1.aws.confluent.cloud:443`) |
 | `VITE_KAFKA_API_KEY` | Kafka API key |
 | `VITE_KAFKA_API_SECRET` | Kafka API secret |
+
+### Optional -- ksqlDB Engine
+
+Enable per-cell ksqlDB execution alongside Flink SQL.
+
+| Variable | Description |
+|----------|-------------|
+| `VITE_KSQL_ENABLED` | Set to `true` to show the engine selector on SQL cells (default: `false`) |
+| `VITE_KSQL_ENDPOINT` | ksqlDB cluster endpoint (e.g. `https://pksqlc-xxxxx.us-east-1.aws.confluent.cloud:443`) |
+| `VITE_KSQL_API_KEY` | ksqlDB API key |
+| `VITE_KSQL_API_SECRET` | ksqlDB API secret |
 
 ### Optional -- Other
 

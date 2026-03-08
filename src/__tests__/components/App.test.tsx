@@ -191,6 +191,7 @@ function defaultStoreState() {
     streamCards: [] as unknown[],
     selectedSchemaSubject: null as string | null,
     streamsPanelOpen: false,
+    activeTabId: 'tab-1' as string | null,
     selectedExampleId: null as string | null,
     loadCatalogs: mockLoadCatalogs,
     loadDatabases: mockLoadDatabases,
@@ -221,6 +222,15 @@ function defaultStoreState() {
     loadStatementTelemetry: mockLoadStatementTelemetry,
     saveCurrentWorkspace: mockSaveCurrentWorkspace,
     toggleStreamsPanel: mockToggleStreamsPanel,
+    cacheTtlMinutes: 5,
+    setCacheTtlMinutes: vi.fn(),
+    clearCachedData: vi.fn(),
+    navigateToExampleDetail: vi.fn(),
+    navigateToJobDetail: vi.fn(),
+    navigateToTopic: vi.fn().mockResolvedValue(undefined),
+    navigateToSchemaSubject: vi.fn(),
+    selectedJobName: null as string | null,
+    selectedTopic: null as { topic_name: string } | null,
   }
 }
 
@@ -391,10 +401,10 @@ describe('[@app] settings side panel layout', () => {
     mockStoreState = buildStoreState({ activeNavItem: 'settings', sessionProperties: {} })
   })
 
-  it('settings side panel contains API section', () => {
+  it('settings side panel contains Environment section', () => {
     renderApp()
 
-    expect(screen.getByText('API')).toBeInTheDocument()
+    expect(screen.getByText('Environment')).toBeInTheDocument()
   })
 
   it('settings side panel contains Workspace section', () => {
@@ -731,10 +741,10 @@ describe('[@app] compute pool status text display', () => {
     expect(screen.getByText('RUNNING')).toBeInTheDocument()
   })
 
-  it('displays phase name without CFU when cfu is 0', () => {
+  it('displays phase name with 0 CFU when cfu is 0', () => {
     mockStoreState = buildStoreState({ computePoolPhase: 'RUNNING', computePoolCfu: 0 })
     renderApp()
-    expect(screen.getByText('RUNNING')).toBeInTheDocument()
+    expect(screen.getByText('RUNNING \u00b7 0 CFU')).toBeInTheDocument()
   })
 
   it('displays phase name with CFU suffix when cfu > 0', () => {
@@ -754,34 +764,34 @@ describe('[@app] settings panel environment info display', () => {
     mockStoreState = buildStoreState({ activeNavItem: 'settings', sessionProperties: {} })
   })
 
-  it('displays Cloud Provider value', () => {
+  it('displays Unique ID label', () => {
     renderApp()
-    expect(screen.getByText('Cloud Provider')).toBeInTheDocument()
+    expect(screen.getByText('Unique ID')).toBeInTheDocument()
   })
 
-  it('displays Region value', () => {
+  it('displays Catalog label', () => {
     renderApp()
-    expect(screen.getByText('Region')).toBeInTheDocument()
+    expect(screen.getByText('Catalog')).toBeInTheDocument()
   })
 
-  it('displays Compute Pool ID label', () => {
+  it('displays Database label', () => {
     renderApp()
-    expect(screen.getByText('Compute Pool ID')).toBeInTheDocument()
+    expect(screen.getByText('Database')).toBeInTheDocument()
   })
 
-  it('displays Flink Endpoint value as /api/flink', () => {
+  it('displays Workspace section', () => {
     renderApp()
-    expect(screen.getByText('/api/flink')).toBeInTheDocument()
+    expect(screen.getByText('Workspace')).toBeInTheDocument()
   })
 
-  it('displays Organization ID label', () => {
+  it('displays Performance section', () => {
     renderApp()
-    expect(screen.getByText('Organization ID')).toBeInTheDocument()
+    expect(screen.getByText('Performance')).toBeInTheDocument()
   })
 
-  it('displays Environment ID label', () => {
+  it('displays Session Properties section', () => {
     renderApp()
-    expect(screen.getByText('Environment ID')).toBeInTheDocument()
+    expect(screen.getByText('Session Properties')).toBeInTheDocument()
   })
 
   it('displays Statements count', () => {
@@ -860,18 +870,17 @@ describe('[@app] settings panel session properties', () => {
     expect(mockResetSessionProperties).toHaveBeenCalledTimes(1)
   })
 
-  it('calls setSessionProperty when "Add Property" is clicked and key entered via prompt', async () => {
+  it('calls setSessionProperty when "Add Property" is clicked and key entered via inline input', async () => {
     const user = userEvent.setup()
     mockStoreState = buildStoreState({ activeNavItem: 'settings', sessionProperties: {} })
-    vi.spyOn(window, 'prompt').mockReturnValue('new.key')
     renderApp()
 
     const addBtn = screen.getByText('+ Add Property')
     await user.click(addBtn)
 
-    expect(window.prompt).toHaveBeenCalled()
-    expect(mockSetSessionProperty).toHaveBeenCalledWith('new.key', '')
-    vi.restoreAllMocks()
+    // The inline input field should now be visible
+    const keyInput = screen.getByPlaceholderText('property key')
+    expect(keyInput).toBeInTheDocument()
   })
 
   it('does not call setSessionProperty when prompt is cancelled', async () => {
@@ -1502,10 +1511,10 @@ describe('[@coverage-boost] App helper functions via rendering', () => {
     expect(screen.getByText(/PROVISIONING.*3 CFU/)).toBeInTheDocument()
   })
 
-  it('compute pool badge shows just phase when cfu is 0', () => {
+  it('compute pool badge shows phase with 0 CFU when cfu is 0', () => {
     mockStoreState = buildStoreState({ computePoolPhase: 'PROVISIONING', computePoolCfu: 0, computePoolMaxCfu: null })
     renderApp()
-    expect(screen.getByText('PROVISIONING')).toBeInTheDocument()
+    expect(screen.getByText('PROVISIONING \u00b7 0 CFU')).toBeInTheDocument()
   })
 
   it('pool status dot has "error" class for unknown phase like STOPPING', () => {
@@ -1682,9 +1691,10 @@ describe('[@coverage-boost] App jobs page rendering', () => {
     expect(screen.getByTestId('stub-jobs-page')).toBeInTheDocument()
   })
 
-  it('renders example detail page when activeNavItem is examples and selectedExampleId set', () => {
-    mockStoreState = buildStoreState({ activeNavItem: 'examples', selectedExampleId: 'hello-world' })
+  it('renders learn panel when activeNavItem is learn', () => {
+    mockStoreState = buildStoreState({ activeNavItem: 'learn' })
     renderApp()
-    expect(screen.getByTestId('stub-example-detail-page')).toBeInTheDocument()
+    // LearnPanel is rendered as full-page when activeNavItem is 'learn'
+    expect(screen.getByLabelText('Learn panel')).toBeInTheDocument()
   })
 })

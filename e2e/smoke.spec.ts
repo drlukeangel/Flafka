@@ -7,7 +7,7 @@ test.describe('Smoke tests', () => {
   test('app loads with nav rail visible', async ({ appPage: page }) => {
     await expect(page.getByLabel('Main navigation')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Examples' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'SQL Workspace' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Workspace', exact: true })).toBeVisible();
   });
 
   test('examples panel shows cards with setup buttons', async ({ appPage: page }) => {
@@ -24,13 +24,16 @@ test.describe('Smoke tests', () => {
   test('quick start cards have primary styling and tag', async ({ appPage: page }) => {
     await goToExamples(page);
 
-    for (const sel of [SEL.JAVA_CARD, SEL.PYTHON_CARD]) {
-      const card = page.locator(sel);
-      await expect(card).toBeVisible();
-      // Quick Start tag present
-      await expect(card.locator('text=Quick Start')).toBeVisible();
-      // Card has a "Set Up" button (not "Import")
-      await expect(card.getByRole('button', { name: 'Set Up' })).toBeVisible();
-    }
+    // Java card has Set Up button
+    const javaCard = page.locator(SEL.JAVA_CARD);
+    await expect(javaCard).toBeVisible();
+    await expect(javaCard.locator('text=Quick Start')).toBeVisible();
+    await expect(javaCard.getByRole('button', { name: 'Set Up' })).toBeVisible();
+
+    // Python card has Coming Soon (no Set Up)
+    const pythonCard = page.locator(SEL.PYTHON_CARD);
+    await expect(pythonCard).toBeVisible();
+    await expect(pythonCard.locator('text=Quick Start')).toBeVisible();
+    await expect(pythonCard.getByRole('button', { name: 'Coming Soon' })).toBeVisible();
   });
 });

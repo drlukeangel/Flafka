@@ -9,7 +9,7 @@ import { executeSQL, getStatementStatus } from '../api/flink-api';
 
 // Shared store contract for both example services
 export interface BaseExampleStoreSlice {
-  addStatement: (code?: string, afterId?: string, label?: string) => void;
+  addStatement: (code?: string, afterId?: string, label?: string, overrides?: { engine?: import('../types').SqlEngine }) => void;
   addSchemaDataset: (dataset: {
     id: string;
     name: string;

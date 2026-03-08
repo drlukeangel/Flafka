@@ -33,6 +33,8 @@ export interface EnvironmentConfig {
   schemaRegistrySecret?: string;
   /** Kafka cluster ID — used for topic management APIs */
   kafkaClusterId: string;
+  /** Kafka bootstrap servers (broker endpoint for direct produce/consume) */
+  kafkaBootstrap: string;
   /** Kafka REST Proxy endpoint URL */
   kafkaRestEndpoint: string;
   /** API key for the Kafka REST Proxy */
@@ -43,6 +45,16 @@ export interface EnvironmentConfig {
   uniqueId: string;
   /** Whether this session has admin privileges (unlocks destructive operations) */
   isAdmin: boolean;
+  /** Environment mode — "dev" enables testing-friendly defaults (low partitions, short retention) */
+  environment: 'dev' | 'production';
+  /** Whether ksqlDB engine toggle is enabled */
+  ksqlEnabled: boolean;
+  /** ksqlDB cluster endpoint URL */
+  ksqlEndpoint?: string;
+  /** ksqlDB API key (Basic Auth username) */
+  ksqlApiKey?: string;
+  /** ksqlDB API secret (Basic Auth password) */
+  ksqlApiSecret?: string;
 }
 
 /**
@@ -86,12 +98,21 @@ export const getEnv = (): EnvironmentConfig => {
     schemaRegistryKey: import.meta.env.VITE_SCHEMA_REGISTRY_KEY || '',
     schemaRegistrySecret: import.meta.env.VITE_SCHEMA_REGISTRY_SECRET || '',
     kafkaClusterId: import.meta.env.VITE_KAFKA_CLUSTER_ID || '',
+    kafkaBootstrap: import.meta.env.VITE_KAFKA_BOOTSTRAP || '',
     kafkaRestEndpoint: import.meta.env.VITE_KAFKA_REST_ENDPOINT || '',
     kafkaApiKey: import.meta.env.VITE_KAFKA_API_KEY || '',
     kafkaApiSecret: import.meta.env.VITE_KAFKA_API_SECRET || '',
     uniqueId: import.meta.env.VITE_UNIQUE_ID || '',
     isAdmin: import.meta.env.VITE_ADMIN_SECRET === 'FLAFKA',
+    environment: import.meta.env.VITE_ENVIRONMENT === 'dev' ? 'dev' : 'production',
+    ksqlEnabled: import.meta.env.VITE_KSQL_ENABLED === 'true',
+    ksqlEndpoint: import.meta.env.VITE_KSQL_ENDPOINT || undefined,
+    ksqlApiKey: import.meta.env.VITE_KSQL_API_KEY || undefined,
+    ksqlApiSecret: import.meta.env.VITE_KSQL_API_SECRET || undefined,
   };
 };
+
+export const isKsqlEnabled = (): boolean =>
+  env.ksqlEnabled && !!(env.ksqlEndpoint && env.ksqlApiKey && env.ksqlApiSecret);
 
 export const env = getEnv();

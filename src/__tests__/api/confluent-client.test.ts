@@ -387,7 +387,7 @@ describe('[@api] [@core] confluentClient response interceptor', () => {
     }
 
     await expect(confluentResCallbacks.onRejected(error)).rejects.toBe(error)
-    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 400: Bad request')
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 400: Bad request', JSON.stringify({ message: 'Bad request' }, null, 2))
     consoleSpy.mockRestore()
   })
 
@@ -399,7 +399,7 @@ describe('[@api] [@core] confluentClient response interceptor', () => {
     }
 
     await expect(confluentResCallbacks.onRejected(error)).rejects.toBe(error)
-    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 500: Internal Server Error')
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] 500: Internal Server Error', JSON.stringify({}, null, 2))
     consoleSpy.mockRestore()
   })
 
@@ -408,7 +408,7 @@ describe('[@api] [@core] confluentClient response interceptor', () => {
     const error = { message: 'Network Error' }
 
     await expect(confluentResCallbacks.onRejected(error)).rejects.toBe(error)
-    expect(consoleSpy).toHaveBeenCalledWith('[API Error] undefined: Network Error')
+    expect(consoleSpy).toHaveBeenCalledWith('[API Error] undefined: Network Error', undefined)
     consoleSpy.mockRestore()
   })
 })

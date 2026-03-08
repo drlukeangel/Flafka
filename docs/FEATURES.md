@@ -86,6 +86,12 @@ Workspace save, notes, and name display moved from the header to the tab bar. On
 ### Navigation Rail (Phase 12.1)
 Replaced the flat sidebar with a collapsible icon rail (~48px collapsed, ~200px expanded) that switches between content panels: SQL Workspace, Data panels (Database Objects, Topics, Schemas, Artifacts), Tools (History, Streams, Help), and Settings. Provides a scalable navigation pattern as feature count grows.
 
+### URL Routing & Deep Links
+Clean URL routing via the History API — no `#` fragments. Navigating to a panel updates the browser URL (e.g., `/jobs`, `/topics`, `/schemas`), enabling bookmarks, browser back/forward, and shareable links. Four panels support deep links: `/topics/{topicName}`, `/schemas/{subjectName}`, `/jobs/{statementName}`, `/examples/{exampleId}`. Visiting a deep link loads the panel and selects the specific item. Old hash-based URLs (`#/jobs/...`) are automatically upgraded to clean paths. Route changes update `document.title` and announce to screen readers. Implementation: `src/hooks/useRoute.ts`.
+
+### Stream Card Navigation Icons
+Stream cards display icon buttons (FiRadio for Topics, FiFileText for Schemas) next to the Live button that navigate directly to the topic's detail view or its value schema subject. Icons match the NavRail iconography for visual consistency and show tooltips on hover.
+
 ### Table Schema Panel
 Clicking a table or view node in the tree navigator fetches its schema via `DESCRIBE` and displays column names and types in a panel below the tree. Uses `getTableSchema()` API and stores results in `selectedTableSchema`. The panel header shows the table name; a loading spinner appears during fetch.
 
@@ -122,6 +128,14 @@ When a statement reaches a terminal status (COMPLETED, ERROR, CANCELLED), the st
 
 ### Error Retry Button
 A small "Retry" button (FiRefreshCw icon) appears in the error display area for ERROR and CANCELLED statements. Calls the existing `executeStatement(id)`, which resets error/results and re-runs. Status immediately changes to PENDING on click, hiding the retry button and preventing double-execution.
+
+### Engine Selector (per-cell)
+When ksqlDB is enabled (`VITE_KSQL_ENABLED=true`), a compact dropdown in each cell header
+lets users choose between Flink SQL and ksqlDB execution engines. The selector is disabled
+while a statement is RUNNING or PENDING. Switching engines clears results and resets to IDLE.
+New cells inherit the engine from the preceding cell. ksqlDB cells show a purple left border
+and an engine badge when collapsed. The ScanModePanel filters to earliest/latest for ksqlDB
+(mapped to `auto.offset.reset`).
 
 ### Empty State Onboarding Hint
 A dismissible card appears below the first editor cell in a fresh workspace (1 statement, IDLE status). Shows three tips: sidebar table interaction, Ctrl+Enter to run, and `?` for shortcuts. Dismissed by running a statement, adding a cell, or clicking X. The `hasSeenOnboardingHint` flag is persisted to localStorage.
@@ -206,3 +220,31 @@ A searchable Help Panel (opened via `?` key or header icon) replaces the origina
 
 ### Example Template Engine
 Quick Start examples are defined as typed TypeScript config objects (`KickstarterExampleDef`) with table schemas, data generators, and SQL cell templates. A generic runner handles all boilerplate (table creation, data seeding, SQL substitution). Adding a new example requires only a config file. Bespoke examples requiring JAR upload use `example-setup.ts` as an escape hatch.
+
+---
+
+## Education Center (Learning Platform)
+
+### Learn Panel (Full-Page)
+A full-page Education Center accessible from the navigation rail (Learn icon). Replaces the old Examples sidebar panel with a comprehensive learning platform covering Flink SQL, Kafka, and Confluent Cloud. Features two tabs — Tracks and Examples — with overall progress tracking displayed in the header.
+
+### Learning Tracks
+Seven guided learning tracks organized by topic and difficulty: Getting Started (Beginner), Kafka Fundamentals (Beginner), Windowing & Time (Intermediate), Joins & Enrichment (Intermediate), Stateful Processing (Advanced), Views & Architecture (Advanced), and Confluent Cloud Platform (Intermediate). Each track contains a mix of concept lessons and hands-on examples with prerequisite chains. Locked tracks show a "Skip ahead" option for power users.
+
+### Concept Lessons
+Seven interactive concept lessons embedded within tracks: What is Kafka?, What is Flink?, Streams vs Tables, Event Time & Watermarks, Join Types, State Management, and Schema Compatibility & Governance. Each lesson includes animated SVG visualizations (tumble/hop windows, watermark progression, join matching, state accumulation) with `prefers-reduced-motion` support.
+
+### Kafka & Confluent Examples (6 new cards)
+Six new example cards covering Kafka fundamentals and Confluent Cloud patterns: Kafka Produce & Consume (key semantics), Kafka Startup Modes (offset behavior), Kafka Changelog Modes (append vs upsert), Kafka Value Formats (Avro/JSON/raw comparison), Kafka Schema Evolution (real evolution workflow), and Confluent Connector Bridge (source-transform-sink pattern). Total: 46 example cards. All examples use the Flafka Squirrel personality with snarky SQL comments.
+
+### Progress Tracking & Badges
+Zustand-persisted progress tracking (separate `flafka-learn-progress` localStorage key) with per-example, per-lesson, per-track, and per-challenge completion. Ten milestone badges: First Query, Track Starter, Window Master, Join Guru, State Keeper, View Builder, Challenge Accepted, Completionist, Speed Runner, and Kafka Native. Badge celebrations use dedicated celebration UI.
+
+### Challenges
+Approximately 40 "Try It Yourself" challenges distributed across all 46 examples. Each challenge prompts users to modify SQL, explore edge cases, or test understanding. Challenges include optional hints and expected behavior descriptions. Rendered at the bottom of each example's detail page.
+
+### Role Personalization (Soft Tags)
+Soft role personalization via tags on track cards — Data Engineer, Analytics Engineer, and Platform Engineer. Tracks display which roles they're recommended for. No gating — all content is accessible to everyone regardless of role selection.
+
+### Animation Components
+Five native CSS/SVG animation components for concept visualization: Tumble Window, Hop Window, Watermark, Join Matching, and State Accumulation. Uses CSS `@keyframes` and inline SVG (same pattern as DataFlowDiagram). Supports dark/light theme via CSS variables and respects `prefers-reduced-motion`.

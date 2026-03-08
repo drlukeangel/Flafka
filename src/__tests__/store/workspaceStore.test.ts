@@ -524,11 +524,10 @@ describe('[@store-coverage] Tab management actions', () => {
       expect(useWorkspaceStore.getState().tabOrder).toHaveLength(8)
     })
 
-    it('should create a new tab with a starter statement', () => {
+    it('should create a new tab with an empty statements array', () => {
       const newId = useWorkspaceStore.getState().addTab('Test')
       const tab = useWorkspaceStore.getState().tabs[newId]
-      expect(tab.statements).toHaveLength(1)
-      expect(tab.statements[0].status).toBe('IDLE')
+      expect(tab.statements).toHaveLength(0)
     })
   })
 
@@ -1218,8 +1217,8 @@ describe('[@store-coverage] saveCurrentWorkspace edge cases', () => {
     expect(useWorkspaceStore.getState().savedWorkspaces).toHaveLength(1)
   })
 
-  it('should reject when at 20 workspace limit for new names', () => {
-    const existing = Array.from({ length: 20 }, (_, i) => ({
+  it('should reject when at 50 workspace limit for new names', () => {
+    const existing = Array.from({ length: 50 }, (_, i) => ({
       id: `ws-${i}`,
       name: `WS ${i}`,
       createdAt: '2026-01-01',
@@ -1231,9 +1230,9 @@ describe('[@store-coverage] saveCurrentWorkspace edge cases', () => {
     }))
     useWorkspaceStore.setState({ savedWorkspaces: existing as any })
     useWorkspaceStore.getState().saveCurrentWorkspace('New WS')
-    // Should still be 20 — rejected
-    expect(useWorkspaceStore.getState().savedWorkspaces).toHaveLength(20)
-    expect(useWorkspaceStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('Max 20'))).toBe(true)
+    // Should still be 50 — rejected
+    expect(useWorkspaceStore.getState().savedWorkspaces).toHaveLength(50)
+    expect(useWorkspaceStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('Max 50'))).toBe(true)
   })
 
   it('should save with sourceTemplateId and notes', () => {

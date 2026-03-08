@@ -1,3 +1,6 @@
+// SQL Engine Types
+export type SqlEngine = 'flink' | 'ksqldb';
+
 // SQL Statement Types
 export type StatementStatus = 'IDLE' | 'PENDING' | 'RUNNING' | 'COMPLETED' | 'ERROR' | 'CANCELLED';
 
@@ -22,6 +25,7 @@ export interface SQLStatement {
   scanTimestampMillis?: string;
   scanSpecificOffsets?: string;
   scanGroupId?: string;
+  engine?: SqlEngine;
 }
 
 export interface Column {
@@ -76,6 +80,7 @@ export interface WorkspaceExportData {
     createdAt: Date;
     isCollapsed?: boolean;
     lastExecutedCode?: string | null;
+    engine?: SqlEngine;
   }>;
   catalog: string;
   database: string;
@@ -90,6 +95,7 @@ export interface WorkspaceImportData {
     createdAt: string;
     isCollapsed?: boolean;
     lastExecutedCode?: string | null;
+    engine?: SqlEngine;
   }>;
   catalog: string;
   database: string;
@@ -100,7 +106,7 @@ export interface WorkspaceImportData {
 
 // Navigation Rail Types
 // Phase 12.6 F6: Added 'snippets' for SQL snippet library panel
-export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'examples' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams' | 'workspaces';
+export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'learn' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams' | 'workspaces';
 
 // Schema Registry Types
 export type CompatibilityLevel = 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE';
@@ -194,6 +200,7 @@ export interface Snippet {
   sql: string;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
+  builtIn?: boolean; // If true: cannot be deleted or renamed (system-provided snippet)
 }
 
 // Saved Workspaces — snapshot of SQL cells + stream card configs
@@ -207,6 +214,7 @@ export interface SavedWorkspaceStatement {
   scanSpecificOffsets?: string;
   scanGroupId?: string;
   statementName?: string; // only if was RUNNING when saved
+  engine?: SqlEngine;
 }
 
 export interface SavedWorkspaceStreamCard {
@@ -411,6 +419,12 @@ export interface ExampleDocumentation {
   crossReference?: { cardId: string; label: string; description: string };
 }
 
+// Example card group categories
+export type ExampleGroup = 'Basics' | 'Windows' | 'Joins' | 'Patterns' | 'Stateful' | 'Schema' | 'Views' | 'Data Masking' | 'UDFs' | 'Kafka' | 'Confluent';
+
+// Skill level for example cards
+export type SkillLevel = 'Beginner' | 'Intermediate' | 'Advanced';
+
 // Example card for the Examples panel
 export interface ExampleCard {
   id: string;
@@ -419,10 +433,15 @@ export interface ExampleCard {
   sql: string;
   tags: string[];
   category: 'kickstart' | 'snippet';
+  group?: ExampleGroup;
+  skillLevel?: SkillLevel;
   completionModal?: Omit<ExampleCompletionModal, 'title'>; // title injected from card.title at runtime
   onImport?: (onProgress: (step: string) => void) => Promise<{ runId: string }>;
   comingSoon?: string; // If set: show disabled "Coming Soon" button; no Set Up button
   stateful?: boolean; // If true: show "Stateful" badge — uses changelog, upsert, temporal join, CDC, etc.
+  udf?: boolean;      // If true: show "UDF" badge — uses user-defined functions (Java/Python artifacts)
+  schema?: boolean;    // If true: show "Schema" badge — demonstrates schema handling patterns
+  view?: boolean;      // If true: show "View" badge — materialized or virtual view pattern
   documentation?: ExampleDocumentation;
 }
 
@@ -465,3 +484,16 @@ export interface StatementTelemetry {
   createdAt?: string;
   isWorkspaceStatement?: boolean;
 }
+
+// Re-export education/learning types
+export type {
+  LearnTab,
+  LearningTrack,
+  TrackLesson,
+  ConceptContent,
+  ConceptSection,
+  ConceptAnimationType,
+  Challenge,
+  Badge,
+  LearnProgress,
+} from './learn';
