@@ -212,6 +212,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
   } = useWorkspaceStore();
 
   const theme = useWorkspaceStore((s) => s.theme);
+  const ksqlFeatureEnabled = useWorkspaceStore((s) => s.ksqlFeatureEnabled);
   const statementTelemetry = useWorkspaceStore((s) => s.statementTelemetry);
   const loadStatementTelemetry = useWorkspaceStore((s) => s.loadStatementTelemetry);
 
@@ -849,7 +850,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
             )}
           </div>
           <ScanModePanel statementId={statement.id} engine={engine} />
-          {isKsqlEnabled() && (
+          {isKsqlEnabled() && ksqlFeatureEnabled && (
             <div className="engine-selector">
               <button
                 ref={engineTriggerRef}
@@ -1103,7 +1104,7 @@ const EditorCell: React.FC<EditorCellProps> = ({ statement, index }) => {
           ) : (
             <code className="cell-collapsed-sql">{getPreviewLine(statement.code)}</code>
           )}
-          {isKsqlEnabled() && isKsql && (
+          {isKsqlEnabled() && ksqlFeatureEnabled && isKsql && (
             <span className="engine-badge ksqldb">ksqlDB</span>
           )}
           {getStatusBadge(false)}

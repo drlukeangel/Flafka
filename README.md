@@ -1,37 +1,32 @@
 # Flafka
 
-Flafka is a browser-based SQL workspace for running [Apache Flink SQL](https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/table/sql/overview/) and ksqlDB queries against [Confluent Cloud](https://www.confluent.io/confluent-cloud/). Think of it as a notebook-style editor where you write SQL statements, execute them against a remote Flink compute pool, and see results streamed back in real time. It is built with React, TypeScript, and Vite.
+Flafka is a browser-based SQL workspace for running [Apache Flink SQL](https://nightlies.apache.org/flink/flink-docs-stable/docs/dev/table/sql/overview/) and [ksqlDB](https://ksqldb.io/) queries against [Confluent Cloud](https://www.confluent.io/confluent-cloud/).
+
+- **Notebook-style SQL editor** -- write, execute, and iterate on SQL statements with Monaco-powered cells, each independently targeting Flink or ksqlDB
+- **Real-time streaming results** -- results stream back as they arrive, with virtual-scrolled tables, cursor pagination, and live topic preview
+- **Learning Center** -- 49 guided examples, 7 learning tracks, and interactive concept lessons to go from zero to streaming SQL
 
 ## Quick Start
 
-1. **Clone the repository**
+**Prerequisites:** Node.js 22+ and npm.
 
-   ```bash
-   git clone <repo-url>
-   cd flink-ui
-   ```
+```bash
+# 1. Clone the repository
+git clone <repo-url>
+cd flink-ui
 
-2. **Create your environment file**
+# 2. Install dependencies
+npm install
 
-   ```bash
-   cp .env.example .env
-   ```
+# 3. Create your environment file
+cp .env.example .env
+# Edit .env with your Confluent Cloud credentials (see below)
 
-3. **Fill in your Confluent Cloud credentials** in `.env`. At minimum you need the five required variables listed in the next section. You can find these values in the Confluent Cloud web console under your organization, environment, and compute pool settings.
+# 4. Start the dev server
+npm run dev
+```
 
-4. **Install dependencies**
-
-   ```bash
-   npm install
-   ```
-
-5. **Start the dev server**
-
-   ```bash
-   npm run dev
-   ```
-
-   The app opens automatically at [http://localhost:5173](http://localhost:5173).
+The app opens at [http://localhost:5173](http://localhost:5173).
 
 ## Environment Variables
 
@@ -43,19 +38,19 @@ These are the minimum credentials needed for the app to connect and run queries.
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_ORG_ID` | Your Confluent Cloud organization ID (starts with `org-`) |
-| `VITE_ENV_ID` | Your Confluent Cloud environment ID (starts with `env-`) |
-| `VITE_COMPUTE_POOL_ID` | Your Flink compute pool ID (starts with `lfcp-`) |
-| `VITE_FLINK_API_KEY` | API key for the Flink SQL API (create one in Confluent Cloud under your environment's API keys) |
-| `VITE_FLINK_API_SECRET` | API secret that pairs with the key above |
-| `VITE_FLINK_CATALOG` | Flink catalog name (typically matches your environment name; default: `default`) |
-| `VITE_FLINK_DATABASE` | Flink database name (typically matches your Kafka cluster name; default: `public`) |
+| `VITE_ORG_ID` | Confluent Cloud organization ID (starts with `org-`) |
+| `VITE_ENV_ID` | Confluent Cloud environment ID (starts with `env-`) |
+| `VITE_COMPUTE_POOL_ID` | Flink compute pool ID (starts with `lfcp-`) |
+| `VITE_FLINK_API_KEY` | API key for the Flink SQL API |
+| `VITE_FLINK_API_SECRET` | API secret for the key above |
+| `VITE_FLINK_CATALOG` | Flink catalog name (typically your environment name; default: `default`) |
+| `VITE_FLINK_DATABASE` | Flink database name (typically your Kafka cluster name; default: `public`) |
 
 ### Optional -- Cloud Region
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_CLOUD_PROVIDER` | `aws` | Cloud provider where your environment runs (`aws`, `gcp`, or `azure`) |
+| `VITE_CLOUD_PROVIDER` | `aws` | Cloud provider (`aws`, `gcp`, or `azure`) |
 | `VITE_CLOUD_REGION` | `us-east-1` | Cloud region of your environment |
 
 ### Optional -- Metrics and Artifact Management
@@ -103,22 +98,114 @@ Enable per-cell ksqlDB execution alongside Flink SQL.
 
 | Variable | Description |
 |----------|-------------|
-| `VITE_UNIQUE_ID` | Tags all created resources (topics, schemas, jobs) with this ID so you only see your own resources in multi-user environments |
-| `VITE_ADMIN_SECRET` | Set to `FLAFKA` to enable admin mode (bypasses unique-ID filtering, grants manage permissions on all resources) |
+| `VITE_UNIQUE_ID` | Tags all created resources with this ID for multi-user isolation |
+| `VITE_ADMIN_SECRET` | Set to `FLAFKA` to enable admin mode (bypasses unique-ID filtering, grants manage permissions) |
+| `VITE_ENVIRONMENT` | `dev` for testing-friendly defaults (1 partition, 1hr retention); `production` for standard defaults |
 | `VITE_FLINK_API_URL` | Override the default Flink API endpoint (for private link / VPC peering) |
 | `VITE_CONFLUENT_API_URL` | Override the default Confluent Cloud API endpoint |
 | `VITE_TELEMETRY_API_URL` | Override the default telemetry API endpoint |
 
-## Available Commands
+## Available Scripts
 
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Start the Vite dev server with API proxies on port 5173 |
-| `npm run build` | Production build (runs TypeScript compiler then Vite build) |
-| `npm run lint` | Run ESLint across the project |
-| `npm test` | Run tests in watch mode (re-runs on file changes) |
-| `npm run test:coverage` | Run tests once and generate a coverage report in `coverage/` |
+| `npm run build` | Production build (TypeScript compiler then Vite build) |
+| `npm run preview` | Preview the production build locally |
+| `npm test` | Run unit tests in watch mode (Vitest) |
+| `npm run test:run` | Run unit tests once and exit |
 | `npm run test:ui` | Open the Vitest browser UI for interactive test exploration |
+| `npm run test:coverage` | Run unit tests once and generate a coverage report in `coverage/` |
+| `npm run test:e2e` | Run end-to-end tests (Playwright, headless Chromium) |
+| `npm run test:e2e:headed` | Run E2E tests with a visible browser window |
+| `npm run lint` | Run ESLint across the project |
+| `npm run package` | Package the app for distribution (runs `scripts/package.sh`) |
+
+## Docker Deployment
+
+The Docker image serves the pre-built React app with Nginx. Nginx replaces the Vite dev server proxy in production, forwarding `/api/*` requests to Confluent Cloud.
+
+### Build and Run
+
+```bash
+# 1. Build the React app (reads .env for VITE_* vars baked into the JS bundle)
+npm run build
+
+# 2. Build the Docker image
+docker build -t flafka .
+
+# 3. Run the container
+docker run -p 80:80 flafka
+```
+
+The app is served at [http://localhost](http://localhost).
+
+### How It Works
+
+The Dockerfile is a single-stage build based on `nginx:alpine`. It does not run `npm install` or `npm run build` inside the container -- the React app must be built on the host where `.env` supplies the `VITE_*` variables that Vite embeds into the JavaScript bundle at build time.
+
+At container startup, `docker-entrypoint.sh`:
+1. Reads the `.env` file (copied into the image at `/app/.env`)
+2. Derives reverse-proxy upstream URLs from the env vars (Flink API, Kafka REST, Schema Registry, etc.)
+3. Substitutes `${VAR}` placeholders in the Nginx config template with the real URLs
+4. Starts Nginx
+
+This means the `.env` file serves double duty: Vite reads it at build time for frontend config, and the entrypoint reads it at runtime for proxy routing. No `docker run -e` flags are required -- everything comes from `.env`.
+
+### Nginx Proxy Routes
+
+Nginx mirrors the same proxy routes as the Vite dev server:
+
+| Route | Upstream |
+|-------|----------|
+| `/api/flink/` | Flink SQL REST API |
+| `/api/fcpm/` | Confluent Cloud Management API |
+| `/api/artifact/` | Confluent Artifact API |
+| `/api/kafka/` | Kafka REST Proxy |
+| `/api/schema-registry/` | Schema Registry |
+| `/api/telemetry/` | Telemetry / Metrics API |
+
+Each route strips its `/api/<service>/` prefix before forwarding. Static assets under `/assets/` are cached for 1 year with immutable headers; `index.html` is never cached.
+
+### Testing Against Docker
+
+Set `PLAYWRIGHT_BASE_URL` to point E2E tests at the container instead of the dev server:
+
+```bash
+PLAYWRIGHT_BASE_URL=http://localhost:8080 npm run test:e2e
+```
+
+## Testing
+
+### Unit Tests (Vitest)
+
+Tests use Vitest with jsdom and React Testing Library. Test files live in `src/__tests__/` and mirror the source structure.
+
+```bash
+npm test                          # Watch mode
+npm run test:run                  # Run once
+npm run test:coverage             # Run once + coverage report
+```
+
+Test files use marker tags in `describe` blocks (e.g. `describe('[@store] workspace actions', ...)`). Target specific markers:
+
+```bash
+npm test -- -t "@store" --run     # Store tests only
+npm test -- -t "@api" --run       # API tests only
+```
+
+For conventions and coverage targets, see [docs/TESTING-GUIDE.md](docs/TESTING-GUIDE.md).
+
+### End-to-End Tests (Playwright)
+
+E2E tests run in headless Chromium. Playwright auto-starts the dev server when testing against `localhost:5173`.
+
+```bash
+npm run test:e2e                  # Headless
+npm run test:e2e:headed           # Visible browser
+```
+
+Test files live in `e2e/`. Configuration is in `playwright.config.ts`.
 
 ## Project Structure
 
@@ -127,120 +214,76 @@ src/
   api/              Axios HTTP clients and API call functions
   components/       React components (one folder per feature)
   config/           Environment variable configuration
-  data/             Static data (SQL examples, help topics)
+  data/             Static data (SQL examples, learning tracks, help topics)
+  hooks/            Custom React hooks (routing, etc.)
   services/         Business logic (example runner, helpers)
-  store/            Zustand state management (single store)
+  store/            Zustand state management
+    engines/        SQL engine adapters (Flink, ksqlDB)
   types/            TypeScript type definitions
   utils/            Utility functions (formatting, names, export)
-  __tests__/        All test files (mirrors src/ structure)
-docs/               Documentation (features, roadmap, tech stack)
+  __tests__/        Unit tests (mirrors src/ structure)
+e2e/                Playwright end-to-end tests
+docs/               Documentation (features, roadmap, testing guide)
 public/             Static assets (icons, example files)
+scripts/            Build and packaging scripts
 ```
 
 ## Architecture Overview
 
-The data flow through the app looks like this:
-
 ```
-React UI  -->  Zustand Store  -->  API Layer (axios)  -->  Vite Dev Proxy  -->  Confluent Cloud
+React UI  -->  Zustand Store  -->  API Layer (Axios)  -->  Vite Dev Proxy  -->  Confluent Cloud
+                                                      -->  Nginx (prod)   -->  Confluent Cloud
 ```
 
-**Why a proxy?** Browsers enforce CORS (Cross-Origin Resource Sharing), which prevents JavaScript from calling a different domain directly. Confluent Cloud's APIs do not allow browser-origin requests. The Vite dev server acts as a middleman: your browser talks to `localhost:5173/api/flink`, and Vite forwards that request to `https://flink.<region>.<provider>.confluent.cloud` on the server side, where CORS does not apply. The browser never sees a cross-origin request.
+**Why a proxy?** Browsers enforce CORS, which prevents JavaScript from calling a different domain directly. Confluent Cloud APIs do not allow browser-origin requests. The proxy (Vite in dev, Nginx in production) acts as a middleman: the browser talks to `localhost/api/flink`, and the proxy forwards the request to Confluent Cloud on the server side where CORS does not apply.
 
-Each proxy route strips its prefix and forwards to the real API. For example, a request to `/api/flink/sql/v1/statements` becomes a request to `https://flink.us-east-1.aws.confluent.cloud/sql/v1/statements`.
+## Tech Stack
+
+| Category | Technology |
+|----------|------------|
+| Framework | React 19, TypeScript 5.9 |
+| Build | Vite 7.3 |
+| State | Zustand 5 (persisted to localStorage) |
+| Editor | Monaco Editor (via @monaco-editor/react) |
+| HTTP | Axios |
+| Styling | Tailwind CSS 4, PostCSS |
+| Virtualization | @tanstack/react-virtual |
+| Serialization | avsc (Avro), protobufjs (Protobuf) |
+| Unit Tests | Vitest 4, React Testing Library, jsdom |
+| E2E Tests | Playwright 1.58 (Chromium) |
+| Production Server | Nginx (Alpine Docker image) |
 
 ## Key Files
 
-| File | What it does |
-|------|--------------|
-| `src/App.tsx` | Root layout shell -- tab bar, sidebar, and main content area |
-| `src/store/workspaceStore.ts` | Single Zustand store holding all application state and actions |
-| `src/api/flink-api.ts` | Functions for executing SQL, polling results, listing statements |
-| `src/api/confluent-client.ts` | Creates the `confluentClient`, `fcpmClient`, and `telemetryClient` axios instances |
-| `src/config/environment.ts` | Reads `VITE_*` env vars and exports a typed `env` object |
-| `src/types/index.ts` | All shared TypeScript interfaces and types |
-| `src/components/EditorCell/EditorCell.tsx` | Monaco-powered SQL editor cell |
-| `src/components/ResultsTable/ResultsTable.tsx` | Virtual-scrolled query results table |
-| `src/components/TreeNavigator/TreeNavigator.tsx` | Sidebar tree browser for catalogs, databases, and tables |
-| `vite.config.ts` | Vite configuration including all proxy routes |
-
-## API Clients
-
-The app uses six axios client instances, each pointing at a different Vite proxy route. All authentication is Basic Auth (base64-encoded `key:secret`).
-
-| Client | Proxy Route | Target API | Auth Credentials | Purpose |
-|--------|-------------|------------|-----------------|---------|
-| `confluentClient` | `/api/flink` | Flink SQL REST API | `FLINK_API_KEY/SECRET` | Execute SQL, poll results, list statements |
-| `fcpmClient` | `/api/fcpm` | Confluent Cloud Management API | `METRICS_KEY/SECRET` | Compute pool status and metrics |
-| `telemetryClient` | `/api/telemetry` | Confluent Telemetry API | `METRICS_KEY/SECRET` | Compute pool usage metrics |
-| `artifactClient` | `/api/artifact` | Confluent Artifact API | `METRICS_KEY/SECRET` | UDF and connector artifact management |
-| `schemaRegistryClient` | `/api/schema-registry` | Schema Registry | `SCHEMA_REGISTRY_KEY/SECRET` | Schema lookups for topic detail views |
-| `kafkaRestClient` | `/api/kafka` | Kafka REST Proxy | `KAFKA_API_KEY/SECRET` | Consume topic messages for stream preview |
-
-The client source files live in `src/api/`:
-
-- `confluent-client.ts` -- exports `confluentClient`, `fcpmClient`, `telemetryClient`
-- `artifact-client.ts` -- exports `artifactClient`
-- `schema-registry-client.ts` -- exports `schemaRegistryClient`
-- `kafka-rest-client.ts` -- exports `kafkaRestClient`
-
-## State Management
-
-All application state lives in a single Zustand store at `src/store/workspaceStore.ts`. Key concepts:
-
-- **Workspaces and tabs**: The app supports multiple workspaces, each appearing as a tab. Each workspace contains its own SQL statements, results, and editor state.
-- **Per-tab state**: When you switch tabs, the store tracks which workspace is active and restores its state.
-- **Persistence**: The store uses Zustand's `persist` middleware to save workspace data to `localStorage`, so your work survives page refreshes.
-- **Actions**: All state mutations (add statement, execute query, update results) are defined as actions inside the store. Components call these actions; they never mutate state directly.
-
-## Testing
-
-Tests use **Vitest** (a Vite-native test runner with a Jest-compatible API) and **React Testing Library**.
-
-**Run all tests:**
-
-```bash
-npm test
-```
-
-**Run a subset using markers:**
-
-Test files use marker tags in their `describe` blocks (e.g. `describe('[@store] workspace actions', ...)`). You can target specific markers:
-
-```bash
-npm test -- -t "@store" --run        # Run store tests once
-npm test -- -t "@api" --run          # Run API tests once
-npm test -- -t "@results-table"      # Run results table tests in watch mode
-```
-
-**Generate a coverage report:**
-
-```bash
-npm run test:coverage
-```
-
-Test files live in `src/__tests__/` and mirror the source structure. For more details on the testing approach and conventions, see [docs/TESTING-GUIDE.md](docs/TESTING-GUIDE.md).
+| File | Purpose |
+|------|---------|
+| `src/App.tsx` | Root layout shell -- tab bar, sidebar, main content |
+| `src/store/workspaceStore.ts` | Zustand store with all application state and actions |
+| `src/api/flink-api.ts` | Flink SQL API: execute, poll, fetch results |
+| `src/api/ksql-api.ts` | ksqlDB REST API: DDL, DML, push/pull queries |
+| `src/config/environment.ts` | Reads `VITE_*` env vars, exports typed `env` object |
+| `src/types/index.ts` | Shared TypeScript interfaces and types |
+| `src/components/EditorCell/EditorCell.tsx` | Monaco SQL editor cell |
+| `src/components/ResultsTable/ResultsTable.tsx` | Virtual-scrolled query results |
+| `src/components/TreeNavigator/TreeNavigator.tsx` | Sidebar catalog/database/table browser |
+| `vite.config.ts` | Vite config with all proxy routes |
 
 ## Troubleshooting
 
 **Blank page or "Missing required environment variables" in console**
-Your `.env` file is missing or incomplete. Make sure it exists at the project root and contains at least `VITE_ORG_ID`, `VITE_ENV_ID`, `VITE_COMPUTE_POOL_ID`, `VITE_FLINK_API_KEY`, and `VITE_FLINK_API_SECRET`.
+Your `.env` file is missing or incomplete. Make sure it contains at least `VITE_ORG_ID`, `VITE_ENV_ID`, `VITE_COMPUTE_POOL_ID`, `VITE_FLINK_API_KEY`, and `VITE_FLINK_API_SECRET`.
 
 **CORS errors in the browser console**
-You are probably hitting the Confluent API directly instead of going through the Vite proxy. Make sure you access the app at `http://localhost:5173` (not a different port) and that `npm run dev` is running.
+You are hitting the Confluent API directly instead of going through the proxy. Access the app at `http://localhost:5173` (dev) or through Nginx (production).
 
 **Schema browser or stream preview not loading**
-These features need the optional Schema Registry and Kafka REST variables. Check that `VITE_SCHEMA_REGISTRY_URL`, `VITE_KAFKA_REST_ENDPOINT`, and their associated keys/secrets are set in `.env`.
+These features need the optional Schema Registry and Kafka REST variables. Check that `VITE_SCHEMA_REGISTRY_URL`, `VITE_KAFKA_REST_ENDPOINT`, and their associated keys/secrets are set.
 
 **Tests failing unexpectedly**
-Try running just the failing test's marker to isolate it:
-```bash
-npm test -- -t "@marker-name" --run
-```
-If all tests fail, check that dependencies are installed (`npm install`) and that no import paths are broken.
+Run the failing test's marker in isolation: `npm test -- -t "@marker-name" --run`. If all tests fail, verify dependencies are installed (`npm install`).
 
 **Build fails with type errors**
-TypeScript strict mode is enabled. Run `npm run build` to see the full error output. Common causes are missing type annotations or unused imports.
+TypeScript strict mode is enabled. Run `npm run build` to see the full error output.
 
 ## Further Reading
 

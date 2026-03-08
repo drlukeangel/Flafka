@@ -4,8 +4,8 @@
  * Shows progress, lesson list with status icons, and completion celebration.
  */
 
-import { useState } from 'react';
-import { FiArrowLeft, FiCheck, FiCircle, FiBookOpen, FiCode, FiAward } from 'react-icons/fi';
+import { useState, useEffect, useRef } from 'react';
+import { FiArrowLeft, FiCheck, FiCircle, FiBookOpen, FiCode, FiAward, FiX, FiStar } from 'react-icons/fi';
 import { useLearnStore } from '../../store/learnStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import type { LearningTrack, TrackLesson } from '../../types/learn';
@@ -78,6 +78,7 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
   const progress = useLearnStore((s) => s.progress);
   const getTrackProgress = useLearnStore((s) => s.getTrackProgress);
   const markLessonComplete = useLearnStore((s) => s.markLessonComplete);
+  const setCurrentLesson = useLearnStore((s) => s.setCurrentLesson);
   const navigateToExampleDetail = useWorkspaceStore((s) => s.navigateToExampleDetail);
 
   const [viewingConceptId, setViewingConceptId] = useState<string | null>(null);
@@ -86,16 +87,36 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
   const { completed, total, percent } = getTrackProgress(track.id);
   const isTrackComplete = progress.completedTracks.includes(track.id);
 
-  // Show celebration when track just completed
-  const prevComplete = useState(isTrackComplete)[0];
-  if (isTrackComplete && !prevComplete && !celebrationVisible) {
-    setCelebrationVisible(true);
-    setTimeout(() => setCelebrationVisible(false), 3000);
-  }
+  // Only show celebration when transitioning false → true (not on mount when already complete)
+  const prevCompleteRef = useRef(isTrackComplete);
+  useEffect(() => {
+    if (isTrackComplete && !prevCompleteRef.current) {
+      setCelebrationVisible(true);
+    }
+    prevCompleteRef.current = isTrackComplete;
+  }, [isTrackComplete]);
 
   // If viewing a concept lesson
   if (viewingConceptId) {
-    const lesson = track.lessons.find((l) => l.id === viewingConceptId);
+    const lessonIndex = track.lessons.findIndex((l) => l.id === viewingConceptId);
+    const lesson = lessonIndex >= 0 ? track.lessons[lessonIndex] : undefined;
+    const nextLesson = lessonIndex >= 0 ? track.lessons[lessonIndex + 1] : undefined;
+
+    const handleCompleteAndNext = nextLesson
+      ? () => {
+          if (lesson) markLessonComplete(lesson.id);
+          if (nextLesson.type === 'concept') {
+            setViewingConceptId(nextLesson.id);
+          } else if (nextLesson.exampleId) {
+            setViewingConceptId(null);
+            setCurrentLesson(nextLesson.id);
+            navigateToExampleDetail(nextLesson.exampleId);
+          } else {
+            setViewingConceptId(null);
+          }
+        }
+      : undefined;
+
     if (lesson?.conceptContent) {
       return (
         <ConceptLessonView
@@ -105,6 +126,7 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
             markLessonComplete(lesson.id);
             setViewingConceptId(null);
           }}
+          onCompleteAndNext={handleCompleteAndNext}
         />
       );
     }
@@ -149,7 +171,8 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
     if (lesson.type === 'concept') {
       setViewingConceptId(lesson.id);
     } else if (lesson.exampleId) {
-      // Navigate to example detail page
+      // Store lesson context so ExampleDetailPage can show track navigation buttons
+      setCurrentLesson(lesson.id);
       navigateToExampleDetail(lesson.exampleId);
     }
   };
@@ -188,11 +211,67 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
         </div>
       </div>
 
-      {/* Celebration */}
+      {/* Celebration modal */}
       {celebrationVisible && (
-        <div className="track-detail__celebration">
-          <FiAward size={24} />
-          <span>Track Complete! You've mastered {track.title}.</span>
+        <div className="track-celebration-overlay" onClick={() => setCelebrationVisible(false)}>
+          <div
+            className="track-celebration-modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="celebration-heading"
+          >
+            <button
+              className="track-celebration-modal__close"
+              onClick={() => setCelebrationVisible(false)}
+              aria-label="Close"
+            >
+              <FiX size={18} />
+            </button>
+
+            <div className="track-celebration-modal__icon">🏆</div>
+
+            <h2 id="celebration-heading" className="track-celebration-modal__heading">
+              Track Complete!
+            </h2>
+            <p className="track-celebration-modal__track-name">{track.title}</p>
+
+            <div className="track-celebration-modal__stats">
+              <div className="track-celebration-modal__stat">
+                <FiCheck size={16} />
+                <span>{total} lessons completed</span>
+              </div>
+              {track.estimatedMinutes && (
+                <div className="track-celebration-modal__stat">
+                  <FiStar size={16} />
+                  <span>~{track.estimatedMinutes} min of learning</span>
+                </div>
+              )}
+              <div className="track-celebration-modal__stat">
+                <FiAward size={16} />
+                <span>{track.skillLevel} level mastered</span>
+              </div>
+            </div>
+
+            <p className="track-celebration-modal__message">
+              Great work! You now understand {track.title.toLowerCase()}. Keep going — the next track is waiting.
+            </p>
+
+            <div className="track-celebration-modal__actions">
+              <button
+                className="track-celebration-modal__btn track-celebration-modal__btn--primary"
+                onClick={() => { setCelebrationVisible(false); onBack(); }}
+              >
+                Back to Tracks
+              </button>
+              <button
+                className="track-celebration-modal__btn track-celebration-modal__btn--secondary"
+                onClick={() => setCelebrationVisible(false)}
+              >
+                Stay Here
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

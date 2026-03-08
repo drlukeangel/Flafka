@@ -325,6 +325,15 @@
   background: var(--color-surface-error);
 }
 
+.jobs-stop-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ksql-terminate-spin {
+  animation: spin 0.7s linear infinite;
+}
+
 /* ── Detail View ────────────────────────────────────────────────────────────── */
 
 .jobs-detail {

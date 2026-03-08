@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationTick } from './useAnimationTick';
 
 /**
  * HopWindowAnimation
@@ -16,7 +16,6 @@ import './animations.css';
 // Constants
 // ---------------------------------------------------------------------------
 
-const TICK_MS = 50;
 const PHASE_TICKS = 26; // ~1.3s per phase
 const TOTAL_PHASES = 8;
 const CYCLE_TICKS = TOTAL_PHASES * PHASE_TICKS;
@@ -108,14 +107,7 @@ function laneY(index: number): number {
 // ---------------------------------------------------------------------------
 
 export function HopWindowAnimation() {
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTick((prev) => (prev + 1) % CYCLE_TICKS);
-    }, TICK_MS);
-    return () => clearInterval(id);
-  }, []);
+  const tick = useAnimationTick(CYCLE_TICKS);
 
   const phase = Math.floor(tick / PHASE_TICKS);
   const phaseProgress = (tick % PHASE_TICKS) / PHASE_TICKS;

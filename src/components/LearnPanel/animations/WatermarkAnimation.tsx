@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 /*
  * Phases (6s cycle, 1.5s each):
@@ -56,13 +57,15 @@ const WINDOW_END = 5;
 
 export function WatermarkAnimation() {
   const [phase, setPhase] = useState(0);
+  const { paused } = useAnimationSpeed();
 
   useEffect(() => {
     const id = setInterval(() => {
+      if (paused) return;
       setPhase((prev) => (prev + 1) % TOTAL_PHASES);
     }, PHASE_DURATION);
     return () => clearInterval(id);
-  }, []);
+  }, [paused]);
 
   // Accumulate all visible events up through the current phase
   const visibleEvents: EventDot[] = [];

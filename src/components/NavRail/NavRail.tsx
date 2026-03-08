@@ -5,9 +5,11 @@
  */
 
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { isKsqlEnabled } from '../../config/environment';
 import type { NavItem } from '../../types';
 import {
   FiCode,
+  FiCpu,
   FiDatabase,
   FiFileText,
   FiClock,
@@ -15,10 +17,10 @@ import {
   FiSettings,
   FiBookmark,
   FiBookOpen,
-  FiList,
   FiPackage,
   FiLayers,
   FiRadio,
+  FiZap,
   FiMoon,
   FiSun,
 } from 'react-icons/fi';
@@ -33,8 +35,9 @@ interface NavRailItemConfig {
 
 const NAV_ITEMS: NavRailItemConfig[] = [
   { id: 'workspace', icon: <FiCode size={18} />, label: 'Workspace', section: 'workspace' },
-  { id: 'jobs', icon: <FiList size={18} />, label: 'Jobs', section: 'workspace' },
-  { id: 'tree', icon: <FiDatabase size={18} />, label: 'Database Objects', section: 'data' },
+  { id: 'jobs', icon: <FiCpu size={18} />, label: 'Jobs', section: 'workspace' },
+  { id: 'ksql-queries', icon: <FiZap size={18} />, label: 'ksqlDB Queries', section: 'workspace' },
+  { id: 'tree', icon: <FiDatabase size={18} />, label: 'Objects', section: 'data' },
   { id: 'topics', icon: <FiRadio size={18} />, label: 'Topics', section: 'data' },
   { id: 'schemas', icon: <FiFileText size={18} />, label: 'Schemas', section: 'data' },
   { id: 'workspaces', icon: <FiLayers size={18} />, label: 'Workspaces', section: 'tools' },
@@ -59,14 +62,23 @@ export function NavRail() {
   const setActiveNavItem = useWorkspaceStore((s) => s.setActiveNavItem);
   const theme = useWorkspaceStore((s) => s.theme);
   const toggleTheme = useWorkspaceStore((s) => s.toggleTheme);
+  const ksqlFeatureEnabled = useWorkspaceStore((s) => s.ksqlFeatureEnabled);
 
+  const ksqlActive = ksqlFeatureEnabled && isKsqlEnabled();
+
+  const filteredItems = NAV_ITEMS
+    .filter((item) => item.id !== 'ksql-queries' || ksqlActive)
+    .map((item) => item.id === 'jobs' && ksqlActive
+      ? { ...item, label: 'Flink Jobs' }
+      : item
+    );
 
   // Group items by section
   const sections = ['workspace', 'data', 'tools', 'settings'] as const;
   const grouped = sections.map((section) => ({
     key: section,
     label: SECTION_LABELS[section],
-    items: NAV_ITEMS.filter((item) => item.section === section),
+    items: filteredItems.filter((item) => item.section === section),
   }));
 
   const handleItemClick = (item: NavItem) => {

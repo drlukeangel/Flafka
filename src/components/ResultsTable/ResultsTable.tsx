@@ -10,6 +10,13 @@ import { ExpandableJsonPane } from '../shared/ExpandableJsonPane';
 import type { Column, SortConfig } from '../../types';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import {
+  formatCellValue as sharedFormatCellValue,
+  getExportFilename as sharedGetExportFilename,
+  downloadFile as sharedDownloadFile,
+  buildCsvContent,
+  buildJsonContent,
+} from '../../utils/table-export';
+import {
   FiSearch,
   FiDownload,
   FiArrowUp,
@@ -41,35 +48,8 @@ export const formatJSON = (value: unknown): string => {
   }
 };
 
-// Helper function to format cell values for markdown table generation
-export const formatCellValue = (value: unknown): string => {
-  let str: string;
-
-  if (value === null || value === undefined) {
-    str = 'null';
-  } else if (typeof value === 'object') {
-    if (value instanceof Date) {
-      str = value.toISOString();
-    } else {
-      str = JSON.stringify(value);
-    }
-  } else {
-    str = String(value);
-  }
-
-  // Remove newlines/tabs
-  str = str.replace(/[\n\r\t]/g, ' ');
-
-  // Escape pipe characters
-  str = str.replace(/\|/g, '\\|');
-
-  // Truncate to 100 chars
-  if (str.length > 100) {
-    str = str.substring(0, 97) + '...';
-  }
-
-  return str;
-};
+// Delegate to shared utility — re-exported for backward compatibility
+export const formatCellValue = sharedFormatCellValue;
 
 const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsReceived, statementIndex = 0, statementName }) => {
   const addToast = useWorkspaceStore((s) => s.addToast);
@@ -277,36 +257,20 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
   };
 
   const getExportFilename = (ext: string): string => {
-    const ts = new Date().toISOString().replace(/[:-]/g, '').slice(0, 15);
-    const [date, time] = ts.split('T');
     const prefix = statementName
       ? statementName.replace(/\s+/g, '-').toLowerCase()
       : `query-${statementIndex + 1}`;
-    return `${prefix}-${date}-${time}.${ext}`;
+    return sharedGetExportFilename(prefix, ext);
   };
 
   const handleExport = (format: 'csv' | 'json') => {
     if (format === 'csv') {
-      const headers = columns.map((c) => c.name).join(',');
-      const rows = sortedData.map((row) =>
-        columns.map((c) => JSON.stringify(row[c.name] ?? '')).join(',')
-      );
-      const csv = [headers, ...rows].join('\n');
-      downloadFile(csv, getExportFilename('csv'), 'text/csv');
+      const csv = buildCsvContent(sortedData, columns.map((c) => c.name));
+      sharedDownloadFile(csv, getExportFilename('csv'), 'text/csv');
     } else {
-      const json = JSON.stringify(sortedData, null, 2);
-      downloadFile(json, getExportFilename('json'), 'application/json');
+      const json = buildJsonContent(sortedData, columns.map((c) => c.name));
+      sharedDownloadFile(json, getExportFilename('json'), 'application/json');
     }
-  };
-
-  const downloadFile = (content: string, filename: string, type: string) => {
-    const blob = new Blob([content], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const columnNames = columns.length > 0

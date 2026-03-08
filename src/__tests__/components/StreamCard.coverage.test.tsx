@@ -102,21 +102,10 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       expect(screen.queryByText('Reset')).not.toBeInTheDocument();
     });
 
-    it('changing row limit updates default SQL', () => {
-      render(<StreamCard {...defaultProps} />);
-      const limitSelect = screen.getByLabelText('Row limit');
-      fireEvent.change(limitSelect, { target: { value: '25' } });
-      const textarea = screen.getByLabelText('SQL query') as HTMLTextAreaElement;
-      expect(textarea.value).toContain('LIMIT 25');
-    });
-
-    it('changing row limit does NOT update SQL if dirty', () => {
+    it('default SQL includes LIMIT 50', () => {
       render(<StreamCard {...defaultProps} />);
       const textarea = screen.getByLabelText('SQL query') as HTMLTextAreaElement;
-      fireEvent.change(textarea, { target: { value: 'SELECT custom FROM t' } });
-      const limitSelect = screen.getByLabelText('Row limit');
-      fireEvent.change(limitSelect, { target: { value: '25' } });
-      expect(textarea.value).toBe('SELECT custom FROM t');
+      expect(textarea.value).toContain('LIMIT 50');
     });
   });
 
@@ -157,10 +146,12 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
   // ========================================================================
 
   describe('[@stream-card-coverage] Duplicate', () => {
-    it('duplicate button calls onDuplicate', () => {
+    it('duplicate in ⋮ menu calls onDuplicate', () => {
       const onDuplicate = vi.fn();
       render(<StreamCard {...defaultProps} onDuplicate={onDuplicate} />);
-      fireEvent.click(screen.getByLabelText('Duplicate card'));
+      // Open ⋮ menu
+      fireEvent.click(screen.getByLabelText('Card actions'));
+      fireEvent.click(screen.getByText('Duplicate'));
       expect(onDuplicate).toHaveBeenCalled();
     });
   });
@@ -256,7 +247,7 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       expect(screen.getByText('Fetching messages...')).toBeInTheDocument();
     });
 
-    it('shows "Refresh" button when statement exists', () => {
+    it('shows fetch button (icon-only) when statement exists', () => {
       useWorkspaceStore.setState({
         backgroundStatements: [{
           id: 'bg-1',
@@ -270,7 +261,7 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
         }],
       });
       render(<StreamCard {...defaultProps} />);
-      expect(screen.getByText('Refresh')).toBeInTheDocument();
+      expect(screen.getByLabelText('Fetch messages')).toBeInTheDocument();
     });
   });
 
@@ -284,14 +275,14 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       useWorkspaceStore.setState({ executeBackgroundStatement: executeSpy });
 
       render(<StreamCard {...defaultProps} />);
-      const liveBtn = screen.getByLabelText('Start live stream');
+      const liveBtn = screen.getByLabelText(/Start live streaming/);
 
       await act(async () => {
         fireEvent.click(liveBtn);
       });
 
       expect(executeSpy).toHaveBeenCalled();
-      expect(screen.getByLabelText('Stop live stream')).toBeInTheDocument();
+      expect(screen.getByLabelText('Stop live streaming')).toBeInTheDocument();
     });
 
     it('Stop button stops auto-refresh', async () => {
@@ -301,14 +292,14 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       render(<StreamCard {...defaultProps} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByLabelText('Start live stream'));
+        fireEvent.click(screen.getByLabelText(/Start live streaming/));
       });
 
       await act(async () => {
-        fireEvent.click(screen.getByLabelText('Stop live stream'));
+        fireEvent.click(screen.getByLabelText('Stop live streaming'));
       });
 
-      expect(screen.getByLabelText('Start live stream')).toBeInTheDocument();
+      expect(screen.getByLabelText(/Start live streaming/)).toBeInTheDocument();
     });
 
     it('fetch button disabled during auto-refresh', async () => {
@@ -318,10 +309,10 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       render(<StreamCard {...defaultProps} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByLabelText('Start live stream'));
+        fireEvent.click(screen.getByLabelText(/Start live streaming/));
       });
 
-      const fetchBtn = screen.getByTitle('Fetch messages');
+      const fetchBtn = screen.getByLabelText('Fetch messages');
       expect(fetchBtn).toBeDisabled();
     });
   });
@@ -339,14 +330,14 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
 
       // Start auto-refresh
       await act(async () => {
-        fireEvent.click(screen.getByLabelText('Start live stream'));
+        fireEvent.click(screen.getByLabelText(/Start live streaming/));
       });
 
       // Switch to produce mode (mode change should stop auto-refresh)
       fireEvent.click(screen.getByText('Produce'));
 
-      // Should stop auto-refresh - Live button should show "Live" again
-      expect(screen.getByText('Live')).toBeInTheDocument();
+      // Should stop auto-refresh - Live button should show start label again
+      expect(screen.getByLabelText(/Start live streaming/)).toBeInTheDocument();
     });
 
     it('mode change calls updateStreamCardConfig', () => {
@@ -400,7 +391,7 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       render(<StreamCard {...defaultProps} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Fetch'));
+        fireEvent.click(screen.getByLabelText('Fetch messages'));
       });
 
       expect(screen.getByText('Fetch failed')).toBeInTheDocument();
@@ -413,7 +404,7 @@ describe('[@stream-card-coverage] StreamCard Coverage', () => {
       render(<StreamCard {...defaultProps} />);
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Fetch'));
+        fireEvent.click(screen.getByLabelText('Fetch messages'));
       });
 
       expect(screen.getByText('Failed to fetch messages')).toBeInTheDocument();

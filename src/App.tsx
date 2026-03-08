@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react';
 import { useWorkspaceStore } from './store/workspaceStore';
 import { TreeNavigator } from './components/TreeNavigator';
 import { EditorCell } from './components/EditorCell';
@@ -8,7 +8,7 @@ import { OnboardingHint } from './components/OnboardingHint';
 import Toast from './components/ui/Toast';
 import { TabBar } from './components/TabBar/TabBar';
 import { env } from './config/environment';
-import { FiPlay, FiPlus, FiCpu, FiActivity, FiChevronDown, FiSquare, FiTrash2, FiChevronsRight, FiChevronsLeft } from 'react-icons/fi';
+import { FiPlay, FiPlus, FiCpu, FiActivity, FiZap, FiChevronDown, FiSquare, FiTrash2, FiChevronsRight, FiChevronsLeft } from 'react-icons/fi';
 import { SplitButton } from './components/SplitButton/SplitButton';
 import { ComputePoolDashboard } from './components/ComputePoolDashboard/ComputePoolDashboard';
 import { NavRail } from './components/NavRail/NavRail';
@@ -17,10 +17,17 @@ import TopicPanel from './components/TopicPanel/TopicPanel';
 import { SnippetsPanel } from './components/SnippetsPanel/SnippetsPanel';
 import { WorkspacesPanel } from './components/WorkspacesPanel/WorkspacesPanel';
 import ArtifactsPanel from './components/ArtifactsPanel/ArtifactsPanel';
-import { ExampleDetailPage } from './components/ExampleDetailView/ExampleDetailPage';
-import { LearnPanel } from './components/LearnPanel/LearnPanel';
+const ExampleDetailPage = lazy(() =>
+  import('./components/ExampleDetailView/ExampleDetailPage').then(m => ({ default: m.ExampleDetailPage }))
+);
+const LearnPanel = lazy(() =>
+  import('./components/LearnPanel/LearnPanel').then(m => ({ default: m.LearnPanel }))
+);
 import { StreamsPanel } from './components/StreamsPanel/StreamsPanel';
 import { JobsPage } from './components/JobsPage/JobsPage';
+import { KsqlQueriesPage } from './components/KsqlQueriesPage/KsqlQueriesPage';
+import { KsqlDashboard } from './components/KsqlDashboard/KsqlDashboard';
+import { isKsqlEnabled, isKsqlConfigured } from './config/environment';
 import { exportWorkspace, generateExportFilename } from './utils/workspace-export';
 import { randomStarterJoke } from './store/workspaceStore';
 import { useRoute } from './hooks/useRoute';
@@ -87,6 +94,11 @@ function App() {
     computePoolDashboardOpen,
     toggleComputePoolDashboard,
     loadStatementTelemetry,
+    ksqlDashboardOpen,
+    toggleKsqlDashboard,
+    ksqlDashboardQueries,
+    ksqlFeatureEnabled,
+    setKsqlFeatureEnabled,
     theme,
     hasSeenOnboardingHint,
     sessionProperties,
@@ -424,6 +436,25 @@ function App() {
             <span>{getPoolStatusText(computePoolPhase, computePoolCfu, computePoolMaxCfu)}</span>
             <FiChevronDown size={14} className={`pool-chevron${computePoolDashboardOpen ? ' pool-chevron--open' : ''}`} />
           </button>
+          {ksqlFeatureEnabled && isKsqlEnabled() && (
+            <button
+              id="ksql-dashboard-badge"
+              className={`environment-info compute-pool-status compute-pool-status--clickable${ksqlDashboardOpen ? ' compute-pool-status--active' : ''}`}
+              onClick={toggleKsqlDashboard}
+              role="button"
+              tabIndex={0}
+              aria-expanded={ksqlDashboardOpen}
+              aria-controls="ksql-dashboard-panel"
+              aria-label={`ksqlDB queries: ${ksqlDashboardQueries.length} persistent queries`}
+            >
+              <FiZap size={14} />
+              <span>ksqlDB</span>
+              {ksqlDashboardQueries.length > 0 && (
+                <span className="ksql-badge-count">{ksqlDashboardQueries.length}</span>
+              )}
+              <FiChevronDown size={14} className={`pool-chevron${ksqlDashboardOpen ? ' pool-chevron--open' : ''}`} />
+            </button>
+          )}
         </div>
         <div className="header-right">
           {activeNavItem === 'workspace' && (
@@ -512,6 +543,9 @@ function App() {
 
       {/* Compute Pool Dashboard — push-down panel */}
       <ComputePoolDashboard isOpen={computePoolDashboardOpen} />
+      {ksqlFeatureEnabled && isKsqlEnabled() && (
+        <KsqlDashboard isOpen={ksqlDashboardOpen} />
+      )}
 
       <div className="app-content">
         {/* Navigation Rail + floating expand/collapse handle */}
@@ -529,7 +563,7 @@ function App() {
         </div>
 
         {/* Side Panel - conditionally rendered based on active nav item */}
-        {activeNavItem !== 'workspace' && activeNavItem !== 'jobs' && activeNavItem !== 'learn' && (
+        {activeNavItem !== 'workspace' && activeNavItem !== 'jobs' && activeNavItem !== 'ksql-queries' && activeNavItem !== 'learn' && (
           <aside
             ref={sidePanelRef}
             className="side-panel"
@@ -653,6 +687,29 @@ function App() {
                         Clear Cached Data
                       </button>
                     </div>
+                  </div>
+
+                  <div className="settings-section">
+                    <span className="settings-section-title">Feature Flags</span>
+                    <div className="settings-row">
+                      <span className="settings-label">ksqlDB Engine</span>
+                      <span className="settings-value">
+                        <label className="settings-toggle" title={!isKsqlConfigured() ? 'Configure VITE_KSQL_ENDPOINT, VITE_KSQL_API_KEY, and VITE_KSQL_API_SECRET in .env to enable' : undefined}>
+                          <input
+                            type="checkbox"
+                            checked={ksqlFeatureEnabled && isKsqlConfigured()}
+                            disabled={!isKsqlConfigured()}
+                            onChange={(e) => setKsqlFeatureEnabled(e.target.checked)}
+                          />
+                          <span className="settings-toggle-slider" />
+                        </label>
+                      </span>
+                    </div>
+                    {!isKsqlConfigured() && (
+                      <p className="settings-help-text">
+                        ksqlDB requires VITE_KSQL_ENDPOINT, VITE_KSQL_API_KEY, and VITE_KSQL_API_SECRET configured in .env
+                      </p>
+                    )}
                   </div>
 
                   <div className="settings-section">
@@ -780,8 +837,11 @@ function App() {
 
         {/* Main Content */}
         <main className="main-content">
+          <Suspense fallback={null}>
           {activeNavItem === 'jobs' ? (
             <JobsPage />
+          ) : activeNavItem === 'ksql-queries' ? (
+            <KsqlQueriesPage />
           ) : activeNavItem === 'learn' ? (
             selectedExampleId ? <ExampleDetailPage /> : <LearnPanel />
           ) : selectedExampleId ? (
@@ -822,6 +882,7 @@ function App() {
               <TabBar />
             </>
           )}
+          </Suspense>
 
           {/* Floating handle to toggle streams panel */}
           <button

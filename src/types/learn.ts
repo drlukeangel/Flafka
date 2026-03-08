@@ -45,7 +45,14 @@ export type ConceptAnimationType =
   | 'watermark' | 'join-match' | 'state-accumulate'
   | 'kafka-basics' | 'flink-basics' | 'startup-modes'
   | 'consumer-groups' | 'changelog-modes'
-  | 'streams-vs-tables' | 'confluent-architecture' | 'schema-governance';
+  | 'streams-vs-tables' | 'confluent-architecture' | 'schema-governance'
+  // Bespoke per-example animations
+  | 'filter-stream' | 'array-unnest' | 'union-merge' | 'fan-out'
+  | 'dedup-stream' | 'cdc-pipeline' | 'over-window' | 'change-detection'
+  | 'pattern-match' | 'temporal-join' | 'interval-join' | 'top-n'
+  | 'materialized-view' | 'pii-mask' | 'data-validation' | 'udf-transform'
+  | 'ksql-stream' | 'schema-raw' | 'dynamic-routing' | 'property-lookup'
+  | 'tradeline-explode';
 
 export interface Challenge {
   id: string;

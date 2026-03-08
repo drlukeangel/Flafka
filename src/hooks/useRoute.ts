@@ -6,7 +6,7 @@ import type { NavItem } from '../types';
 const VALID_NAV_ITEMS: Set<string> = new Set([
   'workspace', 'jobs', 'tree', 'topics', 'schemas', 'snippets',
   'learn', 'artifacts', 'history', 'help', 'settings', 'workspaces',
-  'streams',
+  'streams', 'ksql-queries',
 ]);
 
 /** Panel display names for document.title and screen reader announcements */
@@ -24,6 +24,7 @@ const PANEL_TITLES: Partial<Record<NavItem, string>> = {
   settings: 'Settings',
   workspaces: 'Workspaces',
   streams: 'Streams',
+  'ksql-queries': 'ksqlDB Queries',
 };
 
 const APP_TITLE = 'Flafka';
@@ -78,6 +79,7 @@ function applyRoute(
     navigateToTopic: (name: string) => Promise<void>;
     navigateToSchemaSubject: (subject: string) => void;
     navigateToLearnRoute: (subId?: string, detailId?: string) => void;
+    navigateToKsqlQueryDetail: (queryId: string) => void;
   },
 ) {
   if (navItem === 'learn') {
@@ -85,6 +87,8 @@ function applyRoute(
     actions.navigateToLearnRoute(subId, detailId);
   } else if (navItem === 'jobs' && subId) {
     actions.navigateToJobDetail(subId);
+  } else if (navItem === 'ksql-queries' && subId) {
+    actions.navigateToKsqlQueryDetail(subId);
   } else if (navItem === 'topics' && subId) {
     actions.navigateToTopic(subId).catch((err) =>
       console.error('Failed to navigate to topic:', err)
@@ -141,6 +145,8 @@ export function useRoute() {
   const navigateToJobDetail = useWorkspaceStore((s) => s.navigateToJobDetail);
   const navigateToTopic = useWorkspaceStore((s) => s.navigateToTopic);
   const navigateToSchemaSubject = useWorkspaceStore((s) => s.navigateToSchemaSubject);
+  const selectedKsqlQueryId = useWorkspaceStore((s) => s.selectedKsqlQueryId);
+  const navigateToKsqlQueryDetail = useWorkspaceStore((s) => s.navigateToKsqlQueryDetail);
 
   // Learn store state for URL sync
   const learnTab = useLearnStore((s) => s.learnTab);
@@ -166,7 +172,7 @@ export function useRoute() {
     }
   };
 
-  const actions = { setActiveNavItem, navigateToExampleDetail, navigateToJobDetail, navigateToTopic, navigateToSchemaSubject, navigateToLearnRoute };
+  const actions = { setActiveNavItem, navigateToExampleDetail, navigateToJobDetail, navigateToTopic, navigateToSchemaSubject, navigateToLearnRoute, navigateToKsqlQueryDetail };
 
   // Prevent circular updates: pushState does NOT fire popstate, but this guard
   // is defensive against edge cases (browser extensions, rapid state changes).
@@ -202,6 +208,8 @@ export function useRoute() {
       }
     } else if (activeNavItem === 'jobs' && selectedJobName) {
       subId = selectedJobName;
+    } else if (activeNavItem === 'ksql-queries' && selectedKsqlQueryId) {
+      subId = selectedKsqlQueryId;
     } else if (activeNavItem === 'topics' && selectedTopic) {
       subId = selectedTopic.topic_name;
     } else if (activeNavItem === 'schemas' && selectedSchemaSubject) {
@@ -218,7 +226,7 @@ export function useRoute() {
     }
 
     announceRouteChange(activeNavItem, subId);
-  }, [activeNavItem, selectedExampleId, selectedJobName, selectedTopic, selectedSchemaSubject, learnTab, selectedTrackId]);
+  }, [activeNavItem, selectedExampleId, selectedJobName, selectedTopic, selectedSchemaSubject, learnTab, selectedTrackId, selectedKsqlQueryId]);
 
   // URL → store: browser back/forward
   useEffect(() => {

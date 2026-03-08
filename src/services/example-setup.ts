@@ -115,18 +115,18 @@ async function uploadArtifact(
   // Refresh store for UI consistency
   await store.loadArtifacts();
 
-  // Wait for artifact version to appear
-  let attempts = 0;
-  while (attempts < 10) {
+  // Wait for artifact version to appear (exponential backoff: 2s, 4s, 8s, 8s, 8s...)
+  for (let attempt = 0; attempt < 10; attempt++) {
     try {
       const fresh = await artifactApi.getArtifact(artifact.id);
       if (fresh.versions && fresh.versions.length > 0) return fresh;
     } catch { /* retry */ }
-    await new Promise((r) => setTimeout(r, 2000));
-    attempts++;
+    const delay = Math.min(2000 * Math.pow(2, attempt), 8000);
+    await new Promise((r) => setTimeout(r, delay));
   }
 
-  return artifact;
+  console.warn(`[example-setup] Artifact ${artifact.id} versions not ready after retries`);
+  throw new Error(`Artifact versions did not appear in time for ${artifact.id}`);
 }
 
 // ---- DDL / SQL builders (all take unique-prefixed names) ----

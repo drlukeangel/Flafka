@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Column } from '../../types'
 import ResultsTable, { isExpandable, formatJSON, formatCellValue } from '../../components/ResultsTable/ResultsTable'
+import { formatCellValue as sharedFormatCellValue } from '../../utils/table-export'
 
 // Mock the Zustand store
 vi.mock('../../store/workspaceStore', () => ({
@@ -1034,5 +1035,11 @@ describe('[@coverage-boost] ResultsTable columns dropdown toggle closes expanded
     // JSON pane should be closed
     expect(document.querySelector('.json-expander-pane')).not.toBeInTheDocument()
   })
+})
+
+describe('shared formatCellValue utility', () => {
+  it('same implementation as re-exported version', () => {
+    expect(sharedFormatCellValue).toBe(formatCellValue);
+  });
 })
 

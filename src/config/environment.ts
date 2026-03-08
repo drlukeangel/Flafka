@@ -112,7 +112,11 @@ export const getEnv = (): EnvironmentConfig => {
   };
 };
 
-export const isKsqlEnabled = (): boolean =>
-  env.ksqlEnabled && !!(env.ksqlEndpoint && env.ksqlApiKey && env.ksqlApiSecret);
+/** Whether ksqlDB credentials are fully configured (endpoint + key + secret) */
+export const isKsqlConfigured = (): boolean =>
+  !!(env.ksqlEndpoint && env.ksqlApiKey && env.ksqlApiSecret);
+
+/** @deprecated Use isKsqlConfigured() + ksqlFeatureEnabled store flag instead */
+export const isKsqlEnabled = isKsqlConfigured;
 
 export const env = getEnv();

@@ -31,6 +31,7 @@ vi.mock('../../components/StreamsPanel/StreamCardTable', () => ({
 
 describe('[@stream-card-modes] StreamCard Modes', () => {
   const mockOnRemove = vi.fn();
+  const mockOnDuplicate = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -50,27 +51,27 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
   });
 
   it('default mode is Consume', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
-    // Should show Fetch button but NO Play button
-    expect(screen.getByText('Fetch')).toBeTruthy();
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
+    // Should show Fetch button (icon-only, found by aria-label) but NO Play button
+    expect(screen.getByLabelText('Fetch messages')).toBeTruthy();
     expect(screen.queryByLabelText('Start producer')).toBeNull();
   });
 
   it('mode selector renders with two options', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     expect(screen.getByText('Consume')).toBeTruthy();
     expect(screen.getByText('Produce')).toBeTruthy();
   });
 
   it('selecting Produce & Consume shows produce controls', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
     expect(screen.getByLabelText('Data source')).toBeTruthy();
     expect(screen.getByLabelText(/Start producer/)).toBeTruthy();
   });
 
   it('switching back to Consume hides produce controls', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
     expect(screen.getByLabelText('Data source')).toBeTruthy();
     fireEvent.click(screen.getByText('Consume'));
@@ -78,19 +79,19 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
   });
 
   it('dataset dropdown hidden in Consume mode', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     expect(screen.queryByLabelText('Select dataset')).toBeNull();
   });
 
   it('dataset dropdown visible when dataset source selected in P&C mode', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
     fireEvent.change(screen.getByLabelText('Data source'), { target: { value: 'dataset' } });
     expect(screen.getByLabelText('Select dataset')).toBeTruthy();
   });
 
   it('dropdown shows placeholder when no datasets', () => {
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
     fireEvent.change(screen.getByLabelText('Data source'), { target: { value: 'dataset' } });
     expect(screen.getByText(/No datasets/)).toBeTruthy();
@@ -107,7 +108,7 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
         updatedAt: new Date().toISOString(),
       }],
     });
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
     fireEvent.change(screen.getByLabelText('Data source'), { target: { value: 'dataset' } });
     expect(screen.getByText('My Dataset (1)')).toBeTruthy();
@@ -116,7 +117,7 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
   it('"+" button calls navigateToSchemaDatasets with correct subject', () => {
     const navSpy = vi.fn();
     useWorkspaceStore.setState({ navigateToSchemaDatasets: navSpy });
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
     fireEvent.change(screen.getByLabelText('Data source'), { target: { value: 'dataset' } });
     const addBtn = screen.getByTitle('Add test datasets for this topic');
@@ -127,9 +128,9 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
   it('fetch works in Consume mode', async () => {
     const executeSpy = vi.fn().mockResolvedValue(undefined);
     useWorkspaceStore.setState({ executeBackgroundStatement: executeSpy });
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     await act(async () => {
-      fireEvent.click(screen.getByText('Fetch'));
+      fireEvent.click(screen.getByLabelText('Fetch messages'));
     });
     expect(executeSpy).toHaveBeenCalled();
   });
@@ -144,7 +145,7 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
     });
     vi.mocked(topicApi.produceRecord).mockResolvedValue({ error_code: 200 } as any);
 
-    render(<StreamCard topicName="test-topic" onRemove={mockOnRemove} />);
+    render(<StreamCard cardId="card-1" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />);
     fireEvent.click(screen.getByText('Produce'));
 
     // Start synthetic producer
@@ -161,8 +162,8 @@ describe('[@stream-card-modes] StreamCard Modes', () => {
   it('multiple cards have independent modes', () => {
     render(
       <>
-        <StreamCard topicName="topic-a" onRemove={mockOnRemove} />
-        <StreamCard topicName="topic-b" onRemove={mockOnRemove} />
+        <StreamCard cardId="card-a" topicName="topic-a" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />
+        <StreamCard cardId="card-b" topicName="topic-b" onRemove={mockOnRemove} onDuplicate={mockOnDuplicate} />
       </>
     );
     // Switch topic-a to Produce

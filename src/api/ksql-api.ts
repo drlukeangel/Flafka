@@ -326,8 +326,26 @@ export async function executeKsqlQuery(
 // Terminate persistent query — POST /ksql with TERMINATE
 // ---------------------------------------------------------------------------
 
-export async function terminateQuery(queryId: string): Promise<void> {
-  await executeKsql(`TERMINATE ${queryId};`);
+export async function terminateQuery(queryId: string, retries = 3): Promise<void> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      await executeKsql(`TERMINATE \`${queryId}\`;`);
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      const isCommandTopicTimeout = msg.includes('command topic');
+      if (isCommandTopicTimeout && attempt < retries) {
+        // Exponential backoff: 2s, 4s, 8s
+        const delay = 2000 * Math.pow(2, attempt);
+        console.log(`[ksqlDB] TERMINATE attempt ${attempt + 1} failed, retrying in ${delay / 1000}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw isCommandTopicTimeout
+        ? new Error(`ksqlDB command topic timed out after ${retries + 1} attempts. The cluster may be busy — try again in a few seconds.`)
+        : err;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -336,4 +354,12 @@ export async function terminateQuery(queryId: string): Promise<void> {
 
 export async function listQueries(): Promise<KsqlStatementResponse[]> {
   return executeKsql('SHOW QUERIES;');
+}
+
+// ---------------------------------------------------------------------------
+// Explain query — POST /ksql with EXPLAIN
+// ---------------------------------------------------------------------------
+
+export async function explainQuery(queryId: string): Promise<KsqlStatementResponse[]> {
+  return executeKsql(`EXPLAIN \`${queryId}\`;`);
 }

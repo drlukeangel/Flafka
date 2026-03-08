@@ -8,6 +8,7 @@
  */
 
 import type { ExampleCard, FlinkArtifact } from '../types';
+import { isKsqlConfigured } from '../config/environment';
 import {
   setupScalarExtractExample,
   setupJavaTableExplodeExample,
@@ -65,7 +66,7 @@ import { kickstarterDocs } from './examples/docs';
 
 /** Build example cards, substituting real artifact IDs when available. */
 export function getExampleCards(_artifacts: FlinkArtifact[]): ExampleCard[] {
-  return [
+  return ([
     // --- Basics ---
     {
       id: 'hello-flink',
@@ -90,6 +91,7 @@ export function getExampleCards(_artifacts: FlinkArtifact[]): ExampleCard[] {
       description: 'Your first ksqlDB query — same jokes topic, but read with ksqlDB push queries, filters, and live aggregations.',
       sql: "SELECT * FROM jokes_stream EMIT CHANGES;",
       tags: ['Quick Start', 'Hello World', 'ksqlDB', 'Push Query'],
+      documentation: kickstarterDocs['hello-ksqldb'],
       completionModal: helloKsqldbDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(helloKsqldbDef, useWorkspaceStore.getState(), onProgress),
@@ -109,6 +111,7 @@ FROM loan_events_ksql e
   INNER JOIN routing_rules_ksql r ON e.event_type = r.event_type
 EMIT CHANGES;`,
       tags: ['Quick Start', 'ksqlDB', 'Dynamic Routing', 'Fan-Out', 'EXPLODE', 'Stream-Table Join'],
+      documentation: kickstarterDocs['ksql-dynamic-routing'],
       completionModal: ksqlDynamicRoutingDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(ksqlDynamicRoutingDef, useWorkspaceStore.getState(), onProgress),
@@ -128,6 +131,7 @@ FROM loan_events_ksql e
   INNER JOIN routing_rules_ksql r ON e.event_type = r.event_type
 EMIT CHANGES;`,
       tags: ['Quick Start', 'ksqlDB', 'Dynamic Routing', 'Fan-Out', 'EXPLODE', 'JSON'],
+      documentation: kickstarterDocs['ksql-dynamic-routing-json'],
       completionModal: ksqlDynamicRoutingJsonDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(ksqlDynamicRoutingJsonDef, useWorkspaceStore.getState(), onProgress),
@@ -175,6 +179,7 @@ WHERE status = 'APPROVED'`,
 FROM \`{rid}-LOAN-COBORROWERS\` l
 CROSS JOIN UNNEST(l.coborrower_names, l.coborrower_scores) AS t(name, score)`,
       tags: ['Quick Start', 'UNNEST', 'Array'],
+      documentation: kickstarterDocs['loan-coborrower-unnest'],
       completionModal: loanCoborrowerUnnestDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanCoborrowerUnnestDef, useWorkspaceStore.getState(), onProgress),
@@ -191,6 +196,7 @@ SELECT * FROM \`{rid}-LOANS-NORTHEAST\`
 UNION ALL SELECT * FROM \`{rid}-LOANS-SOUTHEAST\`
 UNION ALL SELECT * FROM \`{rid}-LOANS-WEST\``,
       tags: ['Quick Start', 'UNION ALL', 'Multi-Source'],
+      documentation: kickstarterDocs['loan-multi-region-merge'],
       completionModal: loanMultiRegionMergeDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanMultiRegionMergeDef, useWorkspaceStore.getState(), onProgress),
@@ -206,6 +212,7 @@ UNION ALL SELECT * FROM \`{rid}-LOANS-WEST\``,
 SELECT * FROM \`{rid}-LOAN-EVENTS\`
 WHERE event_type = 'NEW_LOAN'`,
       tags: ['Quick Start', 'Fan-Out', 'WHERE Routing'],
+      documentation: kickstarterDocs['loan-event-fanout'],
       completionModal: loanEventFanoutDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanEventFanoutDef, useWorkspaceStore.getState(), onProgress),
@@ -322,6 +329,7 @@ SELECT product_type, COUNT(*) AS commitment_count, SUM(principal) AS total_princ
 FROM TABLE(CUMULATE(TABLE \`{rid}-LOAN-COMMITMENTS\`, DESCRIPTOR($rowtime), INTERVAL '10' SECOND, INTERVAL '1' MINUTE))
 GROUP BY window_start, window_end, product_type`,
       tags: ['Quick Start', 'Window', 'CUMULATE'],
+      documentation: kickstarterDocs['loan-cumulate-window'],
       completionModal: loanCumulateWindowDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanCumulateWindowDef, useWorkspaceStore.getState(), onProgress),
@@ -339,6 +347,7 @@ GROUP BY window_start, window_end, product_type`,
   WATERMARK FOR event_time AS event_time - INTERVAL '10' SECOND
 )`,
       tags: ['Quick Start', 'Watermark', 'Late Data', 'Window'],
+      documentation: kickstarterDocs['loan-late-payments'],
       completionModal: loanLatePaymentsDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanLatePaymentsDef, useWorkspaceStore.getState(), onProgress),
@@ -397,6 +406,7 @@ FROM \`{rid}-LOANS-WITH-PROPERTY\` l
 JOIN \`{rid}-PROPERTY-REFERENCE\` FOR SYSTEM_TIME AS OF l.\`$rowtime\` AS p
   ON l.property_id = p.property_id`,
       tags: ['Quick Start', 'Lookup Join', 'Temporal Join'],
+      documentation: kickstarterDocs['loan-property-lookup'],
       completionModal: loanPropertyLookupDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanPropertyLookupDef, useWorkspaceStore.getState(), onProgress),
@@ -413,6 +423,7 @@ FROM \`{rid}-PAYMENT-STREAM\` p
 JOIN \`{rid}-BORROWER-REFERENCE\` FOR SYSTEM_TIME AS OF p.\`$rowtime\` AS b
   ON p.borrower_id = b.borrower_id`,
       tags: ['Quick Start', 'Temporal Join', 'Enrichment'],
+      documentation: kickstarterDocs['loan-borrower-payments'],
       completionModal: loanBorrowerPaymentsDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanBorrowerPaymentsDef, useWorkspaceStore.getState(), onProgress),
@@ -436,6 +447,7 @@ BEGIN
     SELECT ...
 END;`,
       tags: ['Quick Start', 'Routing', 'JSON', 'Statement Set', 'Temporal Join', 'UNNEST'],
+      documentation: kickstarterDocs['loan-routing-json'],
       completionModal: loanRoutingJsonDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanRoutingJsonDef, useWorkspaceStore.getState(), onProgress),
@@ -457,6 +469,7 @@ BEGIN
     SELECT ...
 END;`,
       tags: ['Quick Start', 'Routing', 'Avro', 'Statement Set', 'Temporal Join', 'UNNEST'],
+      documentation: kickstarterDocs['loan-routing-avro'],
       completionModal: loanRoutingAvroDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanRoutingAvroDef, useWorkspaceStore.getState(), onProgress),
@@ -654,6 +667,7 @@ FROM \`{rid}-LOANS\`
 WINDOW w AS (PARTITION BY customer_id ORDER BY $rowtime
   RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW)`,
       tags: ['Quick Start', 'OVER Window', 'RANGE', 'Velocity'],
+      documentation: kickstarterDocs['loan-time-range-stats'],
       completionModal: loanTimeRangeStatsDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanTimeRangeStatsDef, useWorkspaceStore.getState(), onProgress),
@@ -689,6 +703,7 @@ SELECT
 FROM \`{rid}-RAW-EVENTS\`
 WHERE JSON_VALUE(CAST(\`val\` AS STRING), '$.event_type') IS NOT NULL`,
       tags: ['Quick Start', 'Schema Handling', 'Streaming'],
+      documentation: kickstarterDocs['loan-schemaless-topic'],
       completionModal: loanSchemalessTopicDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanSchemalessTopicDef, useWorkspaceStore.getState(), onProgress),
@@ -727,6 +742,7 @@ FROM \`{rid}-LOANS\`
 WHERE \`amount\` > 10000
 LIMIT 50`,
       tags: ['Quick Start', 'Schema Handling', 'Event-Time'],
+      documentation: kickstarterDocs['loan-schema-override'],
       completionModal: loanSchemaOverrideDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanSchemaOverrideDef, useWorkspaceStore.getState(), onProgress),
@@ -751,6 +767,7 @@ SELECT
   created_at
 FROM \`{rid}-LOANS\``,
       tags: ['Quick Start', 'Pattern', 'Security'],
+      documentation: kickstarterDocs['loan-data-masking'],
       completionModal: loanDataMaskingDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(loanDataMaskingDef, useWorkspaceStore.getState(), onProgress),
@@ -836,6 +853,7 @@ FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\`,
   LATERAL TABLE(LoanDetailExplode(json_payload, '...')) AS t`,
       category: 'kickstart' as const,
       tags: ['Quick Start', 'Python', 'UDF', 'Loan Example'],
+      documentation: kickstarterDocs['loan-table-explode'],
       comingSoon: 'Python UDFs require Confluent Early Access enrollment. Contact your account team to enroll.',
     },
     {
@@ -1039,6 +1057,7 @@ FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\``,
       description: 'Multiple updates per loan_id? Materialize the latest state — one row per loan with LAST_VALUE + GROUP BY. Then find distressed loans instantly.',
       sql: `INSERT INTO \`{rid}-LOAN-GOLDEN-RECORD\`\nSELECT loan_id, LAST_VALUE(status) AS latest_status, ...\nFROM \`{rid}-LOAN-UPDATES\`\nGROUP BY loan_id`,
       tags: ['Quick Start', 'Materialized View', 'Aggregation'],
+      documentation: kickstarterDocs['view-golden-record'],
       completionModal: viewGoldenRecordDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(viewGoldenRecordDef, useWorkspaceStore.getState(), onProgress),
@@ -1053,6 +1072,7 @@ FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\``,
       description: 'How exposed is your portfolio to one ZIP code? Aggregate securitized loans by geography — flag high-concentration areas before they become systemic risk.',
       sql: `INSERT INTO \`{rid}-RISK-BY-ZIP\`\nSELECT zip_code, COUNT(*) AS loan_count, SUM(upb) AS total_exposure\nFROM \`{rid}-SECURITIZED-LOANS\`\nGROUP BY zip_code`,
       tags: ['Quick Start', 'Materialized View', 'Risk'],
+      documentation: kickstarterDocs['view-credit-risk'],
       completionModal: viewCreditRiskDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(viewCreditRiskDef, useWorkspaceStore.getState(), onProgress),
@@ -1067,6 +1087,7 @@ FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\``,
       description: 'Is your AI model drifting? A virtual view classifies every prediction as ALIGNED, DISCREPANCY, or LOW_CONFIDENCE — surface bias before regulators do.',
       sql: `CREATE VIEW \`{rid}-AI-DRIFT-MONITOR\` AS\nSELECT *, CASE WHEN prediction <> human_outcome THEN 'DISCREPANCY' ... END AS audit_status\nFROM \`{rid}-AI-AUDIT-LOG\``,
       tags: ['Quick Start', 'Virtual View', 'Compliance'],
+      documentation: kickstarterDocs['view-ai-drift'],
       completionModal: viewAiDriftDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(viewAiDriftDef, useWorkspaceStore.getState(), onProgress),
@@ -1081,6 +1102,7 @@ FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\``,
       description: 'Which servicers are struggling? Compute delinquency rates per servicer in 30-second windows. A spike above 10% means it\'s time to intervene.',
       sql: `INSERT INTO \`{rid}-SERVICER-HEALTH\`\nSELECT servicer_id, ..., CAST(delinquent_payments AS DOUBLE) / total_payments * 100 AS delinquency_rate\nFROM (SELECT ... FROM TABLE(TUMBLE(...)))`,
       tags: ['Quick Start', 'Materialized View', 'Window', 'Risk'],
+      documentation: kickstarterDocs['view-early-warning'],
       completionModal: viewEarlyWarningDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(viewEarlyWarningDef, useWorkspaceStore.getState(), onProgress),
@@ -1095,6 +1117,7 @@ FROM \`EOT-PLATFORM-EXAMPLES-LOAN-APPLICATIONS\``,
       description: 'What was the market rate when each loan committed? A temporal join virtual view gives point-in-time pricing accuracy for MBS portfolios.',
       sql: `CREATE VIEW \`{rid}-MBS-PRICING-VIEW\` AS\nSELECT c.*, r.base_rate, r.spread, c.principal * (r.base_rate + r.spread) / 100 AS estimated_yield\nFROM \`{rid}-LOAN-COMMITMENTS\` c\nJOIN \`{rid}-MARKET-RATES\` FOR SYSTEM_TIME AS OF c.\`$rowtime\` AS r ...`,
       tags: ['Quick Start', 'Virtual View', 'Temporal Join'],
+      documentation: kickstarterDocs['view-mbs-pricing'],
       completionModal: viewMbsPricingDef.completionModal,
       onImport: (onProgress) =>
         runKickstarterExample(viewMbsPricingDef, useWorkspaceStore.getState(), onProgress),
@@ -1202,5 +1225,11 @@ WHERE event_id IS NOT NULL`,
       onImport: (onProgress) =>
         runKickstarterExample(confluentConnectorBridgeDef, useWorkspaceStore.getState(), onProgress),
     },
-  ];
+  ] satisfies ExampleCard[]).filter((card) => {
+    // Hide ksqlDB examples when ksqlDB is not configured or not enabled
+    if (card.tags?.includes('ksqlDB')) {
+      return isKsqlConfigured() && useWorkspaceStore.getState().ksqlFeatureEnabled;
+    }
+    return true;
+  });
 }

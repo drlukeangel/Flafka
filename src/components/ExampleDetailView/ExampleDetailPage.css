@@ -726,9 +726,34 @@
   padding-top: 20px;
   border-top: 1px solid var(--color-border);
   display: flex;
+  gap: 12px;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
+/* Secondary: "Close & Complete" — ghost/outline style */
+.concept-lesson__close-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.concept-lesson__close-btn:hover {
+  border-color: var(--color-text-primary);
+  color: var(--color-text-primary);
+}
+
+/* Primary: "Complete & Next" — solid accent */
 .concept-lesson__complete-btn {
   display: inline-flex;
   align-items: center;
@@ -739,7 +764,7 @@
   border-radius: 8px;
   background: var(--color-primary, var(--accent-color));
   color: #fff;
-  border: none;
+  border: 1px solid transparent;
   cursor: pointer;
   transition: opacity 0.15s;
 }

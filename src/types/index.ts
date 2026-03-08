@@ -106,7 +106,7 @@ export interface WorkspaceImportData {
 
 // Navigation Rail Types
 // Phase 12.6 F6: Added 'snippets' for SQL snippet library panel
-export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'learn' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams' | 'workspaces';
+export type NavItem = 'workspace' | 'jobs' | 'tree' | 'topics' | 'schemas' | 'snippets' | 'learn' | 'artifacts' | 'history' | 'help' | 'settings' | 'streams' | 'workspaces' | 'ksql-queries';
 
 // Schema Registry Types
 export type CompatibilityLevel = 'BACKWARD' | 'FORWARD' | 'FULL' | 'NONE' | 'BACKWARD_TRANSITIVE' | 'FORWARD_TRANSITIVE' | 'FULL_TRANSITIVE';
@@ -497,3 +497,11 @@ export type {
   Badge,
   LearnProgress,
 } from './learn';
+
+export interface KsqlPersistentQuery {
+  id: string;            // CSAS_*, CTAS_*, INSERTQUERY_*
+  queryString: string;   // Full SQL
+  sinks: string[];       // Output topics
+  queryType: string;     // 'PERSISTENT'
+  state: string;         // RUNNING | PAUSED | ERROR
+}

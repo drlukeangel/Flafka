@@ -371,6 +371,19 @@ export function ExamplesPanel() {
                 {card.skillLevel}
               </span>
             )}
+            {/* Learn More — top right of title row */}
+            {hasDoc && !isRunning && (
+              <span style={{
+                marginLeft: 'auto',
+                fontSize: 10,
+                color: 'var(--color-primary)',
+                fontWeight: 500,
+                flexShrink: 0,
+                paddingRight: isComplete ? 28 : 0,
+              }}>
+                Learn More →
+              </span>
+            )}
           </div>
           <div
             style={{
@@ -526,20 +539,6 @@ export function ExamplesPanel() {
             )}
           </div>
         </div>
-
-        {/* Learn More cue for cards with documentation */}
-        {hasDoc && !isRunning && (
-          <div
-            style={{
-              padding: '2px 10px 6px',
-              fontSize: 10,
-              color: 'var(--color-primary)',
-              fontWeight: 500,
-            }}
-          >
-            Learn More &rarr;
-          </div>
-        )}
 
         {/* Progress text for Quick Start cards */}
         {isRunning && setupStep && (

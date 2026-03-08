@@ -1,10 +1,60 @@
 .stream-card {
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
   border-radius: 6px;
-  margin-bottom: 8px;
-  background-color: var(--color-surface);
-  box-shadow: var(--shadow-cell);
+  margin-bottom: 12px;
+  background-color: var(--color-surface-secondary);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
+}
+
+/* Layout: main content + vertical sidebar */
+.stream-card-layout {
+  display: flex;
+}
+
+.stream-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Vertical sidebar — Close, Topic, Schema */
+.stream-card-sidebar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 2px;
+  border-left: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+}
+
+.stream-card-sidebar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: 3px;
+  transition: background-color var(--transition-fast);
+}
+
+.stream-card-sidebar-btn:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.stream-card-sidebar-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.stream-card-sidebar-btn--remove:hover {
+  color: var(--color-error);
 }
 
 .stream-card-header {
@@ -135,12 +185,17 @@
   background-color: var(--color-bg-hover);
 }
 
+.stream-card-fetch-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .stream-card-fetch-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.stream-card-live-btn {
+.stream-card-start-btn {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -154,11 +209,21 @@
   transition: background-color var(--transition-fast);
 }
 
-.stream-card-live-btn:hover {
+.stream-card-start-btn:hover {
   background-color: var(--color-bg-hover);
 }
 
-.stream-card-live-btn.stream-card-btn--active {
+.stream-card-start-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.stream-card-start-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stream-card-start-btn--active {
   background-color: var(--color-error);
   color: var(--color-button-danger-text);
   border-color: var(--color-error);
@@ -188,7 +253,7 @@
   outline: none;
 }
 
-.stream-card-sql-editor:focus {
+.stream-card-sql-editor:focus-visible {
   border-color: var(--color-primary);
 }
 
@@ -208,6 +273,75 @@
 .stream-card-sql-reset:hover {
   color: var(--color-text-primary);
   border-color: var(--color-text-secondary);
+}
+
+.stream-card-sql-reset:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Results bar — toggle + Columns/Export tools */
+.stream-card-results-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: var(--color-surface);
+  padding: 2px 4px;
+}
+
+.stream-card-results-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.stream-card-results-toggle:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.stream-card-results-toggle:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.stream-card-results-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Vertical 1px divider — also pushes fetch controls to the right */
+.stream-card-divider {
+  width: 1px;
+  height: 18px;
+  background-color: var(--color-border);
+  flex-shrink: 0;
+  margin: 0 2px;
+  margin-left: auto;
+}
+
+/* Consumer controls row (consume-only mode) — right-aligned */
+.stream-card-consume-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .stream-card-no-data,
@@ -299,17 +433,22 @@
   color: var(--color-primary);
 }
 
+.stream-cell-expand-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 /* Mode selector */
 .stream-card-mode-selector {
   display: flex;
   border-radius: 3px;
   overflow: hidden;
   border: 1px solid var(--color-border);
-  margin-right: 4px;
+  margin-right: 0;
 }
 
 .stream-card-mode-btn {
-  padding: 2px 8px;
+  padding: 2px 4px;
   font-size: 11px;
   border: none;
   background: var(--color-surface);
@@ -330,6 +469,11 @@
 
 .stream-card-mode-btn:hover:not(.stream-card-mode-btn--active) {
   background: var(--color-bg-hover);
+}
+
+.stream-card-mode-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 /* Produce controls section */
@@ -392,4 +536,208 @@
 .stream-card-btn--add-dataset:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Pulsing dot indicator for active streaming */
+.stream-card-pulse-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-card-pulse-dot {
+    animation: none;
+  }
+}
+
+/* Collapsed status badges */
+.stream-card-collapsed-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.stream-card-collapsed-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background-color: var(--color-primary-badge-bg);
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.stream-card-live-indicator {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background-color: var(--color-success-badge-bg);
+  color: var(--color-success);
+  white-space: nowrap;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-card-live-indicator {
+    animation: none;
+  }
+}
+
+/* Missing CSS for icon-link buttons (pre-existing fix) */
+.stream-card-icon-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-radius: 3px;
+  transition: background-color var(--transition-fast);
+}
+
+.stream-card-icon-link:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.stream-card-icon-link:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* StreamCardTable toolbar */
+.stream-card-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stream-card-table-toolbar-group {
+  position: relative;
+}
+
+.stream-card-btn--active-subtle {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Dropdown shared styles */
+.stream-card-dropdown {
+  min-width: 140px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-shadow: var(--shadow-md);
+  padding: 4px 0;
+}
+
+.stream-card-dropdown-actions {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.stream-card-dropdown-actions button {
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.stream-card-dropdown-actions button:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.stream-card-dropdown-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.stream-card-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.stream-card-dropdown-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.stream-card-dropdown-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 11px;
+  border: none;
+  background: none;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.stream-card-dropdown-action-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.stream-card-dropdown-action-btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.stream-card-dropdown-action-btn--danger {
+  color: var(--color-error);
+}
+
+.stream-card-dropdown-action-btn--danger:hover {
+  background: var(--color-surface-error, var(--color-bg-hover));
+}
+
+/* ── Pop-out page (standalone window via window.open) ── */
+.stream-card-popout-page {
+  height: 100vh;
+  padding: 12px;
+  background: var(--color-background);
+  display: flex;
+  flex-direction: column;
+}
+
+.stream-card-popout-page .stream-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Remove table max-height cap in popout window — fill available space */
+.stream-card-popout-page .stream-card-table-wrapper {
+  max-height: none;
+  flex: 1;
+}
+
+.stream-card-popout-page .stream-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }

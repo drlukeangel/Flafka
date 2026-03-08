@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 interface Message {
   id: number;
@@ -38,6 +39,7 @@ const TOTAL_PHASES = 7;
 export function KafkaBasicsAnimation() {
   const [phase, setPhase] = useState(0);
   const [animProgress, setAnimProgress] = useState(0);
+  const { paused } = useAnimationSpeed();
 
   // Track offsets per partition
   const [offsets, setOffsets] = useState([0, 0, 0]);
@@ -60,6 +62,7 @@ export function KafkaBasicsAnimation() {
     };
 
     const tick = () => {
+      if (paused) { frameId = requestAnimationFrame(tick); return; }
       const elapsed = Date.now() - startTime;
       const phaseIndex = Math.floor(elapsed / PHASE_DURATION);
       const phaseProgress = (elapsed % PHASE_DURATION) / PHASE_DURATION;
@@ -130,7 +133,7 @@ export function KafkaBasicsAnimation() {
 
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, []);
+  }, [paused]);
 
   // Compute animated message position
   const getAnimatingMessage = (): AnimatingMessage[] => {

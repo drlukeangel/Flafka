@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationTick } from './useAnimationTick';
 
 /**
  * SessionWindowAnimation
@@ -16,7 +16,6 @@ import './animations.css';
 // Constants
 // ---------------------------------------------------------------------------
 
-const TICK_MS = 50;
 const PHASE_TICKS = 26; // ~1.3s per phase
 const TOTAL_PHASES = 8;
 const CYCLE_TICKS = TOTAL_PHASES * PHASE_TICKS;
@@ -95,14 +94,7 @@ function gapColor(t: number): string {
 // ---------------------------------------------------------------------------
 
 export function SessionWindowAnimation() {
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setTick((prev) => (prev + 1) % CYCLE_TICKS);
-    }, TICK_MS);
-    return () => clearInterval(id);
-  }, []);
+  const tick = useAnimationTick(CYCLE_TICKS);
 
   const phase = Math.floor(tick / PHASE_TICKS);
   const phaseProgress = (tick % PHASE_TICKS) / PHASE_TICKS;
@@ -234,11 +226,7 @@ export function SessionWindowAnimation() {
   };
 
   return (
-    <div className="concept-animation">
-      <h4 style={{ color: 'var(--color-text-primary)', margin: '0 0 8px 0', fontSize: 14, fontWeight: 600 }}>
-        Session Windows: Activity-Based, Dynamic Boundaries
-      </h4>
-
+    <div>
       <svg
         viewBox="0 0 560 320"
         style={{ width: '100%', height: 'auto' }}
@@ -250,6 +238,12 @@ export function SessionWindowAnimation() {
             <feGaussianBlur stdDeviation="3" result="b" />
             <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
+          <marker id="sw-arr-r" markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto">
+            <path d="M0,0 L5,2.5 L0,5 Z" fill="rgba(255,255,255,0.5)" />
+          </marker>
+          <marker id="sw-arr-l" markerWidth="5" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+            <path d="M0,0 L5,2.5 L0,5 Z" fill="rgba(255,255,255,0.5)" />
+          </marker>
         </defs>
 
         {/* ── CONFIG BADGE ── */}

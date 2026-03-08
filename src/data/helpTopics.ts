@@ -275,14 +275,16 @@ export const helpTopics: HelpTopic[] = [
       { type: 'list', text: 'Getting started:' },
       { type: 'list-item', text: 'Click the Activity icon in the Tools section of the navigation rail' },
       { type: 'list-item', text: 'Search and select topics using the checkboxes (max 5)' },
-      { type: 'list-item', text: 'Click Fetch on a stream card to load messages' },
+      { type: 'list-item', text: 'Click the Fetch icon on a stream card to load messages' },
       { type: 'list-item', text: 'Use the partition filter to narrow results' },
+      { type: 'list-item', text: 'Use the \u22ee menu for actions like Duplicate, View Topic, View Schema, and Remove' },
       { type: 'paragraph', text: 'The Streams panel opens on the right side of the screen, independent of the left navigation panel. You can have Topics or Schemas open on the left while monitoring streams on the right.' },
       { type: 'list', text: 'Key features:' },
       { type: 'list-item', text: 'Background Flink SQL queries fetch messages with metadata (timestamp, partition, offset, key)' },
       { type: 'list-item', text: 'Client-side partition filtering' },
-      { type: 'list-item', text: 'Configurable row limits (10, 25, 50, or 100 rows)' },
       { type: 'list-item', text: 'Closing the panel cancels all background queries automatically' },
+      { type: 'list-item', text: 'Click the Reset button to clear output and stop auto-refresh' },
+      { type: 'list-item', text: 'Collapsed cards show message count and LIVE status badges in the header' },
     ],
   },
   {
@@ -297,10 +299,12 @@ export const helpTopics: HelpTopic[] = [
       { type: 'paragraph', text: 'Each stream card has a built-in synthetic data producer that generates and sends test messages based on the topic schema.' },
       { type: 'list', text: 'How to use:' },
       { type: 'list-item', text: 'Open the Streams panel and select a topic' },
-      { type: 'list-item', text: 'Click the Play button on the stream card' },
+      { type: 'list-item', text: 'Switch to Produce mode using the toggle in the card header, then click Start' },
       { type: 'list-item', text: 'The producer looks up the topic schema from the Schema Registry' },
       { type: 'list-item', text: 'Messages are produced at 1 per second with unique keys' },
       { type: 'list-item', text: 'Click the Stop button to halt production' },
+      { type: 'list-item', text: 'Switch data source to Dataset to produce from pre-built test datasets' },
+      { type: 'list-item', text: 'The data source dropdown next to Start lets you choose between Synthetic and Dataset modes' },
       { type: 'paragraph', text: 'The producer supports Avro and JSON Schema types. It uses field name heuristics to generate realistic data: ID fields get UUIDs, name fields get fake names, email fields get fake emails, and date fields get ISO timestamps.' },
       { type: 'list', text: 'Important notes:' },
       { type: 'list-item', text: 'A schema must exist for the topic (subject: {topicName}-value) or you will see "No schema found"' },
@@ -325,6 +329,9 @@ export const helpTopics: HelpTopic[] = [
       { type: 'list-item', text: '_key — Message key (truncated to 8 characters)' },
       { type: 'list-item', text: 'Value columns — Remaining fields from the message, with JSON values expandable' },
       { type: 'paragraph', text: 'Messages are sorted newest-first by timestamp. Click the expand button on any JSON value to open the JSON viewer with copy support.' },
+      { type: 'list', text: 'Results bar:' },
+      { type: 'list-item', text: 'Columns button — toggle column visibility with Show All / Hide All' },
+      { type: 'list-item', text: 'Export button — download as CSV or JSON, or copy as Markdown' },
     ],
   },
 
@@ -332,10 +339,44 @@ export const helpTopics: HelpTopic[] = [
   // Jobs Page Help Topics (2 entries)
   // ============================================================================
   {
+    id: 'stream-card-controls',
+    title: 'What do the stream card controls do?',
+    category: 'sidebar',
+    sortOrder: 7,
+    keywords: ['stream', 'card', 'reset', 'export', 'columns', 'live', 'start', 'stop', 'collapse', 'menu', 'ellipsis', 'actions', 'produce', 'consume', 'mode'],
+    relatedTopicIds: ['stream-monitor', 'stream-producer', 'stream-card-table'],
+    content: [
+      { type: 'heading', text: 'Stream Card Controls' },
+      { type: 'paragraph', text: 'Each stream card has controls for consuming, producing, and managing message output.' },
+      { type: 'list', text: 'Consumer controls:' },
+      { type: 'list-item', text: 'Fetch (icon) — One-shot message fetch using background Flink SQL' },
+      { type: 'list-item', text: 'Live / Stop (icon) — Continuous auto-refresh every 3 seconds' },
+      { type: 'list-item', text: 'Clear (eraser icon) — Clears all output, stops auto-refresh, cancels the server-side statement' },
+      { type: 'list-item', text: 'Earliest / Latest — Controls the scan startup mode for message fetch' },
+      { type: 'list', text: 'Producer controls:' },
+      { type: 'list-item', text: 'Start / Stop — Produces synthetic or dataset records at 1 per second' },
+      { type: 'list-item', text: 'Synthetic / Dataset — Choose data source for producing' },
+      { type: 'list-item', text: 'Burst — Send all dataset records at once' },
+      { type: 'list-item', text: 'Loop — Continuously repeat dataset records' },
+      { type: 'list', text: 'Results bar:' },
+      { type: 'list-item', text: 'Results toggle — Show/hide the message table' },
+      { type: 'list-item', text: 'Columns — Toggle column visibility (Show All / Hide All)' },
+      { type: 'list-item', text: 'Export — Download as CSV or JSON, or copy as Markdown' },
+      { type: 'list', text: 'Card controls:' },
+      { type: 'list-item', text: '\u22ee Menu — Opens card actions dropdown' },
+      { type: 'list-item', text: 'Consume / Produce — Mode toggle in the card header' },
+      { type: 'list-item', text: 'Collapse — Minimizes the card. Shows message count and LIVE badge when collapsed' },
+      { type: 'list-item', text: 'Duplicate — Creates a copy of the stream card (in \u22ee menu)' },
+      { type: 'list-item', text: 'View Topic — Navigate to topic detail panel (in \u22ee menu)' },
+      { type: 'list-item', text: 'View Schema — Navigate to schema detail panel (in \u22ee menu)' },
+      { type: 'list-item', text: 'Remove — Stops all activity and removes the card (in \u22ee menu)' },
+    ],
+  },
+  {
     id: 'jobs-managing-statements',
     title: 'How do I manage running Flink statements?',
     category: 'sidebar',
-    sortOrder: 7,
+    sortOrder: 8,
     keywords: ['jobs', 'statements', 'manage', 'running', 'stop', 'cancel', 'list', 'flink'],
     relatedTopicIds: ['jobs-load-workspace', 'faq-rerun-statements'],
     content: [
@@ -355,7 +396,7 @@ export const helpTopics: HelpTopic[] = [
     id: 'jobs-load-workspace',
     title: 'How do I load a job\'s SQL into the workspace?',
     category: 'sidebar',
-    sortOrder: 8,
+    sortOrder: 9,
     keywords: ['jobs', 'load', 'workspace', 'sql', 'reuse', 'copy', 'editor'],
     relatedTopicIds: ['jobs-managing-statements', 'faq-rerun-statements'],
     content: [
@@ -663,7 +704,7 @@ export const helpTopics: HelpTopic[] = [
   },
 
   // ============================================================================
-  // ksqlDB (3 entries)
+  // ksqlDB (5 entries)
   // ============================================================================
   {
     id: 'ksqldb-vs-flink',
@@ -721,6 +762,114 @@ export const helpTopics: HelpTopic[] = [
       { type: 'heading', text: 'Behavior' },
       { type: 'list', text: 'Earliest — reads from the beginning of the topic (auto.offset.reset=earliest)' },
       { type: 'list', text: 'Latest — reads only new messages arriving after the query starts (auto.offset.reset=latest)' },
+    ],
+  },
+
+  // ============================================================================
+  // ksqlDB (2 entries)
+  // ============================================================================
+  {
+    id: 'ksqldb-manage-queries',
+    title: 'How do I manage ksqlDB persistent queries?',
+    category: 'ksqldb',
+    sortOrder: 1,
+    keywords: ['ksqldb', 'queries', 'persistent', 'manage', 'terminate', 'CSAS', 'CTAS', 'list'],
+    relatedTopicIds: ['ksqldb-dashboard'],
+    content: [
+      {
+        type: 'heading',
+        text: 'ksqlDB Queries Page',
+      },
+      {
+        type: 'paragraph',
+        text: 'Navigate to the ksqlDB Queries page using the "ksqlDB Queries" item in the left navigation rail. This page shows all persistent queries running on your ksqlDB cluster.',
+      },
+      {
+        type: 'heading',
+        text: 'Features',
+      },
+      {
+        type: 'list',
+        text: 'Available actions:',
+      },
+      {
+        type: 'list-item',
+        text: 'Search — filter queries by ID or SQL content',
+      },
+      {
+        type: 'list-item',
+        text: 'Status filter — show only RUNNING, PAUSED, or ERROR queries',
+      },
+      {
+        type: 'list-item',
+        text: 'Terminate — stop a running persistent query',
+      },
+      {
+        type: 'list-item',
+        text: 'Bulk terminate — select multiple queries and terminate them at once',
+      },
+      {
+        type: 'list-item',
+        text: 'Load in Workspace — copy a query\'s SQL into a new ksqlDB editor cell',
+      },
+      {
+        type: 'heading',
+        text: 'Deep Linking',
+      },
+      {
+        type: 'paragraph',
+        text: 'You can link directly to a specific query using the URL pattern /ksql-queries/{queryId}. The query ID is the identifier shown in the list (e.g., CSAS_MY_STREAM_0).',
+      },
+    ],
+  },
+  {
+    id: 'ksqldb-dashboard',
+    title: 'What is the ksqlDB dashboard?',
+    category: 'ksqldb',
+    sortOrder: 2,
+    keywords: ['ksqldb', 'dashboard', 'badge', 'panel', 'monitor', 'running'],
+    relatedTopicIds: ['ksqldb-manage-queries'],
+    content: [
+      {
+        type: 'heading',
+        text: 'ksqlDB Dashboard',
+      },
+      {
+        type: 'paragraph',
+        text: 'The ksqlDB dashboard is a push-down panel that shows your persistent queries at a glance. Click the "ksqlDB" badge in the header bar to toggle it open.',
+      },
+      {
+        type: 'heading',
+        text: 'What it shows',
+      },
+      {
+        type: 'list',
+        text: 'The dashboard displays:',
+      },
+      {
+        type: 'list-item',
+        text: 'Query ID and current status (RUNNING, PAUSED, ERROR)',
+      },
+      {
+        type: 'list-item',
+        text: 'Query type (CREATE STREAM AS, CREATE TABLE AS, INSERT INTO)',
+      },
+      {
+        type: 'list-item',
+        text: 'SQL preview and output sink topic',
+      },
+      {
+        type: 'paragraph',
+        text: 'The dashboard auto-refreshes every 30 seconds while open. You can also click the refresh button for an immediate update.',
+      },
+      {
+        type: 'heading',
+        text: 'Mutual Exclusion',
+      },
+      {
+        type: 'paragraph',
+        text: 'Only one dashboard can be open at a time. Opening the ksqlDB dashboard will automatically close the Compute Pool dashboard, and vice versa.',
+      },
     ],
   },
 ];

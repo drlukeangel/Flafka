@@ -5,9 +5,10 @@ import { ExpandableJsonPane } from '../shared/ExpandableJsonPane';
 interface StreamCardTableProps {
   data: Record<string, unknown>[];
   columns: Column[];
+  hiddenColumns: Set<string>;
 }
 
-export function StreamCardTable({ data, columns }: StreamCardTableProps) {
+export function StreamCardTable({ data, columns, hiddenColumns }: StreamCardTableProps) {
   const [expandedCell, setExpandedCell] = useState<string | null>(null);
   const [expandedCellRect, setExpandedCellRect] = useState<DOMRect | null>(null);
   const [expandedCellValue, setExpandedCellValue] = useState<unknown>(null);
@@ -26,7 +27,8 @@ export function StreamCardTable({ data, columns }: StreamCardTableProps) {
   const valueCols = columns
     .map((c) => c.name)
     .filter((name) => !metaCols.includes(name));
-  const displayCols = [...metaCols.filter((c) => columns.some((col) => col.name === c)), ...valueCols];
+  const allColumnNames = [...metaCols.filter((c) => columns.some((col) => col.name === c)), ...valueCols];
+  const displayCols = allColumnNames.filter((c) => !hiddenColumns.has(c));
 
   const formatTimestamp = (val: unknown): string => {
     if (!val) return '';
@@ -111,7 +113,8 @@ export function StreamCardTable({ data, columns }: StreamCardTableProps) {
                         <button
                           className="stream-cell-expand-btn"
                           onClick={(e) => handleExpandClick(e, cellKey, val)}
-                          title="Expand JSON"
+                          title={expandedCell === cellKey ? 'Collapse JSON' : 'Expand JSON'}
+                          aria-label={expandedCell === cellKey ? 'Collapse JSON value' : 'Expand JSON value'}
                         >
                           {expandedCell === cellKey ? '▲' : '▼'}
                         </button>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 interface AnimationState {
   phase: number;
@@ -17,7 +18,7 @@ interface Particle {
 }
 
 const PHASE_COUNT = 8;
-const TICKS_PER_PHASE = 30; // ~1.5s at 50ms
+const TICKS_PER_PHASE = 52; // ~2.6s at 50ms
 const TOTAL_TICKS = PHASE_COUNT * TICKS_PER_PHASE;
 
 function easeInOutCubic(t: number): number {
@@ -64,11 +65,13 @@ export function ConfluentArchitectureAnimation() {
     tick: 0,
     particles: [],
   });
+  const { paused } = useAnimationSpeed();
 
   useEffect(() => {
     let particleIdCounter = 0;
 
     const interval = setInterval(() => {
+      if (paused) return;
       setState((prev) => {
         const nextTick = prev.tick + 1;
         const globalTick = nextTick >= TOTAL_TICKS ? 0 : nextTick;
@@ -125,7 +128,7 @@ export function ConfluentArchitectureAnimation() {
     }, 50);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [paused]);
 
   const { phase, tick, particles } = state;
   const phaseTick = tick % TICKS_PER_PHASE;

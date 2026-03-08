@@ -53,7 +53,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'name' }), makeColumn({ name: 'age' })]
       const data = [makeRow({ name: 'Alice', age: 30 })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByRole('table')).toBeInTheDocument()
       expect(screen.getAllByRole('rowgroup')).toHaveLength(2) // thead, tbody
@@ -67,7 +67,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       ]
       const data = [makeRow({ value: 'test' })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const headers = screen.getAllByRole('columnheader')
       // headers[0] is the row number '#' column
@@ -86,7 +86,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       ]
       const data = [makeRow()]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByText('_ts')).toBeInTheDocument()
       expect(screen.getByText('_partition')).toBeInTheDocument()
@@ -98,7 +98,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'name' })]
       const data = [makeRow({ name: 'Alice' }), makeRow({ name: 'Bob' }), makeRow({ name: 'Charlie' })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByText('Alice')).toBeInTheDocument()
       expect(screen.getByText('Bob')).toBeInTheDocument()
@@ -115,7 +115,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: '_ts' })]
       const data = [makeRow({ _ts: '2026-03-01T14:30:45Z' })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       // Should render table with timestamp
       expect(screen.getByRole('table')).toBeInTheDocument()
@@ -128,7 +128,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: '_ts' })]
       const data = [makeRow({ _ts: null })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByRole('table')).toBeInTheDocument()
     })
@@ -138,7 +138,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const longText = 'a'.repeat(50)
       const data = [makeRow({ text: longText })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByText(/a+\.\.\./)).toBeInTheDocument()
     })
@@ -147,7 +147,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: '_key' })]
       const data = [makeRow({ _key: 'test-key' })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByRole('table')).toBeInTheDocument()
     })
@@ -156,7 +156,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'value' })]
       const data = [makeRow({ value: null })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByText('null')).toBeInTheDocument()
     })
@@ -166,7 +166,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const obj = { key: 'value', nested: { prop: 123 } }
       const data = [makeRow({ metadata: obj })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       // Should render JSON representation
       expect(screen.getByText(/\{.*\}/)).toBeInTheDocument()
@@ -186,7 +186,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
         makeRow({ _ts: '2026-03-01T15:00:00Z' }),
       ]
 
-      const { container } = render(<StreamCardTable data={data} columns={columns} />)
+      const { container } = render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       // Should render all 3 rows
       const rows = container.querySelectorAll('tbody tr')
@@ -201,7 +201,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
         makeRow({ _ts: '2026-03-01T10:00:00Z' }),
       ]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       // Should not crash, renders all rows
       expect(screen.getAllByRole('row')).toHaveLength(4) // 1 header + 3 data rows
@@ -217,7 +217,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'data' })]
       const data = [makeRow({ data: { nested: 'value' } })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       // Should have expand/collapse button
       const expandBtn = screen.getByTitle('Expand JSON')
@@ -231,7 +231,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       ]
       const data = [makeRow({ text: 'simple', number: 42 })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const expandBtns = screen.queryAllByTitle('Expand JSON')
       expect(expandBtns).toHaveLength(0)
@@ -242,7 +242,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'data' })]
       const data = [makeRow({ data: { key: 'value' } })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const expandBtn = screen.getByTitle('Expand JSON')
       await user.click(expandBtn)
@@ -256,7 +256,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'data' })]
       const data = [makeRow({ data: { key: 'value' } })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const expandBtn = screen.getByTitle('Expand JSON')
       // Open
@@ -273,7 +273,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'data' })]
       const data = [makeRow({ data: { key: 'value' } })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const expandBtn = screen.getByTitle('Expand JSON')
       await user.click(expandBtn)
@@ -292,7 +292,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const jsonData = { nested: { prop: 'value' }, array: [1, 2, 3] }
       const data = [makeRow({ data: jsonData })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const expandBtn = screen.getByTitle('Expand JSON')
       await user.click(expandBtn)
@@ -318,7 +318,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       ]
       const data = [makeRow()]
 
-      const { container } = render(<StreamCardTable data={data} columns={columns} />)
+      const { container } = render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const cols = container.querySelectorAll('col')
       // cols[0] is the row number column (28px), metadata starts at index 1
@@ -333,7 +333,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'custom_col' })]
       const data = [makeRow({ custom_col: 'value' })]
 
-      const { container } = render(<StreamCardTable data={data} columns={columns} />)
+      const { container } = render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       const cols = container.querySelectorAll('col')
       // cols[0] is the row number column (28px), cols[1] is the custom column
@@ -350,7 +350,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'value' })]
       const data: Record<string, unknown>[] = []
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByRole('table')).toBeInTheDocument()
     })
@@ -359,7 +359,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: '_ts' }), makeColumn({ name: 'value' })]
       const data = [makeRow()]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByRole('table')).toBeInTheDocument()
       expect(screen.getByText('_ts')).toBeInTheDocument()
@@ -375,7 +375,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'value' })]
       const data = [makeRow()]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByRole('table')).toBeInTheDocument()
       expect(screen.getAllByRole('rowgroup')).toHaveLength(2)
@@ -385,7 +385,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: 'test_col' })]
       const data = [makeRow({ test_col: 'value' })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       expect(screen.getByTitle('test_col')).toBeInTheDocument()
     })
@@ -394,7 +394,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
       const columns = [makeColumn({ name: '_ts' })]
       const data = [makeRow({ _ts: '2026-03-01T12:00:00Z' })]
 
-      render(<StreamCardTable data={data} columns={columns} />)
+      render(<StreamCardTable data={data} columns={columns} hiddenColumns={new Set()} />)
 
       // Formatted time should have title with full timestamp
       const timeCell = screen.getByTitle('2026-03-01T12:00:00Z')
@@ -414,7 +414,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
         makeRow({ _ts: '2026-03-01T20:00:00Z' }),
       ]
 
-      const { rerender, container } = render(<StreamCardTable data={data1} columns={columns} />)
+      const { rerender, container } = render(<StreamCardTable data={data1} columns={columns} hiddenColumns={new Set()} />)
 
       // Verify initial render
       let rows = container.querySelectorAll('tbody tr')
@@ -427,7 +427,7 @@ describe('[@stream-card-table] StreamCardTable', () => {
         makeRow({ _ts: '2026-03-01T30:00:00Z' }),
       ]
 
-      rerender(<StreamCardTable data={data2} columns={columns} />)
+      rerender(<StreamCardTable data={data2} columns={columns} hiddenColumns={new Set()} />)
 
       // Should render with new number of rows
       rows = container.querySelectorAll('tbody tr')

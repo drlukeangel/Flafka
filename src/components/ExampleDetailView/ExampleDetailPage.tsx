@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { FiCopy, FiCheck, FiPlay, FiChevronDown, FiArrowRight, FiDatabase, FiBookOpen, FiHelpCircle, FiTerminal, FiList, FiX } from 'react-icons/fi';
+import { FiCopy, FiCheck, FiPlay, FiChevronDown, FiArrowRight, FiChevronRight, FiDatabase, FiBookOpen, FiHelpCircle, FiTerminal, FiList, FiX } from 'react-icons/fi';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useLearnStore } from '../../store/learnStore';
 import { getExampleCards } from '../../data/exampleCards';
+import { learningTracks } from '../../data/learningTracks';
 import { DataFlowDiagram } from './DataFlowDiagram';
 import { SqlHighlight } from './SqlHighlight';
 import { ConceptAnimation } from '../LearnPanel/animations/ConceptAnimation';
@@ -15,63 +16,70 @@ import './ExampleDetailPage.css';
  * replaces the static DataFlowDiagram in the hero section.
  */
 const EXAMPLE_ANIMATION: Record<string, ConceptAnimationType> = {
-  'kafka-produce-consume': 'kafka-basics',
-  'kafka-startup-modes': 'startup-modes',
-  'kafka-changelog-modes': 'changelog-modes',
-  'kafka-value-formats': 'schema-governance',
-  'kafka-schema-evolution': 'schema-governance',
+  // --- Kafka ---
+  'kafka-produce-consume':      'kafka-basics',
+  'kafka-startup-modes':        'startup-modes',
+  'kafka-changelog-modes':      'changelog-modes',
+  'kafka-value-formats':        'schema-governance',
+  'kafka-schema-evolution':     'schema-governance',
+  // --- Confluent ---
   'confluent-connector-bridge': 'confluent-architecture',
-  'hello-flink': 'flink-basics',
-  'loan-aggregate': 'tumble-window',
-  'loan-hop-window': 'hop-window',
-  'loan-late-payments': 'watermark',
-  'loan-time-range-stats': 'watermark',
-  'loan-join': 'join-match',
-  'loan-temporal-join': 'join-match',
-  'loan-interval-join': 'join-match',
-  'loan-stream-enrichment': 'join-match',
-  'loan-property-lookup': 'join-match',
-  'loan-dedup': 'state-accumulate',
-  'loan-cdc-pipeline': 'state-accumulate',
-  'loan-running-aggregate': 'state-accumulate',
-  'loan-change-detection': 'state-accumulate',
-  'loan-pattern-match': 'state-accumulate',
-  'loan-borrower-payments': 'state-accumulate',
-  'loan-schemaless-topic': 'schema-governance',
-  'loan-schema-override': 'schema-governance',
-
-  // New animation types
-  'loan-session-window': 'session-window',
-  'loan-cumulate-window': 'cumulate-window',
-
-  // SQL transformation / filtering patterns → flink-basics
-  'good-jokes': 'flink-basics',
-  'hello-ksqldb': 'flink-basics',
-  'ksql-dynamic-routing': 'flink-basics',
-  'ksql-dynamic-routing-json': 'flink-basics',
-  'loan-filter': 'flink-basics',
-  'loan-coborrower-unnest': 'flink-basics',
-  'loan-data-masking': 'flink-basics',
-  'loan-event-fanout': 'flink-basics',
-  'loan-routing-json': 'flink-basics',
-  'loan-routing-avro': 'flink-basics',
-  'loan-pii-masking': 'flink-basics',
-  'loan-scalar-extract': 'flink-basics',
-  'loan-table-explode': 'flink-basics',
-  'loan-tradeline-java': 'flink-basics',
-  'loan-validation': 'flink-basics',
-
-  // Stateful aggregation / ranking → state-accumulate
-  'loan-aggregate-udf': 'state-accumulate',
-  'loan-async-enrichment': 'state-accumulate',
-  'loan-top-n': 'state-accumulate',
-  'view-ai-drift': 'state-accumulate',
-  'view-credit-risk': 'state-accumulate',
-  'view-golden-record': 'state-accumulate',
-
-  // Specific animation types
-  'loan-multi-region-merge': 'confluent-architecture',
-  'view-early-warning': 'watermark',
+  // --- Basics ---
+  'hello-flink':                'flink-basics',
+  'hello-ksqldb':               'ksql-stream',
+  'ksql-dynamic-routing':       'dynamic-routing',
+  'ksql-dynamic-routing-json':  'dynamic-routing',
+  'good-jokes':                 'filter-stream',
+  'loan-filter':                'filter-stream',
+  'loan-coborrower-unnest':     'array-unnest',
+  'loan-multi-region-merge':    'union-merge',
+  'loan-event-fanout':          'fan-out',
+  // --- Windows ---
+  'loan-aggregate':             'tumble-window',
+  'loan-hop-window':            'hop-window',
+  'loan-session-window':        'session-window',
+  'loan-top-n':                 'top-n',
+  'loan-cumulate-window':       'cumulate-window',
+  'loan-late-payments':         'watermark',
+  // --- Joins ---
+  'loan-join':                  'join-match',
+  'loan-temporal-join':         'temporal-join',
+  'loan-property-lookup':       'property-lookup',
+  'loan-borrower-payments':     'temporal-join',
+  'loan-routing-json':          'dynamic-routing',
+  'loan-routing-avro':          'dynamic-routing',
+  // --- Stateful ---
+  'loan-dedup':                 'dedup-stream',
+  'loan-cdc-pipeline':          'cdc-pipeline',
+  'loan-running-aggregate':     'over-window',
+  'loan-change-detection':      'change-detection',
+  'loan-pattern-match':         'pattern-match',
+  'loan-interval-join':         'interval-join',
+  'loan-stream-enrichment':     'temporal-join',
+  'loan-time-range-stats':      'over-window',
+  // --- Schema ---
+  'loan-schemaless-topic':      'schema-raw',
+  'loan-schema-override':       'schema-raw',
+  // --- Data Masking ---
+  'loan-data-masking':          'pii-mask',
+  // --- UDFs ---
+  'loan-scalar-extract':        'udf-transform',
+  'loan-tradeline-java':        'tradeline-explode',
+  'loan-table-explode':         'tradeline-explode',
+  'loan-aggregate-udf':         'udf-transform',
+  'loan-validation':            'data-validation',
+  'loan-pii-masking':           'pii-mask',
+  'loan-async-enrichment':      'data-validation',
+  // --- Views ---
+  'view-golden-record':         'materialized-view',
+  'view-credit-risk':           'tumble-window',
+  'view-ai-drift':              'change-detection',
+  'view-early-warning':         'watermark',
+  'view-mbs-pricing':           'temporal-join',
+  // --- Legacy ---
+  'loan-metadata-routing':      'startup-modes',
+  'loan-dynamic-routing':       'dynamic-routing',
+  'flink-udf-routing':          'udf-transform',
 };
 
 function stepsToNotes(modal: Omit<ExampleCompletionModal, 'title'>): string {
@@ -393,7 +401,9 @@ export function ExampleDetailPage() {
           {/* Hero visual — bespoke animation if available, else DataFlowDiagram */}
           {card.id && EXAMPLE_ANIMATION[card.id] ? (
             <div className="edp__hero-diagram">
-              <ConceptAnimation type={EXAMPLE_ANIMATION[card.id]} />
+              <div style={{ width: '100%' }}>
+                <ConceptAnimation type={EXAMPLE_ANIMATION[card.id]} />
+              </div>
             </div>
           ) : doc.dataFlow ? (
             <div className="edp__hero-diagram">
@@ -531,7 +541,7 @@ export function ExampleDetailPage() {
 
             {/* What Happens If... */}
             {doc.whatHappensIf && doc.whatHappensIf.length > 0 && (
-              <CollapsibleSection title="What Happens If..." icon={<FiHelpCircle size={16} />} accentColor="var(--color-error)">
+              <CollapsibleSection title="What Happens If..." icon={<FiHelpCircle size={16} />} defaultOpen accentColor="var(--color-error)">
                 <div className="edp__qa-list">
                   {doc.whatHappensIf.map((qa, i) => (
                     <div key={i} className="edp__qa">
@@ -571,6 +581,26 @@ export function ExampleDetailPage() {
           </button>
         )}
 
+        {/* Bottom Set Up — mirrors hero button for easy access after reading docs */}
+        {card.onImport && !card.comingSoon && (
+          <div style={{ padding: '8px 0 0' }}>
+            <button
+              className="edp__btn edp__btn--setup"
+              onClick={() => handleSetUp(card)}
+              disabled={setupRunning}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              <FiPlay size={14} />
+              {setupRunning ? setupStep || 'Setting up...' : 'Set Up Environment'}
+            </button>
+            {setupRunning && setupStep && (
+              <p style={{ margin: '6px 0 0', fontSize: 12, color: 'var(--color-text-secondary)', fontStyle: 'italic' }}>
+                {setupStep}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Mark Complete — only visible when navigating from a track */}
         <MarkCompleteButton exampleId={card.id} />
       </div>
@@ -580,10 +610,40 @@ export function ExampleDetailPage() {
 
 function MarkCompleteButton({ exampleId }: { exampleId: string }) {
   const selectedTrackId = useLearnStore((s) => s.selectedTrackId);
+  const currentLessonId = useLearnStore((s) => s.currentLessonId);
   const isComplete = useLearnStore((s) => s.progress.completedExamples.includes(exampleId));
   const markExampleComplete = useLearnStore((s) => s.markExampleComplete);
+  const setCurrentLesson = useLearnStore((s) => s.setCurrentLesson);
+  const navigateToExampleDetail = useWorkspaceStore((s) => s.navigateToExampleDetail);
 
-  if (!selectedTrackId) return null;
+  // Find track + next lesson for navigation (only when in a track context)
+  const track = selectedTrackId ? learningTracks.find((t) => t.id === selectedTrackId) : undefined;
+  const lessonIndex = track && currentLessonId
+    ? track.lessons.findIndex((l) => l.id === currentLessonId)
+    : -1;
+  const nextLesson = lessonIndex >= 0 ? track!.lessons[lessonIndex + 1] : undefined;
+
+  const inTrack = !!selectedTrackId;
+
+  // Not in a track context — show nothing
+  if (!inTrack) return null;
+
+  const handleCloseAndComplete = () => {
+    markExampleComplete(exampleId);
+    navigateToExampleDetail(null);
+  };
+
+  const handleCompleteAndNext = nextLesson
+    ? () => {
+        markExampleComplete(exampleId);
+        if (nextLesson.type === 'example' && nextLesson.exampleId) {
+          setCurrentLesson(nextLesson.id);
+          navigateToExampleDetail(nextLesson.exampleId);
+        } else {
+          navigateToExampleDetail(null);
+        }
+      }
+    : undefined;
 
   return (
     <div className="edp__mark-complete">
@@ -591,15 +651,27 @@ function MarkCompleteButton({ exampleId }: { exampleId: string }) {
         <div className="edp__mark-complete-done">
           <FiCheck size={16} />
           <span>Example Complete</span>
+          <button
+            className="concept-lesson__close-btn"
+            style={{ marginLeft: 12 }}
+            onClick={() => navigateToExampleDetail(null)}
+          >
+            Back to Track
+          </button>
         </div>
       ) : (
-        <button
-          className="edp__mark-complete-btn"
-          onClick={() => markExampleComplete(exampleId)}
-        >
-          <FiCheck size={16} />
-          <span>Mark as Complete</span>
-        </button>
+        <div className="concept-lesson__footer">
+          <button className="concept-lesson__close-btn" onClick={handleCloseAndComplete}>
+            <FiCheck size={16} />
+            <span>Close &amp; Complete</span>
+          </button>
+          {handleCompleteAndNext && (
+            <button className="concept-lesson__complete-btn" onClick={handleCompleteAndNext}>
+              <span>Complete &amp; Next</span>
+              <FiChevronRight size={16} />
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

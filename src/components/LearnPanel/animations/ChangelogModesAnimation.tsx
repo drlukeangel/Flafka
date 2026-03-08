@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 // ---------------------------------------------------------------------------
 //  Types
@@ -103,12 +104,14 @@ function buildUpsertRows(eventCount: number): TableRow[] {
 export function ChangelogModesAnimation() {
   const [phase, setPhase] = useState(0);
   const [animProgress, setAnimProgress] = useState(0);
+  const { paused } = useAnimationSpeed();
 
   useEffect(() => {
     let frameId: number;
     let startTime = Date.now();
 
     const tick = () => {
+      if (paused) { frameId = requestAnimationFrame(tick); return; }
       const elapsed = Date.now() - startTime;
       const phaseIndex = Math.floor(elapsed / PHASE_DURATION);
       const phaseProgress = (elapsed % PHASE_DURATION) / PHASE_DURATION;
@@ -128,7 +131,7 @@ export function ChangelogModesAnimation() {
 
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, []);
+  }, [paused]);
 
   // -----------------------------------------------------------------------
   //  Derive event count committed to tables per phase

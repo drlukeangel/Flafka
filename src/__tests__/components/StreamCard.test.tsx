@@ -64,28 +64,30 @@ describe('[@stream-card] StreamCard', () => {
 
   it('collapse toggle shows/hides card body', () => {
     render(<StreamCard cardId="test-topic" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={vi.fn()} />);
-    // Card body should be visible initially
-    expect(screen.getByText('Fetch')).toBeTruthy();
+    // Card body should be visible initially (SQL editor is in the body)
+    expect(screen.getByLabelText('SQL query')).toBeTruthy();
 
     // Click collapse
     const collapseBtn = screen.getByLabelText('Collapse card');
     fireEvent.click(collapseBtn);
 
-    // Body should be hidden — Fetch button gone
-    expect(screen.queryByText('Fetch')).toBeNull();
+    // Body should be hidden — SQL editor gone
+    expect(screen.queryByLabelText('SQL query')).toBeNull();
 
     // aria-expanded should change
     const expandBtn = screen.getByLabelText('Expand card');
     expect(expandBtn.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('remove button calls cancelBackgroundStatement and onRemove', () => {
+  it('remove via ⋮ menu calls cancelBackgroundStatement and onRemove', () => {
     const cancelSpy = vi.fn().mockResolvedValue(undefined);
     useWorkspaceStore.setState({ cancelBackgroundStatement: cancelSpy });
 
     render(<StreamCard cardId="test-topic" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={vi.fn()} />);
-    const removeBtn = screen.getByLabelText('Remove card');
-    fireEvent.click(removeBtn);
+    // Open ⋮ menu
+    fireEvent.click(screen.getByLabelText('Card actions'));
+    // Click Remove Card
+    fireEvent.click(screen.getByText('Remove Card'));
 
     expect(cancelSpy).toHaveBeenCalledWith('test-topic');
     expect(mockOnRemove).toHaveBeenCalled();
@@ -96,7 +98,7 @@ describe('[@stream-card] StreamCard', () => {
     useWorkspaceStore.setState({ executeBackgroundStatement: executeSpy });
 
     render(<StreamCard cardId="test-topic" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={vi.fn()} />);
-    const fetchBtn = screen.getByText('Fetch');
+    const fetchBtn = screen.getByLabelText('Fetch messages');
 
     await act(async () => {
       fireEvent.click(fetchBtn);
@@ -303,8 +305,8 @@ describe('[@stream-card] StreamCard', () => {
 
     render(<StreamCard cardId="test-topic" topicName="test-topic" onRemove={mockOnRemove} onDuplicate={vi.fn()} />);
 
-    // Should display message count
-    expect(screen.getByText('3 msgs')).toBeTruthy();
+    // Results bar should show count in toggle button
+    expect(screen.getByText(/Results.*3/)).toBeTruthy();
 
     // Table should show all 3 rows (no partition filter)
     expect(screen.getByText('rows: 3')).toBeTruthy();

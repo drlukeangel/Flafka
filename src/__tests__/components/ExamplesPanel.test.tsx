@@ -38,6 +38,9 @@ const {
   mockTabOrderRef: { current: ['tab-1'] as string[] },
 }));
 
+vi.mock('../../config/environment', () => ({
+  isKsqlConfigured: () => true,
+}));
 vi.mock('../../store/workspaceStore', () => {
   const store = {
     addStatement: mockAddStatement,
@@ -51,6 +54,7 @@ vi.mock('../../store/workspaceStore', () => {
     setWorkspaceNotes: mockSetWorkspaceNotes,
     addTab: mockAddTab,
     get tabOrder() { return mockTabOrderRef.current; },
+    ksqlFeatureEnabled: true,
   };
   const hook = (selector: (s: unknown) => unknown) =>
     typeof selector === 'function' ? selector(store) : store;

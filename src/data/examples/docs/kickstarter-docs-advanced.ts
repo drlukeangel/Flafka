@@ -1266,6 +1266,36 @@ GROUP BY source_system, event_type`,
   'view-credit-risk': {
     subtitle: 'Maintain a live credit risk score per borrower, updated with every new event.',
     businessContext: 'You are a product manager at a fintech lender. Your credit analysts refresh risk scores nightly from a batch job — but a borrower who misses a payment at 2pm won\'t show as high-risk until tomorrow morning. By then, another $50k loan may have been approved. Flink materializes a risk view that recalculates every borrower\'s score within seconds of a new payment, application, or delinquency event, giving underwriters a live dashboard instead of a 24-hour-old snapshot.',
+    sqlBlocks: [
+      {
+        label: 'Risk Concentration by ZIP',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-RISK-BY-ZIP\`
+SELECT
+  zip_code,
+  COUNT(*) AS loan_count,
+  SUM(upb) AS total_exposure,
+  CAST(AVG(upb) AS DOUBLE) AS avg_loan_size
+FROM \`EOT-PLATFORM-EXAMPLES-SECURITIZED-LOANS\`
+GROUP BY zip_code;`,
+      },
+      {
+        label: 'Flag High-Concentration ZIPs',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-RISK-BY-ZIP\`
+WHERE total_exposure > 1000000
+ORDER BY total_exposure DESC
+LIMIT 20;`,
+      },
+    ],
+    exampleInput: [
+      '{ loan_id: "L-001", zip_code: "90210", upb: 420000, status: "CURRENT" }',
+      '{ loan_id: "L-002", zip_code: "90210", upb: 380000, status: "CURRENT" }',
+      '{ loan_id: "L-003", zip_code: "30301", upb: 250000, status: "DELINQUENT" }',
+    ],
+    expectedOutput: [
+      '{ zip_code: "90210", loan_count: 2, total_exposure: 800000, avg_loan_size: 400000.0 }',
+      '{ zip_code: "30301", loan_count: 1, total_exposure: 250000, avg_loan_size: 250000.0 }',
+      '— View updates live: new loan arrives → ZIP row recomputes instantly.',
+    ],
     dataFlow: {
       layout: 'fan-in',
       nodes: [
@@ -1301,6 +1331,48 @@ GROUP BY source_system, event_type`,
   'view-early-warning': {
     subtitle: 'Fire a time-based alert when no expected event arrives within a deadline.',
     businessContext: 'You are an ops engineer at a payments company. When a payment is initiated, a confirmation event should arrive within 60 seconds. If it doesn\'t, the transaction may be stuck in a legacy system. Today you discover failures only through customer complaints hours later. Flink\'s watermark mechanism lets you detect absence: once the watermark advances past the 60-second deadline without seeing a confirmation, an alert fires automatically, long before any customer picks up the phone.',
+    sqlBlocks: [
+      {
+        label: 'Servicer Health (Delinquency Rate)',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-SERVICER-HEALTH\`
+SELECT
+  servicer_id,
+  window_start,
+  window_end,
+  total_payments,
+  delinquent_payments,
+  CAST(delinquent_payments AS DOUBLE) / total_payments * 100 AS delinquency_rate
+FROM (
+  SELECT
+    servicer_id,
+    DATE_FORMAT(window_start, 'yyyy-MM-dd HH:mm:ss') AS window_start,
+    DATE_FORMAT(window_end,   'yyyy-MM-dd HH:mm:ss') AS window_end,
+    COUNT(*) AS total_payments,
+    COUNT(*) FILTER (WHERE status = 'DELINQUENT') AS delinquent_payments
+  FROM TABLE(
+    TUMBLE(TABLE \`EOT-PLATFORM-EXAMPLES-PAYMENT-EVENTS\`,
+      DESCRIPTOR($rowtime), INTERVAL '30' SECOND)
+  )
+  GROUP BY servicer_id, window_start, window_end
+);`,
+      },
+      {
+        label: 'Servicers in the Red (>10% delinquency)',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-SERVICER-HEALTH\`
+WHERE delinquency_rate > 10.0
+ORDER BY delinquency_rate DESC
+LIMIT 20;`,
+      },
+    ],
+    exampleInput: [
+      '{ payment_id: "PMT-001", servicer_id: "SVC-A", status: "CURRENT",    amount: 1200 }',
+      '{ payment_id: "PMT-002", servicer_id: "SVC-A", status: "DELINQUENT", amount: 980 }',
+      '{ payment_id: "PMT-003", servicer_id: "SVC-A", status: "CURRENT",    amount: 1450 }',
+    ],
+    expectedOutput: [
+      '{ servicer_id: "SVC-A", window_start: "2026-03-08 10:00:00", window_end: "2026-03-08 10:00:30", total_payments: 3, delinquent_payments: 1, delinquency_rate: 33.33 }',
+      '→ SVC-A flags as red: delinquency_rate 33.33% exceeds 10% threshold.',
+    ],
     dataFlow: {
       layout: 'linear',
       nodes: [
@@ -1336,6 +1408,36 @@ GROUP BY source_system, event_type`,
   'view-golden-record': {
     subtitle: 'Collapse many partial records about the same entity into one authoritative row.',
     businessContext: 'You are a data engineer at a bank with three source systems: a core banking platform, a CRM, and an online portal. Each writes partial borrower data to Kafka — the CRM has the email, the core has the credit score, the portal has the address. Downstream BI tools need one complete borrower row, not three partial ones. Flink\'s LAST_VALUE with GROUP BY creates a "golden record": a continuously-updated view that always shows the most recent value for each field, from whichever source system last updated it. The result is a single topic that BI connects to with a simple SELECT *.',
+    sqlBlocks: [
+      {
+        label: 'Golden Record Job (LAST_VALUE merge)',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-LOAN-GOLDEN-RECORD\`
+SELECT
+  loan_id,
+  LAST_VALUE(status)          AS latest_status,
+  LAST_VALUE(appraisal_value) AS latest_appraisal,
+  LAST_VALUE(credit_score)    AS latest_credit_score,
+  MAX(updated_at)             AS last_update
+FROM \`EOT-PLATFORM-EXAMPLES-LOAN-UPDATES\`
+GROUP BY loan_id;`,
+      },
+      {
+        label: 'Find Distressed Loans',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-LOAN-GOLDEN-RECORD\`
+WHERE latest_status = 'DELINQUENT'
+  AND latest_credit_score < 650
+LIMIT 50;`,
+      },
+    ],
+    exampleInput: [
+      '{ loan_id: "L-001", status: "SUBMITTED",  credit_score: null,  appraisal_value: null,   updated_at: 1710000000000 }',
+      '{ loan_id: "L-001", status: null,          credit_score: 720,   appraisal_value: null,   updated_at: 1710000001000 }',
+      '{ loan_id: "L-001", status: "APPROVED",   credit_score: null,  appraisal_value: 380000, updated_at: 1710000002000 }',
+    ],
+    expectedOutput: [
+      '{ loan_id: "L-001", latest_status: "APPROVED", latest_credit_score: 720, latest_appraisal: 380000, last_update: 1710000002000 }',
+      '— Three partial updates merged into ONE authoritative row. LAST_VALUE wins per field.',
+    ],
     dataFlow: {
       layout: 'fan-in',
       nodes: [
@@ -1375,6 +1477,40 @@ GROUP BY source_system, event_type`,
   'loan-cumulate-window': {
     subtitle: 'Emit partial results at every step interval, each growing from the window start.',
     businessContext: 'You are a product manager at a lending platform. The business wants hourly loan-volume reports — but also wants a 10-minute preview. With a standard tumble window, you get the final number at the end of each hour, nothing before. Cumulate windows solve this: they emit a result every 10 minutes, but each result counts from the start of the hour. So at 10:40 you see "we\'ve issued $1.2M in the last 40 minutes" — an accurate cumulative total, not just the last 10 minutes\' slice.',
+    sqlBlocks: [
+      {
+        label: 'Cumulate Window Job',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-DAILY-COMMITMENT-STATS\`
+SELECT
+  product_type,
+  DATE_FORMAT(window_start, 'yyyy-MM-dd HH:mm:ss') AS window_start,
+  DATE_FORMAT(window_end, 'yyyy-MM-dd HH:mm:ss') AS window_end,
+  COUNT(*) AS commitment_count,
+  SUM(principal) AS total_principal,
+  CAST(AVG(principal) AS DOUBLE) AS avg_principal
+FROM TABLE(
+  CUMULATE(TABLE \`EOT-PLATFORM-EXAMPLES-LOAN-COMMITMENTS\`,
+    DESCRIPTOR($rowtime), INTERVAL '10' SECOND, INTERVAL '1' MINUTE)
+)
+GROUP BY window_start, window_end, product_type;`,
+      },
+      {
+        label: 'View High-Volume Windows',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-DAILY-COMMITMENT-STATS\`
+WHERE total_principal > 500000
+LIMIT 50;`,
+      },
+    ],
+    exampleInput: [
+      '{ product_type: "FIXED_30", principal: 320000, created_at: 1710000000000 }',
+      '{ product_type: "FIXED_30", principal: 180000, created_at: 1710000005000 }',
+      '{ product_type: "ARM_5", principal: 450000, created_at: 1710000008000 }',
+    ],
+    expectedOutput: [
+      '{ product_type: "FIXED_30", window_start: "2026-03-08 10:00:00", window_end: "2026-03-08 10:00:10", commitment_count: 2, total_principal: 500000, avg_principal: 250000.0 }',
+      '{ product_type: "FIXED_30", window_start: "2026-03-08 10:00:00", window_end: "2026-03-08 10:00:20", commitment_count: 2, total_principal: 500000, avg_principal: 250000.0 }',
+      '{ product_type: "ARM_5",    window_start: "2026-03-08 10:00:00", window_end: "2026-03-08 10:00:10", commitment_count: 1, total_principal: 450000, avg_principal: 450000.0 }',
+    ],
     dataFlow: {
       layout: 'windowed',
       nodes: [
@@ -1408,6 +1544,51 @@ GROUP BY source_system, event_type`,
   'loan-late-payments': {
     subtitle: 'Process events that arrive after their expected time window without losing data.',
     businessContext: 'You are an infrastructure engineer at a bank. Mobile apps buffer payment confirmations when offline and deliver them in bulk when connectivity restores — sometimes 2 hours late. Without late-event handling, Flink\'s windows close and those payments are silently dropped, causing the bank\'s reconciliation to show $200k in "missing" transactions every day. This example shows how to configure watermark tolerance and late-data side outputs to capture every event regardless of when it arrives.',
+    sqlBlocks: [
+      {
+        label: 'Override Schema (add event_time watermark)',
+        sql: `DROP TABLE IF EXISTS \`EOT-PLATFORM-EXAMPLES-LATE-PAYMENT-REPORTS\`;
+
+CREATE TABLE \`EOT-PLATFORM-EXAMPLES-LATE-PAYMENT-REPORTS\` (
+  payment_id    STRING,
+  servicer_id   STRING,
+  loan_id       STRING,
+  amount        DOUBLE,
+  status        STRING,
+  event_ts      BIGINT,
+  event_time AS TO_TIMESTAMP_LTZ(event_ts, 3),
+  WATERMARK FOR event_time AS event_time - INTERVAL '10' SECOND
+) WITH ('connector' = 'confluent');`,
+      },
+      {
+        label: 'Windowed Aggregation (on-time only)',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-ONTIME-PAYMENT-STATS\`
+SELECT
+  servicer_id,
+  DATE_FORMAT(window_start, 'yyyy-MM-dd HH:mm:ss') AS window_start,
+  DATE_FORMAT(window_end,   'yyyy-MM-dd HH:mm:ss') AS window_end,
+  COUNT(*) AS payment_count,
+  SUM(amount) AS total_amount
+FROM TABLE(
+  TUMBLE(TABLE \`EOT-PLATFORM-EXAMPLES-LATE-PAYMENT-REPORTS\`,
+    DESCRIPTOR(event_time), INTERVAL '30' SECOND)
+)
+GROUP BY window_start, window_end, servicer_id;`,
+      },
+      {
+        label: 'View Results',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-ONTIME-PAYMENT-STATS\` LIMIT 50;`,
+      },
+    ],
+    exampleInput: [
+      '{ payment_id: "P-001", servicer_id: "SVC-A", amount: 1200.00, status: "CONFIRMED", event_ts: 1710000000000 }',
+      '{ payment_id: "P-002", servicer_id: "SVC-A", amount: 800.00,  status: "CONFIRMED", event_ts: 1710000005000 }',
+      '{ payment_id: "P-003", servicer_id: "SVC-B", amount: 2500.00, status: "CONFIRMED", event_ts: 1709999940000 }',
+    ],
+    expectedOutput: [
+      '{ servicer_id: "SVC-A", window_start: "2026-03-08 10:00:00", window_end: "2026-03-08 10:00:30", payment_count: 2, total_amount: 2000.00 }',
+      '— P-003 (event_ts 60s late) dropped from its target window by watermark.',
+    ],
     dataFlow: {
       layout: 'fan-out',
       nodes: [
@@ -1480,6 +1661,35 @@ GROUP BY source_system, event_type`,
   'loan-coborrower-unnest': {
     subtitle: 'Explode an array field into individual rows — one row per co-borrower.',
     businessContext: 'You are a data engineer at a mortgage company. Each loan application arrives as a single event, but the co_borrowers field is an array: ["Alice", "Bob", "Carlos"]. Risk analytics needs one row per person, not one row per loan. In a batch ETL world, you\'d write a Python script to explode arrays. In Flink SQL, UNNEST() does this inline, continuously, on a streaming topic — producing a real-time feed of individual borrower records the moment each application arrives.',
+    sqlBlocks: [
+      {
+        label: 'UNNEST Job',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-BORROWER-DETAILS\`
+SELECT
+  l.loan_id,
+  t.name  AS borrower_name,
+  t.score AS credit_score,
+  t.idx   AS borrower_index
+FROM \`EOT-PLATFORM-EXAMPLES-LOAN-COBORROWERS\` l
+CROSS JOIN UNNEST(l.coborrower_names, l.coborrower_scores)
+  WITH ORDINALITY AS t(name, score, idx);`,
+      },
+      {
+        label: 'View Flattened Output',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-BORROWER-DETAILS\` LIMIT 50;`,
+      },
+    ],
+    exampleInput: [
+      '{ loan_id: "L-001", coborrower_names: ["Alice Chen", "Bob Smith"], coborrower_scores: [720, 695] }',
+      '{ loan_id: "L-002", coborrower_names: ["Carol White", "David Kim", "Eve Park"], coborrower_scores: [760, 740, 785] }',
+    ],
+    expectedOutput: [
+      '{ loan_id: "L-001", borrower_name: "Alice Chen", credit_score: 720, borrower_index: 1 }',
+      '{ loan_id: "L-001", borrower_name: "Bob Smith",  credit_score: 695, borrower_index: 2 }',
+      '{ loan_id: "L-002", borrower_name: "Carol White", credit_score: 760, borrower_index: 1 }',
+      '{ loan_id: "L-002", borrower_name: "David Kim",  credit_score: 740, borrower_index: 2 }',
+      '{ loan_id: "L-002", borrower_name: "Eve Park",   credit_score: 785, borrower_index: 3 }',
+    ],
     dataFlow: {
       layout: 'linear',
       nodes: [
@@ -1681,6 +1891,291 @@ GROUP BY source_system, event_type`,
     whatHappensIf: [
       { question: 'What if we need to reverse the masking for a legitimate audit?', answer: 'If you used a deterministic UDF with a secret key (format-preserving encryption), authorized parties can decrypt with the key. If you used SHA-256 without a salt, it\'s one-way — by design. Choose the technique based on whether reversibility is a requirement.' },
       { question: 'What if a new sensitive field is added to the schema?', answer: 'The new field passes through unmasked until the Flink job is updated. Schema governance (see the schema-evolution example) helps: register a schema that marks the new field as sensitive, and trigger a job update alert automatically.' },
+    ],
+  },
+
+  'hello-ksqldb': {
+    subtitle: 'ksqlDB push queries stream data to you — the server calls you, not the other way around.',
+    businessContext: 'REST APIs require constant polling. ksqlDB\'s EMIT CHANGES turns that model upside down: the server pushes every matching row the moment it arrives. For fraud alerts, monitoring dashboards, or live feeds, this eliminates polling overhead entirely and reduces latency to sub-second.',
+    concepts: [
+      { term: 'Push Query (EMIT CHANGES)', explanation: 'The query runs indefinitely on the server. Each new row that matches is pushed to the client immediately. Unlike a pull query (SELECT COUNT(*)), which returns once and closes, a push query is a long-lived connection.' },
+      { term: 'Pull Query', explanation: 'A point-in-time query: SELECT COUNT(*) FROM jokes_stream WHERE ...; Returns immediately with a static result. No streaming, no subscription — just a snapshot.' },
+      { term: 'Persistent Query', explanation: 'CREATE STREAM ... AS SELECT ... EMIT CHANGES; This runs as a background ksqlDB job, continuously writing to an output stream. Survives client disconnect — the computation continues even with no consumers.' },
+      { term: 'Stream vs. Table in ksqlDB', explanation: 'STREAM: every event is a fact (append-only). TABLE: each key has a current value (upsert). Push queries on streams deliver every new message; push queries on tables deliver every state change.' },
+      { term: 'ksqlDB vs Apache Flink — When to Choose', explanation: 'ksqlDB: simple streaming SQL with no cluster to manage, built-in Kafka integration, lower operational overhead. Best for filter/transform/aggregate pipelines directly on Kafka. Flink: full streaming engine with advanced windowing (SESSION, CUMULATE), temporal joins, MATCH_RECOGNIZE, and JAR-based UDFs. Best for complex stateful logic, multi-stream joins, and enterprise-scale pipelines.' },
+      { term: 'Operational Difference', explanation: 'ksqlDB runs inside Confluent Cloud as a managed service — zero JARs, zero cluster config. Flink on Confluent Cloud also managed, but exposes more SQL surface area (OVER windows, interval joins, CDC). ksqlDB queries restart automatically; Flink jobs have explicit checkpointing and savepoints.' },
+      { term: 'SQL Compatibility', explanation: 'Both support SELECT, WHERE, GROUP BY, JOIN, and aggregates. ksqlDB adds EMIT CHANGES and EXPLODE. Flink adds FOR SYSTEM_TIME AS OF, MATCH_RECOGNIZE, HOP/SESSION/CUMULATE windows, and LATERAL TABLE UDFs. Shared Confluent environment — same topics, same Schema Registry.' },
+    ],
+    useCases: ['Live fraud alerts', 'Real-time monitoring', 'Notification pipelines', 'Dashboard feeds without polling', 'Lightweight streaming SQL without Flink cluster overhead'],
+    whatHappensIf: [
+      { question: 'What if I close the push query client?', answer: 'The push query stops on the server. If it\'s a persistent query (CREATE STREAM AS), it keeps running in the background even without a consumer.' },
+      { question: 'What\'s the difference from a Flink SELECT?', answer: 'Flink SQL runs as a distributed job in a cluster. ksqlDB push queries run inside ksqlDB\'s server process. Both stream continuously, but ksqlDB has lower operational overhead for simple streaming SQL. Flink wins on complex stateful operations, advanced windows, and UDFs.' },
+      { question: 'Can I use ksqlDB and Flink on the same Kafka topics?', answer: 'Yes — both engines read and write Kafka topics. You can have a ksqlDB persistent query filtering one topic while a Flink job aggregates the result. They share the same Schema Registry and topic namespace on Confluent Cloud.' },
+    ],
+    crossReference: {
+      cardId: 'hello-flink',
+      label: 'Compare: Hello Flink',
+      description: 'Same jokes topic, but with Flink SQL — see the architectural difference side by side.',
+    },
+  },
+
+  'ksql-dynamic-routing': {
+    subtitle: 'Route loan events to department topics using a lookup table — one join, zero hardcoded routes.',
+    businessContext: 'Static fan-out requires a code deploy to add a new routing rule. Dynamic routing stores rules in a ksqlDB table: new route = one INSERT, zero restarts. EXPLODE() turns multi-target routing rules into individual output rows automatically.',
+    concepts: [
+      { term: 'Stream-Table Join in ksqlDB', explanation: 'ksqlDB stream-table joins are temporal by default: when an event arrives on the stream, it looks up the CURRENT value in the table. This is equivalent to Flink\'s FOR SYSTEM_TIME AS OF — automatic point-in-time enrichment.' },
+      { term: 'EXPLODE()', explanation: 'ksqlDB\'s EXPLODE() is equivalent to Flink\'s CROSS JOIN UNNEST(). It takes an array column and returns one row per element. A routing rule with target_topics=[\'underwriting\',\'finance\'] becomes 2 rows.' },
+      { term: 'Routing Table (Compacted Topic)', explanation: 'A ksqlDB TABLE backed by a compacted Kafka topic. Each event_type maps to a list of target topics. Compaction ensures only the latest routing rule per key is kept — a natural rule store.' },
+      { term: 'Dynamic vs. Static Routing', explanation: 'Static: three separate INSERT jobs with WHERE clauses — explicit, observable, zero dependencies. Dynamic: one join + EXPLODE — flexible, centrally managed, but requires a rule store.' },
+    ],
+    useCases: ['Department event routing', 'Multi-tenant topic fan-out', 'Feature flag routing', 'A/B testing pipelines'],
+    whatHappensIf: [
+      { question: 'What if a routing rule is deleted?', answer: 'The compacted topic retains a tombstone (null value). New events for that event_type return no join match and are dropped — effectively removing the route without restarting the job.' },
+      { question: 'What if the same event should route to 5 topics?', answer: 'Add 5 entries in the target_topics array. EXPLODE generates 5 output rows. Downstream consumers each subscribe to one topic with a WHERE target_topic = \'...\' filter.' },
+    ],
+  },
+
+  'ksql-dynamic-routing-json': {
+    subtitle: 'Same dynamic routing as the Avro variant — JSON format, simpler DDL, no Schema Registry required.',
+    businessContext: 'The Avro version requires KEY_FORMAT=\'AVRO\', STRUCT KEY declarations, and Schema Registry enrollment. JSON removes all of that. Trade-off: no schema enforcement, but faster to prototype and simpler to debug. Run both side-by-side to understand the Avro vs JSON decision.',
+    concepts: [
+      { term: 'VALUE_FORMAT=\'JSON\'', explanation: 'ksqlDB serializes/deserializes events as plain JSON. No Schema Registry needed. Column types are inferred from the CREATE STREAM DDL, not from a registered schema.' },
+      { term: 'KEY_FORMAT=\'KAFKA\'', explanation: 'With JSON value format, keys are typically stored as plain Kafka byte strings. No Avro wrapping means simpler key declarations (STRING KEY instead of STRUCT<field> KEY).' },
+      { term: 'Avro vs JSON Trade-off', explanation: 'Avro: schema enforcement, smaller payload, compatibility checks. JSON: human-readable, no registry dependency, easier debugging. Avro wins in production; JSON wins in prototyping.' },
+      { term: 'Schema Evolution Risk with JSON', explanation: 'Without Schema Registry, a producer can silently add or remove fields. Downstream JSON_VALUE() calls return NULL for missing fields — no deserialization error, just silent data gaps. Monitor NULL rates.' },
+    ],
+    useCases: ['Prototyping routing pipelines', 'Environments without Schema Registry', 'Third-party JSON feed routing', 'Debug-friendly event pipelines'],
+    whatHappensIf: [
+      { question: 'What if I switch from JSON to Avro later?', answer: 'DROP and recreate all affected streams and tables. Existing Kafka topic data stays as-is (JSON bytes) — handle the mixed-format transition window carefully.' },
+      { question: 'What if a field name changes in the JSON payload?', answer: 'JSON_VALUE() on the old path returns NULL silently. Avro would fail with a deserialization error — more noisy but easier to catch. With JSON, add NULL count monitoring as an early warning.' },
+    ],
+  },
+
+  'loan-property-lookup': {
+    subtitle: 'Enrich every loan with appraisal data as it existed when the loan was processed — not today\'s value.',
+    businessContext: 'Property appraisal values change as the market moves. When reviewing a historical loan application, regulators need to see the LTV ratio at origination — not the current appraisal. Temporal joins deliver exactly this: point-in-time accuracy with no extra infrastructure, no snapshot tables, no custom lookup service.',
+    sqlBlocks: [
+      {
+        label: 'Temporal Join (Property Lookup)',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-LOANS-APPRAISED\`
+SELECT
+  l.loan_id,
+  l.property_id,
+  l.amount,
+  p.appraisal_value,
+  p.flood_zone,
+  CAST(l.amount / p.appraisal_value * 100 AS DOUBLE) AS ltv_ratio
+FROM \`EOT-PLATFORM-EXAMPLES-LOANS-WITH-PROPERTY\` l
+JOIN \`EOT-PLATFORM-EXAMPLES-PROPERTY-REFERENCE\`
+  FOR SYSTEM_TIME AS OF l.\`$rowtime\` AS p
+  ON l.property_id = p.property_id;`,
+      },
+      {
+        label: 'High-LTV Loans (>80% require insurance)',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-LOANS-APPRAISED\`
+WHERE ltv_ratio > 80
+LIMIT 50;`,
+      },
+    ],
+    exampleInput: [
+      '{ loan_id: "L-001", property_id: "PROP-42", amount: 320000 }',
+      '{ loan_id: "L-002", property_id: "PROP-17", amount: 490000 }',
+    ],
+    expectedOutput: [
+      '{ loan_id: "L-001", property_id: "PROP-42", amount: 320000, appraisal_value: 380000, flood_zone: "X", ltv_ratio: 84.21 }',
+      '{ loan_id: "L-002", property_id: "PROP-17", amount: 490000, appraisal_value: 520000, flood_zone: "AE", ltv_ratio: 94.23 }',
+    ],
+    concepts: [
+      { term: 'FOR SYSTEM_TIME AS OF l.$rowtime', explanation: 'Flink looks up the property reference table as it existed at the loan event\'s timestamp. If appraisal_value was updated after the loan was processed, the join still returns the older value — time travel built directly into SQL.' },
+      { term: 'LTV Ratio (Loan-to-Value)', explanation: 'loan_amount / appraisal_value × 100. A key underwriting metric. LTV > 80% typically requires private mortgage insurance. Using current appraisal instead of origination appraisal makes historical LTV calculations wrong.' },
+      { term: 'Versioned Reference Table', explanation: 'The PROPERTY-REFERENCE topic uses changelog.mode=\'upsert\'. Each property update creates a new version in Flink\'s state. Temporal lookups use the version that was current at the event\'s timestamp.' },
+      { term: 'Temporal Join vs. Regular Join', explanation: 'Regular join: always uses the LATEST property data (staleness risk for historical analysis). Temporal join: uses property data as of the loan\'s event time. Regular is simpler; temporal is audit-grade.' },
+    ],
+    useCases: ['Mortgage origination audit', 'LTV calculation at origination', 'Regulatory compliance reporting', 'Historical underwriting review'],
+    whatHappensIf: [
+      { question: 'What if the property has no record at the loan\'s timestamp?', answer: 'The temporal join returns no match for that loan — the row is dropped from output. Ensure property reference data is loaded before loan events start arriving.' },
+      { question: 'What if property data is updated retroactively (correction)?', answer: 'The correction creates a new version. Events after the correction timestamp return the corrected value. Events before the correction still return the pre-correction value — temporal integrity is preserved.' },
+    ],
+  },
+
+  'loan-routing-json': {
+    subtitle: 'Fan out one loan event stream to three department topics in a single Flink job using EXECUTE STATEMENT SET.',
+    businessContext: 'Running three separate INSERT jobs means three statements, three offset sets, and three monitoring views. EXECUTE STATEMENT SET bundles them: one commit, one job to monitor, one failure domain. The source topic is read once and the events are fanned out internally — reducing network traffic and consumer group overhead by 66%.',
+    sqlBlocks: [
+      {
+        label: 'Fan-Out: EXECUTE STATEMENT SET',
+        sql: `EXECUTE STATEMENT SET
+BEGIN
+  INSERT INTO \`EOT-PLATFORM-EXAMPLES-UNDERWRITING\`
+    SELECT \`key\`, event_id, loan_id, event_type, amount, department
+    FROM \`EOT-PLATFORM-EXAMPLES-ROUTED-EVENTS\`
+    WHERE target_topic = 'EOT-PLATFORM-EXAMPLES-UNDERWRITING';
+
+  INSERT INTO \`EOT-PLATFORM-EXAMPLES-FINANCE\`
+    SELECT \`key\`, event_id, loan_id, event_type, amount, department
+    FROM \`EOT-PLATFORM-EXAMPLES-ROUTED-EVENTS\`
+    WHERE target_topic = 'EOT-PLATFORM-EXAMPLES-FINANCE';
+
+  INSERT INTO \`EOT-PLATFORM-EXAMPLES-COLLECTIONS\`
+    SELECT \`key\`, event_id, loan_id, event_type, amount, department
+    FROM \`EOT-PLATFORM-EXAMPLES-ROUTED-EVENTS\`
+    WHERE target_topic = 'EOT-PLATFORM-EXAMPLES-COLLECTIONS';
+END;`,
+      },
+      {
+        label: 'Verify Fan-Out',
+        sql: `SELECT target_topic, event_type, COUNT(*) AS event_count
+FROM \`EOT-PLATFORM-EXAMPLES-ROUTED-EVENTS\`
+GROUP BY target_topic, event_type;`,
+      },
+    ],
+    exampleInput: [
+      '{ event_id: "E-001", loan_id: "L-100", event_type: "NEW_LOAN", amount: 150000, department: "underwriting" }',
+      '{ event_id: "E-002", loan_id: "L-101", event_type: "PAYMENT_DUE", amount: 1200, department: "collections" }',
+    ],
+    expectedOutput: [
+      'UNDERWRITING topic: { event_id: "E-001", loan_id: "L-100", event_type: "NEW_LOAN", amount: 150000 }',
+      'COLLECTIONS topic:  { event_id: "E-002", loan_id: "L-101", event_type: "PAYMENT_DUE", amount: 1200 }',
+      '→ One Flink job reads source topic once, fans to 3 sinks internally',
+    ],
+    concepts: [
+      { term: 'EXECUTE STATEMENT SET', explanation: 'A Flink SQL construct that bundles multiple INSERT INTO statements into a single job. All inserts run in the same task manager, sharing the source read. One Kafka consumer reads the topic once, feeding all three sinks.' },
+      { term: 'Shared Source Optimization', explanation: 'With EXECUTE STATEMENT SET, Flink reads the source topic once and fans out internally via operator chaining. Three separate jobs read the topic three times — 3x network I/O, 3x consumer group lag to track.' },
+      { term: 'Static Fan-Out Pattern', explanation: 'Each INSERT uses a hardcoded WHERE clause: WHERE target_topic = \'underwriting\'. Routes are explicit and observable. Add a new route = add a new INSERT block and redeploy the STATEMENT SET.' },
+      { term: 'JSON Fan-Out', explanation: 'JSON format means no Schema Registry dependency. Simpler DDL, easier to inspect messages in the Confluent Console. Production systems typically graduate to Avro for schema enforcement.' },
+    ],
+    useCases: ['Department-specific topic routing', 'Compliance copy routing', 'Multi-team event distribution', 'Microservice event fan-out'],
+    whatHappensIf: [
+      { question: 'What if one of the three output topics goes down?', answer: 'Flink will retry and eventually fail the entire STATEMENT SET job — all three sinks are in the same job. For independent failure domains, split into separate INSERT statements.' },
+      { question: 'What if I want to add a 4th route?', answer: 'Add a 4th INSERT INTO statement inside the BEGIN...END block and redeploy. Flink restarts the job with the new routing logic. Existing offsets are preserved from the last checkpoint.' },
+    ],
+  },
+
+  'loan-routing-avro': {
+    subtitle: 'Same three-way fan-out as the JSON variant, with Avro serialization and Schema Registry enforcement.',
+    businessContext: 'In production, schema drift is a silent killer. A producer adds a field, JSON parsers return NULL without warning, and downstream analytics silently compute wrong metrics for hours before anyone notices. Avro + Schema Registry catches this at the serialization boundary: incompatible schema = immediate, loud failure — not silent data corruption.',
+    concepts: [
+      { term: 'Avro Schema Registry Enforcement', explanation: 'Every Avro message includes a schema ID. Confluent\'s Schema Registry stores schemas and enforces compatibility rules. Flink uses the schema ID to deserialize efficiently. An incompatible producer change fails at produce time — not silently downstream.' },
+      { term: 'Schema Compatibility Rules', explanation: 'BACKWARD: new consumers read old messages (add optional fields with defaults). FORWARD: old consumers read new messages. FULL: both directions. Renaming or removing fields is a breaking change and is rejected by the Registry.' },
+      { term: 'Avro Wire Format', explanation: 'Avro binary is ~30-50% smaller than equivalent JSON for structured data. For high-throughput pipelines (millions/day), this meaningfully reduces Kafka storage costs and network overhead.' },
+      { term: 'Avro vs JSON Fan-Out', explanation: 'Both support EXECUTE STATEMENT SET equally. Avro adds schema governance; JSON adds debugging simplicity. Run both examples to see the DDL differences — the routing logic is identical.' },
+    ],
+    useCases: ['Production loan processing pipelines', 'Regulated industries requiring schema governance', 'High-throughput event routing', 'Multi-team data contracts with compatibility enforcement'],
+    whatHappensIf: [
+      { question: 'What if the Avro schema changes incompatibly?', answer: 'The producer will fail to publish with a schema compatibility error from the Registry. No bad messages enter Kafka — the failure is early and loud, not silent downstream NULL corruption.' },
+      { question: 'What if I need to compare Avro vs JSON performance?', answer: 'Run both examples with the same message count. Compare topic sizes in the Confluent Console — Avro topics will be noticeably smaller. Compare DDL complexity — Avro requires more declarations but delivers stronger guarantees.' },
+    ],
+  },
+
+  'loan-schemaless-topic': {
+    subtitle: "No Schema Registry? No problem — value.format='raw' gives you bytes, JSON_VALUE gives you fields.",
+    businessContext: 'Legacy systems, third-party vendors, and IoT devices often produce raw JSON with no Confluent Schema Registry. Rather than blocking on schema onboarding, Flink\'s value.format=\'raw\' reads raw bytes and JSON_VALUE() extracts individual fields inline — parsing happens at the SQL layer with no external tooling needed.',
+    sqlBlocks: [
+      {
+        label: 'Parse Raw Bytes → Typed Columns',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-RAW-EVENTS-PARSED\` (
+  \`key\`, event_id, event_type, user_id, amount, currency, event_ts
+)
+SELECT
+  CAST(JSON_VALUE(CAST(\`val\` AS STRING), '$.event_id') AS BYTES)    AS \`key\`,
+  JSON_VALUE(CAST(\`val\` AS STRING), '$.event_id')                   AS event_id,
+  JSON_VALUE(CAST(\`val\` AS STRING), '$.event_type')                 AS event_type,
+  JSON_VALUE(CAST(\`val\` AS STRING), '$.user_id')                    AS user_id,
+  CAST(JSON_VALUE(CAST(\`val\` AS STRING), '$.amount') AS DOUBLE)     AS amount,
+  JSON_VALUE(CAST(\`val\` AS STRING), '$.currency')                   AS currency,
+  CAST(JSON_VALUE(CAST(\`val\` AS STRING), '$.timestamp') AS BIGINT)  AS event_ts
+FROM \`EOT-PLATFORM-EXAMPLES-RAW-EVENTS\`
+WHERE JSON_VALUE(CAST(\`val\` AS STRING), '$.event_type') IS NOT NULL;`,
+      },
+      {
+        label: 'View Parsed Output',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-RAW-EVENTS-PARSED\` LIMIT 50;`,
+      },
+    ],
+    exampleInput: [
+      'RAW BYTES: 7B 22 65 76 65 6E 74 5F 69 64 22 3A 22 45 2D 30 30 31 22 2C ...',
+      'Decoded: {"event_id":"E-001","event_type":"LOAN_CREATED","user_id":"U-42","amount":15000,"currency":"USD","timestamp":1710000000000}',
+    ],
+    expectedOutput: [
+      '{ event_id: "E-001", event_type: "LOAN_CREATED", user_id: "U-42", amount: 15000.0, currency: "USD", event_ts: 1710000000000 }',
+      '— No Schema Registry, no Avro schema — bytes parsed to typed columns at SQL layer.',
+    ],
+    concepts: [
+      { term: "value.format='raw'", explanation: 'Flink reads the Kafka message value as a raw VARBINARY. No schema inference, no deserialization layer. You receive the raw bytes and must parse them yourself in SQL.' },
+      { term: 'CAST(val AS STRING)', explanation: 'Converts VARBINARY bytes to a VARCHAR string. For UTF-8 JSON payloads this gives you the full JSON string: \'{"event_id":"E-001","amount":1500}\' — ready for JSON_VALUE() extraction.' },
+      { term: "JSON_VALUE(json, '$.path')", explanation: 'Extracts a single field from a JSON string using JSONPath syntax. Returns VARCHAR — use CAST for numerics: CAST(JSON_VALUE(..., \'$.amount\') AS DOUBLE). Nested paths: \'$.application.loan.amount\'.' },
+      { term: 'Schema Registry Trade-off', explanation: 'Raw + JSON_VALUE: flexible, no registration needed, but every query must repeat the parsing logic and there are no schema compatibility checks. Schema Registry: one-time registration, automatic deserialization, evolution support.' },
+    ],
+    useCases: ['Third-party JSON feed ingestion', 'Legacy system integration', 'Prototype pipelines before schema registration', 'IoT device event parsing'],
+    whatHappensIf: [
+      { question: 'What if the JSON structure changes?', answer: 'JSON_VALUE() on a missing path returns NULL silently. Add WHERE JSON_VALUE(...) IS NOT NULL guards, or route rows with NULL fields to a dead-letter topic to detect schema drift.' },
+      { question: 'What if the payload is not valid JSON?', answer: 'JSON_VALUE() returns NULL for malformed JSON. The row passes through with NULL values — no failure. Add a validation step or route malformed payloads to a dead-letter queue.' },
+    ],
+  },
+
+  'loan-schema-override': {
+    subtitle: "Override Confluent's auto-discovered table to add event-time watermarks for windowed queries.",
+    businessContext: "Confluent Cloud auto-discovers schemas and creates managed tables automatically. But auto-discovered tables have no watermark column — they can't be used with TUMBLE(), HOP(), or SESSION() windows. This example shows the DROP + CREATE workflow to inject a computed event_time column and WATERMARK FOR clause, enabling windowed aggregations on any existing topic.",
+    concepts: [
+      { term: 'Auto-Discovered vs. Override Table', explanation: "Confluent creates a managed table from your Schema Registry schema automatically. It's convenient but lacks event-time support. DROP TABLE removes the managed definition; CREATE TABLE with the same topic name installs your custom DDL over the same Kafka data." },
+      { term: "WATERMARK FOR event_time AS event_time - INTERVAL '10' SECOND", explanation: 'Declares the watermark strategy: events up to 10 seconds late are still included in their window. Events arriving more than 10 seconds after their event_time are considered late and may be dropped from window results.' },
+      { term: 'AS TO_TIMESTAMP_LTZ(created_at, 3)', explanation: 'Converts a BIGINT millisecond epoch to TIMESTAMP_LTZ (timestamp with local timezone). Precision 3 = milliseconds. This computed column becomes the event-time basis for all window functions.' },
+      { term: 'DROP TABLE Caution', explanation: 'DROP TABLE removes the Flink table definition only — it does NOT delete the underlying Kafka topic or its messages. All data is preserved. The topic continues to exist and receive messages.' },
+    ],
+    useCases: ['Adding event-time support to legacy topics', 'Custom watermark strategies', 'Windowed aggregations on auto-discovered topics', 'Schema correction without data loss'],
+    whatHappensIf: [
+      { question: 'What happens to running Flink jobs after DROP TABLE?', answer: 'Existing jobs continue running until cancelled — they hold their own compiled execution plan. DROP TABLE only removes the catalog definition, not the running job.' },
+      { question: 'What if the WATERMARK interval is too tight?', answer: 'Late events (arriving after the watermark advances) are dropped from window calculations. Monitor the late-events metric in your Flink job. Loosen the interval if legitimate events are arriving late.' },
+    ],
+  },
+
+  'view-mbs-pricing': {
+    subtitle: 'Point-in-time market rate enrichment for MBS portfolios — pricing accuracy at origination, not today.',
+    businessContext: 'Mortgage-backed securities pricing depends on the market rate active at the time of loan commitment, not today\'s rate. A temporal join virtual view enriches each commitment with the exact base_rate and spread that were active at commitment time. Regulators and auditors can verify pricing decisions for any historical commitment without manually reconstructing rate history.',
+    sqlBlocks: [
+      {
+        label: 'Create MBS Pricing View',
+        sql: `CREATE VIEW \`EOT-PLATFORM-EXAMPLES-MBS-PRICING-VIEW\` AS
+SELECT
+  c.commitment_id,
+  c.loan_id,
+  c.product_type,
+  c.principal,
+  r.base_rate,
+  r.spread,
+  c.principal * (r.base_rate + r.spread) / 100 AS estimated_yield
+FROM \`EOT-PLATFORM-EXAMPLES-LOAN-COMMITMENTS\` c
+JOIN \`EOT-PLATFORM-EXAMPLES-MARKET-RATES\`
+  FOR SYSTEM_TIME AS OF c.\`$rowtime\` AS r
+  ON c.product_type = r.product_type;`,
+      },
+      {
+        label: 'High-Value Commitments',
+        sql: `SELECT * FROM \`EOT-PLATFORM-EXAMPLES-MBS-PRICING-VIEW\`
+WHERE estimated_yield > 50000
+ORDER BY estimated_yield DESC
+LIMIT 20;`,
+      },
+    ],
+    exampleInput: [
+      '{ commitment_id: "C-001", loan_id: "L-100", product_type: "FIXED_30", principal: 400000 }  ← at t=100',
+      'MARKET-RATES at t=100: { product_type: "FIXED_30", base_rate: 6.5, spread: 0.25 }',
+      'MARKET-RATES at t=200: { product_type: "FIXED_30", base_rate: 7.0, spread: 0.30 }  ← rate updated after commitment',
+    ],
+    expectedOutput: [
+      '{ commitment_id: "C-001", loan_id: "L-100", product_type: "FIXED_30", principal: 400000, base_rate: 6.5, spread: 0.25, estimated_yield: 27000.0 }',
+      '— Uses rate at t=100 (6.5%), NOT today\'s rate (7.0%). Temporal join = audit-grade accuracy.',
+    ],
+    concepts: [
+      { term: 'CREATE VIEW (Virtual View)', explanation: 'A named query evaluated on-demand. No data is materialized — the view runs fresh each time it\'s queried. Rate history changes are instantly reflected for new queries without a pipeline restart.' },
+      { term: 'MARKET-RATES as Versioned Table', explanation: 'The MARKET-RATES topic uses changelog.mode=\'upsert\'. Each rate update creates a new version. Flink stores these versions in state, enabling point-in-time lookups: what rate was active at a given moment.' },
+      { term: 'Estimated Yield Calculation', explanation: 'principal × (base_rate + spread) / 100 = annual yield on one commitment. Aggregated across all commitments in a pool, this is the MBS pool yield — a key input to pricing, rating, and regulatory capital calculations.' },
+      { term: 'Audit-Grade Accuracy', explanation: 'A regular join would use today\'s market rate for every commitment — wrong for historical analysis. The temporal join returns the rate that was in the table AT commitment time — exactly what the loan officer saw when pricing the commitment.' },
+    ],
+    useCases: ['MBS pool yield calculation', 'Loan commitment audit trails', 'Rate-lock compliance verification', 'Regulatory capital and risk reporting'],
+    whatHappensIf: [
+      { question: 'What if market rates are corrected retroactively?', answer: 'The corrected rate applies to new queries for commitments after the correction timestamp. Commitments before the correction still return the pre-correction rate — temporal integrity is preserved by design.' },
+      { question: 'What if a commitment has no matching market rate at its timestamp?', answer: 'The temporal join returns no row for that commitment — it\'s excluded from output. Ensure market rate history covers the full range of commitment timestamps before querying the view.' },
     ],
   },
 

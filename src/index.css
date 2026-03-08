@@ -79,6 +79,7 @@
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
   --shadow-cell: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.10);
   --shadow-focus-ring: 0 0 0 3px rgba(73, 51, 215, 0.1);
 
   /* Animation */
@@ -88,7 +89,7 @@
 
   /* Navigation Rail */
   --nav-rail-width: 48px;
-  --nav-rail-expanded-width: 205px;
+  --nav-rail-expanded-width: 170px;
   --nav-rail-transition: 200ms ease-in-out;
   --side-panel-width: 300px;
   --schema-panel-width: 480px;
@@ -172,6 +173,7 @@
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
   --shadow-cell: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
   --shadow-focus-ring: 0 0 0 3px rgba(123, 95, 250, 0.2);
   --schema-panel-width: 480px;
 }

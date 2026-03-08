@@ -16,6 +16,8 @@ interface LearnState {
   learnTab: LearnTab;
   selectedTrackId: string | null;
   selectedConceptId: string | null;
+  /** Lesson ID within the active track — set when navigating to an example from a track */
+  currentLessonId: string | null;
 
   // Progress
   progress: LearnProgress;
@@ -24,6 +26,7 @@ interface LearnState {
   setLearnTab: (tab: LearnTab) => void;
   navigateToTrackDetail: (trackId: string | null) => void;
   navigateToConceptLesson: (conceptId: string | null) => void;
+  setCurrentLesson: (lessonId: string | null) => void;
   markExampleComplete: (id: string) => void;
   markLessonComplete: (id: string) => void;
   markChallengeComplete: (id: string) => void;
@@ -54,6 +57,7 @@ export const useLearnStore = create<LearnState>()(
       learnTab: 'examples',
       selectedTrackId: null,
       selectedConceptId: null,
+      currentLessonId: null,
       progress: { ...EMPTY_PROGRESS },
 
       setLearnTab: (tab) => set({ learnTab: tab }),
@@ -72,6 +76,7 @@ export const useLearnStore = create<LearnState>()(
       },
 
       navigateToConceptLesson: (conceptId) => set({ selectedConceptId: conceptId }),
+      setCurrentLesson: (lessonId) => set({ currentLessonId: lessonId }),
 
       markExampleComplete: (id) => {
         set((state) => {

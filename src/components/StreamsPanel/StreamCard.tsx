@@ -12,8 +12,15 @@ import * as flinkApi from '../../api/flink-api';
 import { generateSyntheticRecord } from '../../utils/synthetic-data';
 import { serializeToConfluentBinary } from '../../utils/confluent-serializer';
 import { StreamCardTable } from './StreamCardTable';
-import { FiPlay, FiSquare, FiChevronDown, FiChevronUp, FiX, FiRefreshCw, FiCopy, FiRadio, FiFileText } from 'react-icons/fi';
+import { FiPlay, FiSquare, FiChevronDown, FiChevronUp, FiRefreshCw, FiMoreVertical, FiCopy, FiRadio, FiFileText, FiTrash2, FiColumns, FiDownload, FiClipboard, FiX, FiExternalLink } from 'react-icons/fi';
 import type { BackgroundStatement, ProduceRecord } from '../../types';
+import {
+  getExportFilename,
+  downloadFile,
+  buildCsvContent,
+  buildJsonContent,
+  buildMarkdownContent,
+} from '../../utils/table-export';
 import './StreamCard.css';
 
 /**
@@ -91,9 +98,11 @@ interface StreamCardProps {
   initialDatasetId?: string;
   onRemove: () => void;
   onDuplicate: () => void;
+  /** When true, hides nav-dependent menu items (View Topic, View Schema, Duplicate) */
+  isPopout?: boolean;
 }
 
-export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, onRemove, onDuplicate }: StreamCardProps) {
+export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, onRemove, onDuplicate, isPopout }: StreamCardProps) {
   const catalog = useWorkspaceStore((s) => s.catalog);
   const database = useWorkspaceStore((s) => s.database);
   const executeBackgroundStatement = useWorkspaceStore((s) => s.executeBackgroundStatement);
@@ -104,6 +113,8 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const navigateToTopic = useWorkspaceStore((s) => s.navigateToTopic);
   const navigateToSchemaSubject = useWorkspaceStore((s) => s.navigateToSchemaSubject);
   const updateStreamCardConfig = useWorkspaceStore((s) => s.updateStreamCardConfig);
+  const clearBackgroundStatementResults = useWorkspaceStore((s) => s.clearBackgroundStatementResults);
+  const addToast = useWorkspaceStore((s) => s.addToast);
 
   const [mode, setMode] = useState<'consume' | 'produce-consume'>(initialMode ?? 'consume');
   const [dataSource, setDataSource] = useState<'synthetic' | 'dataset'>(initialDatasetId ? 'dataset' : 'synthetic');
@@ -116,7 +127,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const [isProducing, setIsProducing] = useState(false);
   const [produceCount, setProduceCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState(50);
+  const limit = 50; // Default LIMIT for generated SQL; users can edit directly in the SQL editor
   const [scanMode, setScanMode] = useState<'earliest-offset' | 'latest-offset'>('earliest-offset');
   const [customSql, setCustomSql] = useState(() => `SELECT * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\` LIMIT 50`);
   const [isSqlDirty, setIsSqlDirty] = useState(false);
@@ -125,8 +136,17 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleFetchRef = useRef<() => void>(() => {});
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
+  const [isResultsVisible, setIsResultsVisible] = useState(true);
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
+  const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [cardMenuOpen, setCardMenuOpen] = useState(false);
+  const columnsDropdownRef = useRef<HTMLDivElement>(null);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
+  const cardMenuRef = useRef<HTMLDivElement>(null);
   const startProduceRef = useRef<(() => void) | null>(null);
   const contextId = cardId; // Each card gets its own background statement
+
 
   // Find the background statement for this card
   const bgStatement: BackgroundStatement | undefined = backgroundStatements.find(
@@ -138,12 +158,12 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
     return `SELECT * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\` LIMIT ${limit}`;
   }, [catalog, database, topicName, limit]);
 
-  // Sync customSql when limit changes (only if not manually edited)
+  // Sync customSql when build params change (only if not manually edited)
   useEffect(() => {
     if (!isSqlDirty) {
       setCustomSql(buildFetchSQL());
     }
-  }, [limit, buildFetchSQL, isSqlDirty]);
+  }, [buildFetchSQL, isSqlDirty]);
 
   // Fetch messages
   const handleFetch = async () => {
@@ -188,6 +208,16 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
       autoRefreshRef.current = null;
     }
     setIsAutoRefreshing(false);
+  };
+
+  const handleResetConsumer = async () => {
+    handleStopAutoRefresh();
+    try {
+      await clearBackgroundStatementResults(contextId);
+    } catch {
+      // Ignore reset errors
+    }
+    setError(null);
   };
 
   // Clean up auto-refresh on unmount
@@ -384,8 +414,9 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
         setIsProducing(false);
       }
     } else {
-      // Paced: 1/sec
+      // Paced: 1/sec — sentCount tracks cumulative sends (keeps counting across loops)
       let idx = 0;
+      let sentCount = 0;
       intervalRef.current = setInterval(async () => {
         if (!selectedDataset) {
           handleStopProduce();
@@ -396,7 +427,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
             idx = 0;
           } else {
             handleStopProduce();
-            setDatasetProgress({ sent: selectedDataset.records.length, total: selectedDataset.records.length });
+            setDatasetProgress({ sent: sentCount, total: selectedDataset.records.length });
             return;
           }
         }
@@ -421,7 +452,8 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
             throw new Error((result as any).message || `Produce error ${result.error_code}`);
           }
           idx++;
-          setDatasetProgress({ sent: idx, total: selectedDataset.records.length });
+          sentCount++;
+          setDatasetProgress({ sent: sentCount, total: selectedDataset.records.length });
         } catch (err) {
           setError(err instanceof Error ? err.message : 'Dataset produce failed');
           handleStopProduce();
@@ -453,16 +485,385 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
     navigateToSchemaDatasets(schemaSubject);
   };
 
+  // Close column/export dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (columnsDropdownRef.current && !columnsDropdownRef.current.contains(event.target as Node)) {
+        setColumnsDropdownOpen(false);
+      }
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target as Node)) {
+        setExportDropdownOpen(false);
+      }
+      if (cardMenuRef.current && !cardMenuRef.current.contains(event.target as Node)) {
+        setCardMenuOpen(false);
+      }
+    };
+    if (columnsDropdownOpen || exportDropdownOpen || cardMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [columnsDropdownOpen, exportDropdownOpen, cardMenuOpen]);
+
+  // Pop out to a new browser window
+  const handlePopOut = () => {
+    setCardMenuOpen(false);
+    const url = `/stream-popout/${encodeURIComponent(topicName)}`;
+    window.open(url, '_blank', 'width=800,height=600,menubar=no,toolbar=no');
+  };
+
   // Results + message count
   const resultRows = bgStatement?.results ?? [];
   const resultCount = resultRows.length;
 
+  // Column visibility + export helpers (lifted from StreamCardTable toolbar)
+  const metaCols = ['_ts', '_partition', '_offset', '_key'];
+  const allColumns = bgStatement?.columns ?? [];
+  const valueColNames = allColumns.map(c => c.name).filter(name => !metaCols.includes(name));
+  const allColumnNames = [...metaCols.filter(c => allColumns.some(col => col.name === c)), ...valueColNames];
+  const displayCols = allColumnNames.filter(c => !hiddenColumns.has(c));
+
+  const toggleColumn = (colName: string) => {
+    setHiddenColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(colName)) next.delete(colName);
+      else next.add(colName);
+      return next;
+    });
+  };
+  const showAllColumns = () => setHiddenColumns(new Set());
+  const hideAllColumns = () => setHiddenColumns(new Set(allColumnNames));
+
+  const handleTableExport = (format: 'csv' | 'json') => {
+    const sorted = [...resultRows].sort((a, b) => {
+      const aTs = String((a as Record<string, unknown>)._ts ?? '');
+      const bTs = String((b as Record<string, unknown>)._ts ?? '');
+      return bTs.localeCompare(aTs);
+    });
+    if (sorted.length === 0 || displayCols.length === 0) return;
+    const filePrefix = topicName || 'stream';
+    if (format === 'csv') {
+      downloadFile(buildCsvContent(sorted, displayCols), getExportFilename(filePrefix, 'csv'), 'text/csv');
+    } else {
+      downloadFile(buildJsonContent(sorted, displayCols), getExportFilename(filePrefix, 'json'), 'application/json');
+    }
+    setExportDropdownOpen(false);
+    addToast({ type: 'success', message: `Exported ${sorted.length} rows as ${format.toUpperCase()}`, duration: 2000 });
+  };
+
+  const handleCopyMarkdown = () => {
+    const sorted = [...resultRows].sort((a, b) => {
+      const aTs = String((a as Record<string, unknown>)._ts ?? '');
+      const bTs = String((b as Record<string, unknown>)._ts ?? '');
+      return bTs.localeCompare(aTs);
+    });
+    if (sorted.length === 0 || displayCols.length === 0) return;
+    const markdown = buildMarkdownContent(sorted, displayCols);
+    navigator.clipboard.writeText(markdown)
+      .then(() => addToast({ type: 'success', message: `Copied ${Math.min(sorted.length, 100)} rows as Markdown`, duration: 2000 }))
+      .catch(() => addToast({ type: 'error', message: 'Failed to copy to clipboard', duration: 2000 }));
+    setExportDropdownOpen(false);
+  };
+
+  // Collapsible card content — extracted so popout portal can reuse without collapse guard
+  const cardBody = (
+    <>
+      {mode === 'produce-consume' && (
+        <div className="stream-card-produce-controls">
+          <div className="stream-card-source-row">
+            <button
+              className={`stream-card-start-btn${isProducing ? ' stream-card-start-btn--active' : ''}`}
+              onClick={isProducing ? handleStopProduce : (dataSource === 'dataset' ? handleStartDatasetProduce : handleStartProduce)}
+              aria-label={isProducing ? 'Stop producer' : 'Start producer'}
+              title={isProducing ? 'Stop' : 'Start'}
+              disabled={dataSource === 'dataset' && !selectedDataset}
+            >
+              {isProducing ? <FiSquare size={12} /> : <FiPlay size={12} />}
+              <span>{isProducing ? 'Stop' : 'Start'}</span>
+              {isProducing && <span className="stream-card-pulse-dot" aria-hidden="true" />}
+            </button>
+            <select
+              className="stream-card-select"
+              value={dataSource}
+              onChange={(e) => {
+                const newSource = e.target.value as 'synthetic' | 'dataset';
+                setDataSource(newSource);
+                updateStreamCardConfig(cardId, { dataSource: newSource });
+              }}
+              aria-label="Data source"
+            >
+              <option value="synthetic">Synthetic</option>
+              <option value="dataset">Dataset</option>
+            </select>
+            {isProducing && dataSource === 'synthetic' && (
+              <span className="stream-card-progress" aria-live="polite">{produceCount} sent</span>
+            )}
+            <span className="stream-card-divider" />
+            <button
+              className="stream-card-btn"
+              onClick={handleFetch}
+              disabled={isAutoRefreshing}
+              title="Re-fetch messages from the topic using the SQL query below"
+              aria-label="Fetch messages"
+            >
+              <FiRefreshCw size={12} />
+            </button>
+            <button
+              className="stream-card-btn"
+              onClick={handleResetConsumer}
+              disabled={resultCount === 0 && !isAutoRefreshing && !bgStatement}
+              title="Clear all results and stop streaming"
+              aria-label="Clear all results and stop streaming"
+            >
+              <FiTrash2 size={12} />
+            </button>
+            <button
+              className={`stream-card-start-btn${isAutoRefreshing ? ' stream-card-start-btn--active' : ''}`}
+              onClick={isAutoRefreshing ? handleStopAutoRefresh : handleStartAutoRefresh}
+              aria-label={isAutoRefreshing ? 'Stop live streaming' : 'Start live streaming — continuously re-fetches messages'}
+              title={isAutoRefreshing ? 'Stop live streaming' : 'Start live streaming — continuously re-fetches messages'}
+            >
+              {isAutoRefreshing ? <FiSquare size={12} /> : <FiPlay size={12} />}
+              {isAutoRefreshing && <span className="stream-card-pulse-dot" aria-hidden="true" />}
+            </button>
+          </div>
+          {dataSource === 'dataset' && (
+            <div className="stream-card-dataset-options">
+              {selectedDataset && (
+                <>
+                  <label className="stream-card-checkbox-label">
+                    <input type="checkbox" checked={burstMode} onChange={(e) => setBurstMode(e.target.checked)} />
+                    Burst
+                  </label>
+                  {!burstMode && (
+                    <label className="stream-card-checkbox-label">
+                      <input type="checkbox" checked={loopEnabled} onChange={(e) => setLoopEnabled(e.target.checked)} />
+                      Loop
+                    </label>
+                  )}
+                  {datasetProgress && (
+                    <span className="stream-card-progress" aria-live="polite">
+                      {datasetProgress.sent}/{datasetProgress.total}{!loopEnabled && datasetProgress.sent >= datasetProgress.total ? ' complete' : ''}
+                    </span>
+                  )}
+                </>
+              )}
+              <select
+                className="stream-card-select"
+                value={selectedDatasetId ?? ''}
+                onChange={(e) => {
+                  const newId = e.target.value || null;
+                  setSelectedDatasetId(newId);
+                  updateStreamCardConfig(cardId, { selectedDatasetId: newId });
+                }}
+                aria-label="Select dataset"
+                disabled={topicDatasets.length === 0}
+              >
+                {topicDatasets.length === 0 ? (
+                  <option value="">No datasets — add one first</option>
+                ) : (
+                  <>
+                    <option value="">Select dataset...</option>
+                    {topicDatasets.map((ds) => (
+                      <option key={ds.id} value={ds.id}>{ds.name} ({ds.records.length})</option>
+                    ))}
+                  </>
+                )}
+              </select>
+              <button
+                className="stream-card-btn stream-card-btn--add-dataset"
+                onClick={handleAddDataset}
+                disabled={!schemaSubject}
+                title="Add test datasets for this topic"
+                aria-label={`Open schema datasets for ${topicName}`}
+              >
+                +
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {mode === 'consume' && (
+        <div className="stream-card-consume-controls">
+          <select
+            value={scanMode}
+            onChange={(e) => {
+              const newScanMode = e.target.value as 'earliest-offset' | 'latest-offset';
+              setScanMode(newScanMode);
+              updateStreamCardConfig(cardId, { scanMode: newScanMode });
+            }}
+            className="stream-card-select"
+            aria-label="Scan mode"
+          >
+            <option value="earliest-offset">Earliest</option>
+            <option value="latest-offset">Latest</option>
+          </select>
+          <button
+            className="stream-card-btn"
+            onClick={handleFetch}
+            disabled={isAutoRefreshing}
+            title="Re-fetch messages from the topic using the SQL query below"
+            aria-label="Fetch messages"
+          >
+            <FiRefreshCw size={12} />
+          </button>
+          <button
+            className="stream-card-btn"
+            onClick={handleResetConsumer}
+            disabled={resultCount === 0 && !isAutoRefreshing && !bgStatement}
+            title="Clear all results and stop streaming"
+            aria-label="Clear all results and stop streaming"
+          >
+            <FiTrash2 size={12} />
+          </button>
+          <button
+            className={`stream-card-start-btn${isAutoRefreshing ? ' stream-card-start-btn--active' : ''}`}
+            onClick={isAutoRefreshing ? handleStopAutoRefresh : handleStartAutoRefresh}
+            aria-label={isAutoRefreshing ? 'Stop live streaming' : 'Start live streaming — continuously re-fetches messages'}
+            title={isAutoRefreshing ? 'Stop live streaming' : 'Start live streaming — continuously re-fetches messages'}
+          >
+            {isAutoRefreshing ? <FiSquare size={12} /> : <FiPlay size={12} />}
+            {isAutoRefreshing && <span className="stream-card-pulse-dot" aria-hidden="true" />}
+          </button>
+        </div>
+      )}
+
+      <div className="stream-card-body">
+        <div className="stream-card-sql-row">
+          <textarea
+            className="stream-card-sql-editor"
+            value={customSql}
+            onChange={(e) => { setCustomSql(e.target.value); setIsSqlDirty(true); }}
+            spellCheck={false}
+            rows={2}
+            aria-label="SQL query"
+          />
+          {isSqlDirty && (
+            <button
+              className="stream-card-sql-reset"
+              onClick={() => { setCustomSql(buildFetchSQL()); setIsSqlDirty(false); }}
+              title="Reset to default query"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+
+        {(resultRows.length > 0 || (bgStatement && (bgStatement.status === 'PENDING' || bgStatement.status === 'RUNNING'))) && (
+          <div className="stream-card-results-bar">
+            <button
+              className="stream-card-results-toggle"
+              onClick={() => setIsResultsVisible(v => !v)}
+              aria-expanded={isResultsVisible}
+              aria-label={isResultsVisible ? 'Hide results' : 'Show results'}
+            >
+              {isResultsVisible ? <FiChevronUp size={12} /> : <FiChevronDown size={12} />}
+              <span>Results{resultCount > 0 ? ` (${resultCount})` : ''}</span>
+            </button>
+            <div className="stream-card-results-tools">
+              <div className="stream-card-table-toolbar-group" ref={columnsDropdownRef}>
+                <button
+                  className={`stream-card-btn${columnsDropdownOpen ? ' stream-card-btn--active-subtle' : ''}`}
+                  onClick={() => { setColumnsDropdownOpen(o => !o); setExportDropdownOpen(false); }}
+                  title="Choose which columns to show or hide"
+                  aria-label="Toggle columns"
+                  aria-haspopup="true"
+                  aria-expanded={columnsDropdownOpen}
+                  disabled={allColumnNames.length === 0}
+                >
+                  <FiColumns size={14} />
+                </button>
+                {columnsDropdownOpen && (
+                  <div className="stream-card-dropdown" style={{ position: 'absolute', bottom: '100%', right: 0, zIndex: 100 }}>
+                    <div className="stream-card-dropdown-actions">
+                      <button onClick={showAllColumns}>Show All</button>
+                      <button onClick={hideAllColumns}>Hide All</button>
+                    </div>
+                    <div className="stream-card-dropdown-list">
+                      {allColumnNames.map((colName) => (
+                        <label key={colName} className="stream-card-dropdown-item">
+                          <input
+                            type="checkbox"
+                            checked={!hiddenColumns.has(colName)}
+                            onChange={() => toggleColumn(colName)}
+                          />
+                          <span>{colName}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="stream-card-table-toolbar-group" ref={exportDropdownRef}>
+                <button
+                  className={`stream-card-btn${exportDropdownOpen ? ' stream-card-btn--active-subtle' : ''}`}
+                  onClick={() => { setExportDropdownOpen(o => !o); setColumnsDropdownOpen(false); }}
+                  title="Export results as CSV, JSON, or Markdown"
+                  aria-label="Export data"
+                  aria-haspopup="true"
+                  aria-expanded={exportDropdownOpen}
+                  disabled={resultRows.length === 0}
+                >
+                  <FiDownload size={14} />
+                </button>
+                {exportDropdownOpen && (
+                  <div className="stream-card-dropdown" style={{ position: 'absolute', bottom: '100%', right: 0, zIndex: 100 }}>
+                    <button className="stream-card-dropdown-action-btn" onClick={() => handleTableExport('csv')}>Export as CSV</button>
+                    <button className="stream-card-dropdown-action-btn" onClick={() => handleTableExport('json')}>Export as JSON</button>
+                    <button className="stream-card-dropdown-action-btn" onClick={handleCopyMarkdown}>
+                      <FiClipboard size={12} />
+                      Copy as Markdown
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isResultsVisible && resultRows.length > 0 && bgStatement?.columns && (
+          <StreamCardTable data={resultRows} columns={bgStatement.columns} hiddenColumns={hiddenColumns} />
+        )}
+
+        {isResultsVisible && bgStatement && bgStatement.status === 'ERROR' && (
+          <div className="stream-card-error">{bgStatement.error || 'Query failed'}</div>
+        )}
+
+        {isResultsVisible && bgStatement && resultRows.length === 0 && bgStatement.status !== 'PENDING' && bgStatement.status !== 'RUNNING' && bgStatement.status !== 'ERROR' && (
+          <div className="stream-card-no-data">No messages</div>
+        )}
+
+        {isResultsVisible && bgStatement && (bgStatement.status === 'PENDING' || bgStatement.status === 'RUNNING') && resultRows.length === 0 && (
+          <div className="stream-card-loading">Fetching messages...</div>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="stream-card">
       <div className="stream-card-header">
+        <button
+          className="stream-card-btn"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? 'Expand card' : 'Collapse card'}
+          title={isCollapsed ? 'Expand' : 'Collapse'}
+        >
+          {isCollapsed ? <FiChevronDown size={14} /> : <FiChevronUp size={14} />}
+        </button>
         <span className="stream-card-topic-name" title={topicName}>{topicName}</span>
+        {isCollapsed && (
+          <div className="stream-card-collapsed-info">
+            {resultCount > 0 && (
+              <span className="stream-card-collapsed-badge">{resultCount} msgs</span>
+            )}
+            {isAutoRefreshing && (
+              <span className="stream-card-live-indicator">LIVE</span>
+            )}
+          </div>
+        )}
         <div className="stream-card-actions">
-          {/* Mode selector */}
           <div className="stream-card-mode-selector" role="group" aria-label="Stream mode">
             <button
               className={`stream-card-mode-btn${mode === 'consume' ? ' stream-card-mode-btn--active' : ''}`}
@@ -479,257 +880,54 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
               Produce
             </button>
           </div>
-          {/* Duplicate */}
-          <button
-            className="stream-card-btn"
-            onClick={onDuplicate}
-            aria-label="Duplicate card"
-            title="Duplicate"
-          >
-            <FiCopy size={14} />
-          </button>
-          {/* Collapse toggle */}
-          <button
-            className="stream-card-btn"
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            aria-expanded={!isCollapsed}
-            aria-label={isCollapsed ? 'Expand card' : 'Collapse card'}
-            title={isCollapsed ? 'Expand' : 'Collapse'}
-          >
-            {isCollapsed ? <FiChevronDown size={14} /> : <FiChevronUp size={14} />}
-          </button>
-          {/* Remove */}
-          <button
-            className="stream-card-btn stream-card-btn--remove"
-            onClick={handleRemove}
-            aria-label="Remove card"
-            title="Remove"
-          >
-            <FiX size={14} />
-          </button>
+          <div className="stream-card-table-toolbar-group" ref={cardMenuRef}>
+            <button
+              className={`stream-card-btn${cardMenuOpen ? ' stream-card-btn--active-subtle' : ''}`}
+              onClick={() => setCardMenuOpen(o => !o)}
+              aria-label="Card actions"
+              aria-haspopup="true"
+              aria-expanded={cardMenuOpen}
+              title="Card actions"
+            >
+              <FiMoreVertical size={14} />
+            </button>
+            {cardMenuOpen && (
+              <div className="stream-card-dropdown" style={{ position: 'absolute', top: '100%', right: 0, zIndex: 100 }}>
+                {!isPopout && (
+                  <button className="stream-card-dropdown-action-btn" onClick={() => { onDuplicate(); setCardMenuOpen(false); }}>
+                    <FiCopy size={12} />
+                    Duplicate
+                  </button>
+                )}
+                <button className="stream-card-dropdown-action-btn" onClick={handlePopOut}>
+                  <FiExternalLink size={12} />
+                  Pop Out
+                </button>
+                {!isPopout && (
+                  <button className="stream-card-dropdown-action-btn" onClick={() => { navigateToTopic(topicName); setCardMenuOpen(false); }}>
+                    <FiRadio size={12} />
+                    View Topic
+                  </button>
+                )}
+                {!isPopout && (
+                  <button className="stream-card-dropdown-action-btn" onClick={() => { navigateToSchemaSubject(`${topicName}-value`); setCardMenuOpen(false); }}>
+                    <FiFileText size={12} />
+                    View Schema
+                  </button>
+                )}
+                <button className="stream-card-dropdown-action-btn stream-card-dropdown-action-btn--danger" onClick={() => { handleRemove(); setCardMenuOpen(false); }}>
+                  <FiX size={12} />
+                  Remove Card
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Error display */}
-      {error && (
-        <div className="stream-card-error">{error}</div>
-      )}
+      {error && <div className="stream-card-error">{error}</div>}
 
-      {/* Produce controls section (only in produce-consume mode) */}
-      {mode === 'produce-consume' && !isCollapsed && (
-        <div className="stream-card-produce-controls">
-          {/* Source selector row — play button first */}
-          <div className="stream-card-source-row">
-            <button
-              className={`stream-card-btn${isProducing ? ' stream-card-btn--active' : ''}`}
-              onClick={isProducing ? handleStopProduce : (dataSource === 'dataset' ? handleStartDatasetProduce : handleStartProduce)}
-              aria-label={isProducing ? 'Stop producer' : 'Start producer'}
-              title={isProducing ? 'Stop' : 'Start'}
-              disabled={dataSource === 'dataset' && !selectedDataset}
-            >
-              {isProducing ? <FiSquare size={14} /> : <FiPlay size={14} />}
-            </button>
-            <select
-              className="stream-card-select"
-              value={dataSource}
-              onChange={(e) => {
-                const newSource = e.target.value as 'synthetic' | 'dataset';
-                setDataSource(newSource);
-                updateStreamCardConfig(cardId, { dataSource: newSource });
-              }}
-              aria-label="Data source"
-            >
-              <option value="synthetic">Synthetic</option>
-              <option value="dataset">Dataset</option>
-            </select>
-
-            {dataSource === 'dataset' && (
-              <>
-                <select
-                  className="stream-card-select"
-                  value={selectedDatasetId ?? ''}
-                  onChange={(e) => {
-                    const newId = e.target.value || null;
-                    setSelectedDatasetId(newId);
-                    updateStreamCardConfig(cardId, { selectedDatasetId: newId });
-                  }}
-                  aria-label="Select dataset"
-                  disabled={topicDatasets.length === 0}
-                >
-                  {topicDatasets.length === 0 ? (
-                    <option value="">No datasets — add one first</option>
-                  ) : (
-                    <>
-                      <option value="">Select dataset...</option>
-                      {topicDatasets.map((ds) => (
-                        <option key={ds.id} value={ds.id}>{ds.name} ({ds.records.length})</option>
-                      ))}
-                    </>
-                  )}
-                </select>
-                <button
-                  className="stream-card-btn stream-card-btn--add-dataset"
-                  onClick={handleAddDataset}
-                  disabled={!schemaSubject}
-                  title="Add test datasets for this topic"
-                  aria-label={`Open schema datasets for ${topicName}`}
-                >
-                  +
-                </button>
-              </>
-            )}
-          </div>
-
-          {dataSource === 'dataset' && selectedDataset && (
-            <div className="stream-card-dataset-options">
-              <label className="stream-card-checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={burstMode}
-                  onChange={(e) => setBurstMode(e.target.checked)}
-                />
-                Burst
-              </label>
-              {!burstMode && (
-                <label className="stream-card-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={loopEnabled}
-                    onChange={(e) => setLoopEnabled(e.target.checked)}
-                  />
-                  Loop
-                </label>
-              )}
-            </div>
-          )}
-
-          {/* Progress */}
-          {(isProducing || datasetProgress) && (
-            <div className="stream-card-produce-actions">
-              {isProducing && dataSource === 'synthetic' && (
-                <span className="stream-card-progress" aria-live="polite">{produceCount} sent</span>
-              )}
-              {datasetProgress && (
-                <span className="stream-card-progress" aria-live="polite">
-                  {datasetProgress.sent}/{datasetProgress.total} {datasetProgress.sent === datasetProgress.total ? 'complete' : 'sent'}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Card body */}
-      {!isCollapsed && (
-        <div className="stream-card-body">
-          <div className="stream-card-controls">
-            <span className="stream-card-msg-count" aria-live="polite">
-              {resultCount} msgs
-            </span>
-            {mode === 'consume' && (
-              <select
-                value={scanMode}
-                onChange={(e) => {
-                  const newScanMode = e.target.value as 'earliest-offset' | 'latest-offset';
-                  setScanMode(newScanMode);
-                  updateStreamCardConfig(cardId, { scanMode: newScanMode });
-                }}
-                className="stream-card-select"
-                aria-label="Scan mode"
-              >
-                <option value="earliest-offset">Earliest</option>
-                <option value="latest-offset">Latest</option>
-              </select>
-            )}
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="stream-card-select"
-              aria-label="Row limit"
-            >
-              <option value={10}>10 rows</option>
-              <option value={25}>25 rows</option>
-              <option value={50}>50 rows</option>
-              <option value={100}>100 rows</option>
-            </select>
-            <button
-              className="stream-card-fetch-btn"
-              onClick={handleFetch}
-              disabled={isAutoRefreshing}
-              title="Fetch messages"
-            >
-              <FiRefreshCw size={12} />
-              <span>{bgStatement ? 'Refresh' : 'Fetch'}</span>
-            </button>
-            <button
-              className={`stream-card-btn stream-card-live-btn${isAutoRefreshing ? ' stream-card-btn--active' : ''}`}
-              onClick={isAutoRefreshing ? handleStopAutoRefresh : handleStartAutoRefresh}
-              aria-label={isAutoRefreshing ? 'Stop live stream' : 'Start live stream'}
-              title={isAutoRefreshing ? 'Stop live' : 'Live'}
-            >
-              {isAutoRefreshing ? <FiSquare size={12} /> : <FiPlay size={12} />}
-              <span>{isAutoRefreshing ? 'Stop' : 'Live'}</span>
-            </button>
-            <button
-              className="stream-card-icon-link"
-              onClick={() => navigateToTopic(topicName)}
-              title="View Topic"
-              aria-label="View Topic"
-            >
-              <FiRadio size={13} />
-            </button>
-            <button
-              className="stream-card-icon-link"
-              onClick={() => navigateToSchemaSubject(`${topicName}-value`)}
-              title="View Schema"
-              aria-label="View Schema"
-            >
-              <FiFileText size={13} />
-            </button>
-          </div>
-
-          {/* SQL Editor */}
-          <div className="stream-card-sql-row">
-            <textarea
-              className="stream-card-sql-editor"
-              value={customSql}
-              onChange={(e) => { setCustomSql(e.target.value); setIsSqlDirty(true); }}
-              spellCheck={false}
-              rows={2}
-              aria-label="SQL query"
-            />
-            {isSqlDirty && (
-              <button
-                className="stream-card-sql-reset"
-                onClick={() => { setCustomSql(buildFetchSQL()); setIsSqlDirty(false); }}
-                title="Reset to default query"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-
-          {/* Results Table */}
-          {resultRows.length > 0 && bgStatement?.columns && (
-            <StreamCardTable
-              data={resultRows}
-              columns={bgStatement.columns}
-            />
-          )}
-
-          {bgStatement && bgStatement.status === 'ERROR' && (
-            <div className="stream-card-error">{bgStatement.error || 'Query failed'}</div>
-          )}
-
-          {bgStatement && resultRows.length === 0 && bgStatement.status !== 'PENDING' && bgStatement.status !== 'RUNNING' && bgStatement.status !== 'ERROR' && (
-            <div className="stream-card-no-data">No messages</div>
-          )}
-
-          {bgStatement && (bgStatement.status === 'PENDING' || bgStatement.status === 'RUNNING') && resultRows.length === 0 && (
-            <div className="stream-card-loading">Fetching messages...</div>
-          )}
-        </div>
-      )}
+      {!isCollapsed && cardBody}
     </div>
   );
 }

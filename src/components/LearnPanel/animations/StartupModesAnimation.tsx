@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 /* -----------------------------------------------------------------------
  * Types
@@ -146,6 +147,7 @@ export function StartupModesAnimation() {
   const [snapshot, setSnapshot] = useState<Snapshot>(buildInitialSnapshot);
   const snapRef = useRef<Snapshot>(buildInitialSnapshot());
   const pidRef = useRef(0);
+  const { paused } = useAnimationSpeed();
 
   useEffect(() => {
     let rafId: number;
@@ -207,6 +209,7 @@ export function StartupModesAnimation() {
     /* ---- main loop ---- */
 
     function tick(ts: number) {
+      if (paused) { rafId = requestAnimationFrame(tick); return; }
       if (startTime === null) startTime = ts;
       const elapsed = (ts - startTime) % TOTAL_CYCLE;
       const phase = Math.floor(elapsed / PHASE_DURATION);
@@ -376,7 +379,7 @@ export function StartupModesAnimation() {
 
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, []);
+  }, [paused]);
 
   /* -----------------------------------------------------------------------
    * Render

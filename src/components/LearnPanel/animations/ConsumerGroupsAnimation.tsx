@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 /* ---------------------------------------------------------------------------
    Layout constants
@@ -86,6 +87,7 @@ function consumerYPositions(count: number): number[] {
 export function ConsumerGroupsAnimation() {
   const [phase, setPhase] = useState(0);
   const [animProgress, setAnimProgress] = useState(0);
+  const { paused } = useAnimationSpeed();
 
   /* Committed offsets per consumer (by label): partition -> offset */
   const [offsets, setOffsets] = useState<Record<string, Record<number, number>>>({
@@ -115,6 +117,7 @@ export function ConsumerGroupsAnimation() {
     };
 
     const tick = () => {
+      if (paused) { frameId = requestAnimationFrame(tick); return; }
       const elapsed = Date.now() - startTime;
       const phaseIndex = Math.floor(elapsed / PHASE_DURATION);
       const phaseProgress = (elapsed % PHASE_DURATION) / PHASE_DURATION;
@@ -139,7 +142,7 @@ export function ConsumerGroupsAnimation() {
 
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, []);
+  }, [paused]);
 
   /* -----------------------------------------------------------------------
      Derived state based on current phase

@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationTick } from './useAnimationTick';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const TICK_MS = 50;
 const PHASE_TICKS = 26;
 const TOTAL_PHASES = 8;
 const CYCLE_TICKS = TOTAL_PHASES * PHASE_TICKS;
@@ -16,18 +15,18 @@ const FILTER_COLOR = '#6366f1';
 
 // Event definitions
 const EVENTS = [
-  { label: 'LOL',  pass: true },
-  { label: 'GROAN', pass: false },
-  { label: 'ROFL', pass: true },
-  { label: 'MEH',  pass: false },
-  { label: 'DEAD', pass: true },
+  { label: 'APPROVED', pass: true  },
+  { label: 'DECLINED', pass: false },
+  { label: 'APPROVED', pass: true  },
+  { label: 'PENDING',  pass: false },
+  { label: 'APPROVED', pass: true  },
 ];
 
 const PHASE_STATUS: string[] = [
   'Stream arrives — every row hits the WHERE clause',
-  'Rating badges: LOL, GROAN, ROFL, MEH, DEAD',
-  'LOL → WHERE passes → PASS lane (green)',
-  'GROAN → WHERE fails → DROP lane (red)',
+  'Loan events: APPROVED, DECLINED, APPROVED, PENDING, APPROVED',
+  'APPROVED → WHERE passes → PASS lane (green)',
+  'DECLINED → WHERE fails → DROP lane (red)',
   'Both paths active simultaneously',
   'PASS counter ticks — throughput unchanged',
   'WHERE clause highlights on each evaluation',
@@ -53,12 +52,7 @@ function diamondPoints(cx: number, cy: number, s: number): string {
 // ---------------------------------------------------------------------------
 
 export function FilterStreamAnimation() {
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setTick((p) => (p + 1) % CYCLE_TICKS), TICK_MS);
-    return () => clearInterval(id);
-  }, []);
+  const tick = useAnimationTick(CYCLE_TICKS);
 
   const phase = Math.floor(tick / PHASE_TICKS);
   const phaseProgress = (tick % PHASE_TICKS) / PHASE_TICKS;
@@ -100,7 +94,7 @@ export function FilterStreamAnimation() {
   const mehY = mehX != null && mehX > FILTER_X ? FILTER_Y + (mehX - FILTER_X) / (LANE_END_X - FILTER_X) * (DROP_Y - FILTER_Y) : FILTER_Y;
 
   // Phase 5: pass counter
-  const passCount = phase >= 5 ? Math.round(eased * 3) : phase > 5 ? 3 : 0;
+  const passCount = phase === 5 ? Math.round(eased * 3) : phase > 5 ? 3 : 0;
   const countVisible = phase >= 5;
 
   // Phase 6: WHERE clause pulse
@@ -114,7 +108,7 @@ export function FilterStreamAnimation() {
 
   return (
     <div>
-      <svg viewBox="0 0 560 320" style={{ width: '100%', height: 'auto' }} aria-label="WHERE clause streaming filter animation showing events passing or dropping based on rating condition">
+      <svg viewBox="0 0 560 320" style={{ width: '100%', height: 'auto' }} aria-label="WHERE clause streaming filter animation showing loan events passing or dropping based on status condition">
         <defs>
           <filter id="fsa-glow" x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation="3" result="b" />
@@ -174,7 +168,7 @@ export function FilterStreamAnimation() {
           opacity={wherePulse * 0.9} />
         <text x="280" y="207" textAnchor="middle" fontSize="10"
           fontFamily="monospace" fontWeight="600" fill={FILTER_COLOR} opacity={wherePulse}>
-          WHERE rating IN ('LOL','ROFL','DEAD')
+          WHERE status = 'APPROVED'
         </text>
 
         {/* ── PHASE 1: Input events staggered in lane ── */}
@@ -262,7 +256,7 @@ export function FilterStreamAnimation() {
 
         {/* ── PHASE 5: PASS counter ── */}
         {countVisible && (
-          <g opacity={eased}>
+          <g opacity={phase === 5 ? eased : 1}>
             <rect x={LANE_END_X - 80} y={PASS_Y + 14} width="80" height="22" rx="5"
               fill={PASS_COLOR} fillOpacity={0.1} stroke={PASS_COLOR} strokeWidth="1" />
             <text x={LANE_END_X - 40} y={PASS_Y + 29} textAnchor="middle" fontSize="11"

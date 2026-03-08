@@ -14,6 +14,7 @@ let mockNavExpanded = false
 
 const mockToggleTheme = vi.fn()
 let mockTheme = 'light'
+let mockKsqlFeatureEnabled = false
 
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (s: unknown) => unknown) => {
@@ -24,9 +25,16 @@ vi.mock('../../store/workspaceStore', () => ({
       toggleNavExpanded: mockToggleNavExpanded,
       theme: mockTheme,
       toggleTheme: mockToggleTheme,
+      ksqlFeatureEnabled: mockKsqlFeatureEnabled,
     }
     return typeof selector === 'function' ? selector(state) : state
   },
+}))
+
+// Mock isKsqlEnabled from environment config
+let mockIsKsqlEnabled = false
+vi.mock('../../config/environment', () => ({
+  isKsqlEnabled: () => mockIsKsqlEnabled,
 }))
 
 // Import the component after mocks are registered
@@ -390,5 +398,62 @@ describe('[@phase-12-nav-rail] accessibility', () => {
 
     const themeBtn = screen.getByRole('button', { name: /switch to light mode/i })
     expect(themeBtn).toHaveAttribute('aria-label', 'Switch to light mode')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// [@ksql-nav] 10. ksqlDB Queries nav item visibility
+// ---------------------------------------------------------------------------
+
+describe('[@ksql-nav] ksqlDB Queries nav item', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockActiveNavItem = 'workspace'
+    mockNavExpanded = false
+    mockTheme = 'light'
+  })
+
+  it('shows ksqlDB Queries nav item when ksqlDB is enabled', () => {
+    mockKsqlFeatureEnabled = true
+    mockIsKsqlEnabled = true
+    renderNavRail()
+
+    expect(screen.getByRole('button', { name: 'ksqlDB Queries' })).toBeInTheDocument()
+  })
+
+  it('hides ksqlDB Queries nav item when ksqlFeatureEnabled is false', () => {
+    mockKsqlFeatureEnabled = false
+    mockIsKsqlEnabled = true
+    renderNavRail()
+
+    expect(screen.queryByRole('button', { name: 'ksqlDB Queries' })).not.toBeInTheDocument()
+  })
+
+  it('hides ksqlDB Queries nav item when isKsqlEnabled returns false', () => {
+    mockKsqlFeatureEnabled = true
+    mockIsKsqlEnabled = false
+    renderNavRail()
+
+    expect(screen.queryByRole('button', { name: 'ksqlDB Queries' })).not.toBeInTheDocument()
+  })
+
+  it('hides ksqlDB Queries nav item when both flags are false', () => {
+    mockKsqlFeatureEnabled = false
+    mockIsKsqlEnabled = false
+    renderNavRail()
+
+    expect(screen.queryByRole('button', { name: 'ksqlDB Queries' })).not.toBeInTheDocument()
+  })
+
+  it('clicking ksqlDB Queries calls setActiveNavItem with ksql-queries', async () => {
+    mockKsqlFeatureEnabled = true
+    mockIsKsqlEnabled = true
+    const user = userEvent.setup()
+    renderNavRail()
+
+    const ksqlBtn = screen.getByRole('button', { name: 'ksqlDB Queries' })
+    await user.click(ksqlBtn)
+
+    expect(mockSetActiveNavItem).toHaveBeenCalledWith('ksql-queries')
   })
 })

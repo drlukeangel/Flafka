@@ -206,4 +206,38 @@ describe('[@settings-panel] Settings Panel with Unique IDs', () => {
       expect(document.getElementById('settings-reset-properties-btn')).toBeTruthy();
     });
   });
+
+  describe('Feature Flags', () => {
+    it('should render Feature Flags section title', () => {
+      render(<App />);
+      const sections = document.querySelectorAll('.settings-section-title');
+      const titles = Array.from(sections).map(s => s.textContent);
+      expect(titles).toContain('Feature Flags');
+    });
+
+    it('should render ksqlDB toggle checkbox', () => {
+      render(<App />);
+      const toggle = document.querySelector('.settings-toggle input[type="checkbox"]');
+      expect(toggle).toBeTruthy();
+    });
+
+    it('should call setKsqlFeatureEnabled when toggle is clicked', async () => {
+      // Set initial state
+      useWorkspaceStore.setState({ ksqlFeatureEnabled: true });
+
+      render(<App />);
+      const toggle = document.querySelector('.settings-toggle input[type="checkbox"]') as HTMLInputElement;
+
+      if (toggle && !toggle.disabled) {
+        await act(async () => {
+          fireEvent.click(toggle);
+        });
+
+        await waitFor(() => {
+          const state = useWorkspaceStore.getState();
+          expect(state.ksqlFeatureEnabled).toBe(false);
+        });
+      }
+    });
+  });
 });

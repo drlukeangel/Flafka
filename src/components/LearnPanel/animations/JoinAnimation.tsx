@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationTick } from './useAnimationTick';
 
 /**
  * JoinAnimation
@@ -19,14 +19,7 @@ import './animations.css';
  */
 
 export function JoinAnimation() {
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTick((t) => (t + 1) % 80);
-    }, 100);
-    return () => clearInterval(interval);
-  }, []);
+  const tick = useAnimationTick(80);
 
   // -- Geometry constants --
   const orderY = 70;

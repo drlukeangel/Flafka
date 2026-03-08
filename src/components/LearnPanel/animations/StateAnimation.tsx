@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 interface StateRow {
   key: string;
@@ -23,13 +24,15 @@ const CYCLE_MS = EVENTS.length * PHASE_MS + TTL_MS + PAUSE_MS;
 
 export function StateAnimation() {
   const [elapsed, setElapsed] = useState(0);
+  const { paused } = useAnimationSpeed();
 
   useEffect(() => {
     const interval = setInterval(() => {
+      if (paused) return;
       setElapsed((prev) => (prev + 50) % CYCLE_MS);
     }, 50);
     return () => clearInterval(interval);
-  }, []);
+  }, [paused]);
 
   const eventPhaseEnd = EVENTS.length * PHASE_MS;
   const phaseIndex = Math.min(Math.floor(elapsed / PHASE_MS), EVENTS.length);

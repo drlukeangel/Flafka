@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,6 +120,7 @@ function eventSlotY(): number {
 export function TumbleWindowAnimation() {
   const [phase, setPhase] = useState(0);
   const [animProgress, setAnimProgress] = useState(0);
+  const { paused } = useAnimationSpeed();
 
   // Track which events have been committed (landed) into windows
   const [landedEvents, setLandedEvents] = useState<Set<number>>(new Set());
@@ -173,6 +175,7 @@ export function TumbleWindowAnimation() {
     };
 
     const tick = () => {
+      if (paused) { frameId = requestAnimationFrame(tick); return; }
       const elapsed = Date.now() - startTime;
       const phaseIndex = Math.floor(elapsed / PHASE_DURATION);
       const phaseProgress = (elapsed % PHASE_DURATION) / PHASE_DURATION;
@@ -197,7 +200,7 @@ export function TumbleWindowAnimation() {
 
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, []);
+  }, [paused]);
 
   // ---------------------------------------------------------------------------
   // Compute animating events for the current phase

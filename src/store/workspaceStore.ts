@@ -17,8 +17,9 @@ import { persist } from 'zustand/middleware';
 import * as flinkApi from '../api/flink-api';
 import type { StatementResponse } from '../api/flink-api';
 import * as telemetryApi from '../api/telemetry-api';
+import * as ksqlApi from '../api/ksql-api';
 import { env } from '../config/environment';
-import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace, TabState, StreamCardEntry, SqlEngine } from '../types';
+import type { SQLStatement, StatementStatus, TreeNode, Column, Toast, NavItem, ConfigAuditEntry, Snippet, BackgroundStatement, FlinkArtifact, SchemaDataset, StatementTelemetry, SavedWorkspace, TabState, StreamCardEntry, SqlEngine, KsqlPersistentQuery } from '../types';
 
 import { flinkEngine } from './engines/flink-engine';
 import { ksqlEngine } from './engines/ksql-engine';
@@ -280,6 +281,36 @@ export interface WorkspaceState {
   navigateToJobDetail: (statementName: string) => void;
   navigateToExampleDetail: (cardId: string | null) => void;
 
+  // ksqlDB Persistent Queries (runtime only, NOT persisted — except ksqlFeatureEnabled)
+  ksqlQueries: KsqlPersistentQuery[];
+  ksqlQueriesLoading: boolean;
+  ksqlQueriesError: string | null;
+  selectedKsqlQueryId: string | null;
+
+  // ksqlDB Dashboard (runtime only, NOT persisted)
+  ksqlDashboardOpen: boolean;
+  ksqlDashboardHeight: number;
+  ksqlDashboardQueries: KsqlPersistentQuery[];
+  ksqlDashboardLoading: boolean;
+  ksqlDashboardError: string | null;
+  ksqlDashboardLastUpdated: Date | null;
+
+  // ksqlDB recently terminated IDs — filtered out of poll results until they disappear naturally
+  _ksqlTerminatedIds: Set<string>;
+
+  // ksqlDB Feature Toggle (PERSISTED)
+  ksqlFeatureEnabled: boolean;
+
+  // ksqlDB Queries actions
+  loadKsqlQueries: () => Promise<void>;
+  terminateKsqlQuery: (queryId: string) => Promise<void>;
+  navigateToKsqlQueryDetail: (queryId: string) => void;
+  toggleKsqlDashboard: () => void;
+  loadKsqlDashboardQueries: () => Promise<void>;
+  setKsqlDashboardHeight: (height: number) => void;
+  terminateKsqlDashboardQuery: (queryId: string) => Promise<void>;
+  setKsqlFeatureEnabled: (enabled: boolean) => void;
+
   // Artifacts (runtime only, NOT persisted)
   artifactList: FlinkArtifact[];
   selectedArtifact: FlinkArtifact | null;
@@ -325,6 +356,7 @@ export interface WorkspaceState {
   executeBackgroundStatement: (contextId: string, sql: string, scanMode?: string, topicName?: string) => Promise<void>;
   cancelBackgroundStatement: (contextId: string) => Promise<void>;
   clearBackgroundStatements: () => Promise<void>;
+  clearBackgroundStatementResults: (contextId: string) => Promise<void>;
 
   // Scoped stop/delete/run actions for split buttons
   stopAllStreams: () => Promise<void>;
@@ -479,7 +511,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       sidebarCollapsed: false,
       activeNavItem: 'workspace' as NavItem,
       navExpanded: false,
-      theme: 'light',
+      theme: 'dark',
 
       computePoolPhase: null,
       computePoolCfu: null,
@@ -547,6 +579,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       // User-launched statements registry (persisted)
       userLaunchedStatements: [],
+
+      // ksqlDB Persistent Queries (runtime only, NOT persisted — except ksqlFeatureEnabled)
+      ksqlQueries: [],
+      ksqlQueriesLoading: false,
+      ksqlQueriesError: null,
+      selectedKsqlQueryId: null,
+      ksqlDashboardOpen: false,
+      ksqlDashboardHeight: 300,
+      ksqlDashboardQueries: [],
+      ksqlDashboardLoading: false,
+      ksqlDashboardError: null,
+      ksqlDashboardLastUpdated: null,
+      _ksqlTerminatedIds: new Set<string>(),
+      ksqlFeatureEnabled: env.ksqlEnabled,
 
       // Artifacts (runtime only, NOT persisted)
       artifactList: [],
@@ -1679,7 +1725,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       toggleComputePoolDashboard: () => {
         const isOpen = !get().computePoolDashboardOpen;
-        set({ computePoolDashboardOpen: isOpen });
+        set({
+          computePoolDashboardOpen: isOpen,
+          // Mutual exclusion: close ksqlDB dashboard
+          ksqlDashboardOpen: false,
+        });
         if (isOpen) {
           get().loadStatementTelemetry();
         }
@@ -2494,6 +2544,160 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set({ selectedExampleId: cardId });
       },
 
+      // ── ksqlDB Persistent Queries ──────────────────────────────────────────
+
+      loadKsqlQueries: async () => {
+        set({ ksqlQueriesLoading: true, ksqlQueriesError: null });
+        try {
+          const response = await ksqlApi.listQueries();
+          const queries: KsqlPersistentQuery[] = [];
+          for (const item of response) {
+            if (item.queries) {
+              for (const q of item.queries) {
+                queries.push({
+                  id: q.id,
+                  queryString: q.queryString,
+                  sinks: q.sinks,
+                  queryType: q.queryType,
+                  state: q.state,
+                });
+              }
+            }
+          }
+          // Filter out recently terminated queries that ksqlDB hasn't fully removed yet
+          const terminated = get()._ksqlTerminatedIds;
+          const filtered = terminated.size > 0 ? queries.filter((q) => !terminated.has(q.id)) : queries;
+          // Clear terminated IDs that are no longer in the server response (fully removed)
+          if (terminated.size > 0) {
+            const serverIds = new Set(queries.map((q) => q.id));
+            const stillPending = new Set([...terminated].filter((id) => serverIds.has(id)));
+            if (stillPending.size !== terminated.size) {
+              set({ _ksqlTerminatedIds: stillPending });
+            }
+          }
+          set({ ksqlQueries: filtered, ksqlQueriesLoading: false });
+        } catch (err) {
+          set({
+            ksqlQueriesError: err instanceof Error ? err.message : 'Failed to load ksqlDB queries',
+            ksqlQueriesLoading: false,
+          });
+        }
+      },
+
+      terminateKsqlQuery: async (queryId: string) => {
+        const prev = get().ksqlQueries;
+        // Optimistic removal
+        set({ ksqlQueries: prev.filter((q) => q.id !== queryId) });
+        try {
+          await ksqlApi.terminateQuery(queryId);
+          // Track terminated ID so polls don't re-add it
+          const terminated = new Set(get()._ksqlTerminatedIds);
+          terminated.add(queryId);
+          set({ _ksqlTerminatedIds: terminated });
+          // Also remove from dashboard if present
+          set({ ksqlDashboardQueries: get().ksqlDashboardQueries.filter((q) => q.id !== queryId) });
+          get().addToast({ type: 'success', message: `Terminated query ${queryId}` });
+        } catch (err) {
+          // Revert on error
+          set({ ksqlQueries: prev });
+          get().addToast({
+            type: 'error',
+            message: `Failed to terminate query: ${err instanceof Error ? err.message : 'Unknown error'}`,
+          });
+        }
+      },
+
+      navigateToKsqlQueryDetail: (queryId: string) => {
+        set({ activeNavItem: 'ksql-queries' as NavItem, selectedKsqlQueryId: queryId });
+      },
+
+      toggleKsqlDashboard: () => {
+        const isOpen = !get().ksqlDashboardOpen;
+        set({
+          ksqlDashboardOpen: isOpen,
+          // Mutual exclusion: close compute pool dashboard
+          computePoolDashboardOpen: false,
+        });
+        if (isOpen) {
+          get().loadKsqlDashboardQueries();
+        }
+      },
+
+      loadKsqlDashboardQueries: async () => {
+        set({ ksqlDashboardLoading: true, ksqlDashboardError: null });
+        try {
+          const response = await ksqlApi.listQueries();
+          const queries: KsqlPersistentQuery[] = [];
+          for (const item of response) {
+            if (item.queries) {
+              for (const q of item.queries) {
+                queries.push({
+                  id: q.id,
+                  queryString: q.queryString,
+                  sinks: q.sinks,
+                  queryType: q.queryType,
+                  state: q.state,
+                });
+              }
+            }
+          }
+          // Filter out recently terminated queries that ksqlDB hasn't fully removed yet
+          const terminated = get()._ksqlTerminatedIds;
+          const filtered = terminated.size > 0 ? queries.filter((q) => !terminated.has(q.id)) : queries;
+          // Clear terminated IDs that are no longer in the server response (fully removed)
+          if (terminated.size > 0) {
+            const serverIds = new Set(queries.map((q) => q.id));
+            const stillPending = new Set([...terminated].filter((id) => serverIds.has(id)));
+            if (stillPending.size !== terminated.size) {
+              set({ _ksqlTerminatedIds: stillPending });
+            }
+          }
+          set({
+            ksqlDashboardQueries: filtered,
+            ksqlDashboardLoading: false,
+            ksqlDashboardLastUpdated: new Date(),
+          });
+        } catch (err) {
+          set({
+            ksqlDashboardError: err instanceof Error ? err.message : 'Failed to load queries',
+            ksqlDashboardLoading: false,
+          });
+        }
+      },
+
+      setKsqlDashboardHeight: (height: number) => {
+        set({ ksqlDashboardHeight: Math.max(150, Math.min(600, height)) });
+      },
+
+      terminateKsqlDashboardQuery: async (queryId: string) => {
+        const prev = get().ksqlDashboardQueries;
+        set({ ksqlDashboardQueries: prev.filter((q) => q.id !== queryId) });
+        try {
+          await ksqlApi.terminateQuery(queryId);
+          // Track terminated ID so polls don't re-add it
+          const terminated = new Set(get()._ksqlTerminatedIds);
+          terminated.add(queryId);
+          set({ _ksqlTerminatedIds: terminated });
+          // Also remove from page queries if present
+          set({ ksqlQueries: get().ksqlQueries.filter((q) => q.id !== queryId) });
+          get().addToast({ type: 'success', message: `Terminated query ${queryId}` });
+        } catch (err) {
+          set({ ksqlDashboardQueries: prev });
+          get().addToast({
+            type: 'error',
+            message: `Failed to terminate query: ${err instanceof Error ? err.message : 'Unknown error'}`,
+          });
+        }
+      },
+
+      setKsqlFeatureEnabled: (enabled: boolean) => {
+        set({
+          ksqlFeatureEnabled: enabled,
+          // Close dashboard when disabling
+          ...(enabled ? {} : { ksqlDashboardOpen: false }),
+        });
+      },
+
       loadJobs: async (forceFullReload?: boolean) => {
         const state = get();
         const currentFilterMode = state.resourceFilterMode;
@@ -2934,7 +3138,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             const currentTab = getTab(tabId);
             if (!currentTab) return; // Tab was closed, orphaned poll
             const current = currentTab.backgroundStatements.find((s) => s.id === bgStatement.id);
-            if (!current || current.status === 'CANCELLED') return;
+            if (!current || current.status === 'CANCELLED' || current.status === 'IDLE') return;
 
             const status = await flinkApi.getStatementStatus(statementName);
             const phase = status.status?.phase;
@@ -3081,6 +3285,31 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             .map((s) => flinkApi.cancelStatement(s.statementName).catch(() => {}))
         );
         setActiveTab({ backgroundStatements: [] });
+      },
+
+      clearBackgroundStatementResults: async (contextId) => {
+        const tab = activeTab();
+        const statement = tab.backgroundStatements.find((s) => s.contextId === contextId);
+
+        // Cancel server-side if running
+        if (statement && (statement.status === 'RUNNING' || statement.status === 'PENDING')) {
+          try {
+            await flinkApi.cancelStatement(statement.statementName);
+          } catch {
+            // Ignore cancel errors
+          }
+        }
+
+        // Reset to IDLE with empty results
+        if (statement) {
+          setActiveTab({
+            backgroundStatements: activeTab().backgroundStatements.map((s) =>
+              s.contextId === contextId
+                ? { ...s, status: 'IDLE' as const, results: [], error: undefined }
+                : s
+            ),
+          });
+        }
       },
 
       stopAllStreams: async () => {
@@ -3236,7 +3465,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     },
     {
       name: 'flink-workspace',
-      version: 3,
+      version: 4,
       partialize: (state) => ({
         tabs: Object.fromEntries(
           Object.entries(state.tabs).map(([tabId, tab]) => [tabId, {
@@ -3284,9 +3513,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         savedWorkspaces: state.savedWorkspaces,
         cacheTtlMinutes: state.cacheTtlMinutes,
         userLaunchedStatements: state.userLaunchedStatements,
+        ksqlFeatureEnabled: state.ksqlFeatureEnabled,
       }) as unknown as WorkspaceState,
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as any;
+
+        // v3 → v4: Default theme to dark, ksqlDB off by default
+        if (version < 4) {
+          state.theme = 'dark';
+          state.ksqlFeatureEnabled = env.ksqlEnabled;
+        }
 
         // v2 → v3: Add engine field to statements (undefined = flink, backward compatible)
         // No data transform needed — undefined is the correct default for Flink.

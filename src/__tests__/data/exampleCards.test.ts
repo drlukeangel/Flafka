@@ -2,10 +2,13 @@ import { describe, it, expect, vi } from 'vitest';
 import { getExampleCards } from '../../data/exampleCards';
 
 // Mock store and setup services for Quick Start cards
+vi.mock('../../config/environment', () => ({
+  isKsqlConfigured: () => true,
+}));
 vi.mock('../../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     () => ({}),
-    { getState: () => ({}) },
+    { getState: () => ({ ksqlFeatureEnabled: true }) },
   ),
 }));
 vi.mock('../../services/example-setup', () => ({

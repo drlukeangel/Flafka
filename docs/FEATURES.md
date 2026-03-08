@@ -2,249 +2,538 @@
 
 Complete list of shipped features. For architecture details, see [ARCHITECTURE.md](TECH-STACK.md). For how to add new features, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Complete reference of all shipped features, grouped by component.
-
 ---
 
 ## SQL Editor
 
-### Keyboard Shortcuts (Ctrl+Enter / Escape)
-Execute the current cell's SQL with Ctrl+Enter (Cmd+Enter on Mac) or cancel a running statement with Escape. Shortcuts are editor-scoped via `editor.addAction()` so they only fire when Monaco has focus. Status checks use `useWorkspaceStore.getState()` to avoid stale closures.
+### Monaco Editor with Flink SQL Support
+Each workspace cell embeds a Monaco Editor configured for SQL. Flink-specific keywords (TUMBLE, HOP, CUMULATE, MATCH_RECOGNIZE, WATERMARK, EXECUTE STATEMENT SET, etc.) are registered as autocomplete suggestions via a module-level `CompletionItemProvider`. Table and view names from the sidebar tree and column names from the last-clicked table schema are also suggested.
+
+### Multi-Cell Workspace
+The workspace supports an arbitrary number of SQL cells, each independently editable and executable. Cells can be added, deleted, duplicated, collapsed, labeled, and reordered via drag-and-drop. Each cell has its own status, results, scan mode, and optional engine selection.
+
+### Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| Ctrl+Enter (Cmd+Enter) | Execute current cell |
+| Escape | Cancel running statement |
+| Ctrl+Alt+Up/Down | Navigate between cells |
+| Shift+Alt+F | Format SQL |
+| ? | Toggle help panel |
+| Ctrl+S | Save workspace |
 
 ### Auto-Resize Editor Height
-Editor cells dynamically resize between 80px and 400px based on content. Uses Monaco's `onDidContentSizeChange` event to track line count. Removed all hardcoded `150px !important` CSS rules in favor of min/max constraints.
-
-### SQL Autocomplete / Intellisense
-Monaco `CompletionItemProvider` suggests Flink-specific SQL keywords (TUMBLE, HOP, MATCH_RECOGNIZE, etc.), table/view names from the sidebar tree, and column names from the last-clicked table's schema. Provider uses a disposable pattern at module level for safe HMR cleanup. Table suggestions are best-effort based on expanded tree state.
+Editor cells dynamically resize between 80px and 400px based on content line count via Monaco's `onDidContentSizeChange` event.
 
 ### SQL Formatter
-Formats SQL code via Shift+Alt+F or a toolbar button. The pure `formatSQL()` function uppercases keywords, inserts newlines before major clauses (FROM, WHERE, JOIN variants, GROUP BY, ORDER BY), normalizes whitespace, and preserves string literals, comments, and backtick identifiers. Multi-word keywords like LEFT JOIN are treated as atomic units. Uses `editor.executeEdits()` to preserve undo history.
+Formats SQL via Shift+Alt+F or toolbar button. Uppercases keywords, inserts newlines before major clauses, normalizes whitespace, and preserves string literals, comments, and backtick identifiers. Uses `editor.executeEdits()` to preserve undo history.
 
 ### Insert at Cursor from Sidebar
-Double-clicking a column name in the schema panel inserts it at the cursor position in the last-focused editor. Uses a shared `editorRegistry.ts` module (Map of editor instances + `focusedEditorId`) and `editor.executeEdits()` for undo-safe insertion. Single-click still copies to clipboard. The `focusedEditorId` is never cleared on blur to survive the blur-before-click timing.
+Double-clicking a column name in the schema panel inserts it at the cursor position in the last-focused editor via a shared `editorRegistry.ts` module. Single-click copies to clipboard.
 
-### Keyboard Cell Navigation (Ctrl+Alt+Up/Down)
-Navigate focus between editor cells with Ctrl+Alt+Down (next) and Ctrl+Alt+Up (previous). Reads the shared editor registry to find and focus the target cell's Monaco instance. Collapsed cells are auto-expanded via `toggleStatementCollapse()` before focusing. Uses `requestAnimationFrame` to defer focus after Monaco mounts.
+### Scan Mode Selector (per-cell)
+Each cell has a scan mode dropdown controlling where Flink reads from:
+
+| Mode | Description |
+|---|---|
+| Earliest | Read from beginning of topic |
+| Latest | Read from end (latest offset) |
+| Group | Resume from consumer group offsets |
+| Timestamp | Read from a specific timestamp (millis) |
+| Specific Offsets | Read from explicit partition:offset pairs |
+
+ksqlDB cells are filtered to earliest/latest only (mapped to `auto.offset.reset`).
+
+### Engine Selector (per-cell)
+When ksqlDB is enabled, a compact dropdown in each cell header lets users choose between Flink SQL and ksqlDB execution engines. Switching engines clears results and resets to IDLE. New cells inherit the engine from the preceding cell. ksqlDB cells show a purple left border and an engine badge when collapsed.
 
 ### Draft Indicator Badge
-An amber "Modified" pill badge appears in the cell header when the current code differs from `lastExecutedCode` (captured at PENDING transition). Comparison uses `.trim()` on both sides. The badge disappears when code matches the last-run version or after re-execution. Persisted via `partialize`.
+An amber "Modified" pill appears in the cell header when the current code differs from `lastExecutedCode`. Disappears after re-execution or when code matches the last-run version.
 
-### Expandable Error Details
-Clicking the error status badge in the status bar toggles an expandable panel showing the full error message (monospace, scrollable), statement name, start time, and a Retry button. The panel auto-closes when statement status changes away from error states. The badge is clickable only in the status bar context, not in collapsed preview.
+### Statement Labels
+Each cell can have an optional user-defined label (max 50 chars) displayed in the header. Labels are edited inline with Enter/Escape/blur semantics. When collapsed, the label replaces the SQL preview.
 
-### Session Properties Editor
-A key-value editor in the Settings panel lets users configure Flink SQL session properties (e.g., `sql.local-time-zone`, `parallelism.default`). Properties are stored as `Record<string, string>` in Zustand, persisted to localStorage, and merged into `executeSQL()` API calls. Reserved keys (`sql.current-catalog`, `sql.current-database`) cannot be overridden. Internal queries (DESCRIBE, tree loading) do not inherit user session properties.
+### Smart Collapse Preview
+Collapsed cells show a one-line summary: the first non-blank, non-comment SQL line (truncated to 60 chars), an inline status badge, and a row count suffix.
+
+### Drag-to-Reorder Cells
+A grip handle on each cell header enables HTML5 drag-and-drop reordering. Drop position is determined by comparing mouse Y against the cell midpoint.
+
+### Cell Hover Actions
+Copy, delete, and add-cell buttons are hidden by default and fade in on cell hover or focus-within (150ms). Run button and collapse chevron remain always visible. Touch devices get always-visible actions via `@media (hover: none)`.
 
 ---
 
 ## Results Table
 
 ### Virtual Scrolling
-Large result sets (up to 5000 rows) are virtualized using `@tanstack/react-virtual` v3. Only ~30-50 rows exist in the DOM at any time via spacer `<tr>` elements. The `<thead>` is sticky. Row striping uses a `.results-row-odd` class (not `:nth-child`) to account for spacer rows. Streaming results auto-scroll to bottom when the user is pinned there.
+Large result sets (up to 5,000 rows) are virtualized using `@tanstack/react-virtual` v3. Only ~30-50 rows exist in the DOM at any time. Streaming results auto-scroll to bottom when pinned there.
 
 ### Cell Click-to-Copy
-Clicking any results cell copies its full raw value to the clipboard. Null/undefined copies as `"null"`, objects as `JSON.stringify()`. A green flash animation and success toast confirm the copy. Cells show pointer cursor and hover highlight.
+Clicking any cell copies its full raw value to the clipboard with a green flash animation and success toast. Null/undefined copies as `"null"`, objects as `JSON.stringify()`.
 
 ### Column Visibility Toggle
-A "Columns" dropdown in the results toolbar shows checkboxes for each column. Unchecking hides the column from both header and data rows. Includes "Show All" and "Hide All" bulk actions. State is local (session-scoped per query), not persisted.
+A "Columns" dropdown shows checkboxes for each column. Includes "Show All" and "Hide All" bulk actions.
 
 ### Row Index Column
-A frozen "#" column on the far left displays 1-based original row indices. Indices remain stable through sorting and filtering via a precomputed `originalIndexMap` (Map keyed by row object reference for O(1) lookup). The column is non-interactive, excluded from exports, and excluded from column visibility controls.
+A frozen "#" column displays 1-based original row indices. Indices remain stable through sorting/filtering via a precomputed `originalIndexMap`.
 
 ### JSON Cell Expander
-Object/array cells show a small expand chevron. Clicking it opens a React Portal pane (positioned via `getBoundingClientRect()`) with pretty-printed JSON, a "Copy JSON" button, and close-on-scroll/Escape/click-outside behavior. Uses `e.stopPropagation()` to prevent triggering the cell's copy action. Works with virtual scrolling since the pane is rendered outside the table.
+Object/array cells show a small expand chevron. Clicking opens a portal pane with pretty-printed JSON and a "Copy JSON" button. Supports close-on-scroll, Escape, and click-outside.
 
 ### Copy as Markdown Table
-A "Copy as MD" toolbar button formats the current visible, sorted, filtered data as a markdown table string and copies it to the clipboard. Includes a `#` row index column, escapes pipe characters, replaces newlines with spaces, and truncates cell values over 100 characters. Tables over 100 rows are truncated with a footer indicating remaining rows.
+Formats visible, sorted, filtered data as a markdown table and copies to clipboard. Tables over 100 rows are truncated with a footer.
 
 ### Custom Export Filenames
-CSV exports use `query-{index}-{YYYYMMDD}-{HHmmss}.csv` instead of generic `results.csv`. When a statement has a label/name, the filename uses that as the prefix (lowercased, spaces replaced with hyphens).
-
----
-
-## Workspace Management
-
-### Workspace Persistence
-Workspace state (SQL code, catalog/database selection, collapse state) is saved to localStorage automatically via Zustand's `persist` middleware with a `partialize` function. Transient data (results, errors, running status) is excluded. RUNNING/PENDING statements reset to IDLE on reload. A "Last saved at" timestamp appears in the footer.
-
-### Workspace Import/Export
-Export downloads the workspace as a pretty-printed JSON file (statements, catalog, database, workspace name). Import reads a `.json` file, validates its schema (required fields, max 500 statements, max 5MB), shows a confirmation dialog, then hydrates the store. Statement IDs are regenerated on import to prevent collisions. Status is forced to IDLE.
-
-### Statement Labels
-Each editor cell can have an optional user-defined label (max 50 chars) displayed in the header next to the cell number. Labels are edited inline (click-to-edit with Enter/Escape/blur semantics using a `labelCancelledRef` pattern). When a labeled cell is collapsed, the label replaces the SQL preview. Duplicating a labeled statement appends " Copy". Labels persist via `partialize`.
-
-### Saved Workspaces
-Snapshot the entire workspace state (SQL cells, stream card configs, scan mode parameters) under a name and restore it from a sidebar panel. Supports up to 20 saved workspaces per browser. RUNNING statements are reconnected on open by checking the Flink API for current status. Missing datasets fall back to synthetic mode.
-
-### Workspace Controls in Tab Bar
-Workspace save, notes, and name display moved from the header to the tab bar. One-click save (Ctrl+S) upserts by name. Notes panel slides up from the tab bar. Double-click a tab name to rename.
-
----
-
-## Navigation & Sidebar
-
-### Navigation Rail (Phase 12.1)
-Replaced the flat sidebar with a collapsible icon rail (~48px collapsed, ~200px expanded) that switches between content panels: SQL Workspace, Data panels (Database Objects, Topics, Schemas, Artifacts), Tools (History, Streams, Help), and Settings. Provides a scalable navigation pattern as feature count grows.
-
-### URL Routing & Deep Links
-Clean URL routing via the History API — no `#` fragments. Navigating to a panel updates the browser URL (e.g., `/jobs`, `/topics`, `/schemas`), enabling bookmarks, browser back/forward, and shareable links. Four panels support deep links: `/topics/{topicName}`, `/schemas/{subjectName}`, `/jobs/{statementName}`, `/examples/{exampleId}`. Visiting a deep link loads the panel and selects the specific item. Old hash-based URLs (`#/jobs/...`) are automatically upgraded to clean paths. Route changes update `document.title` and announce to screen readers. Implementation: `src/hooks/useRoute.ts`.
-
-### Stream Card Navigation Icons
-Stream cards display icon buttons (FiRadio for Topics, FiFileText for Schemas) next to the Live button that navigate directly to the topic's detail view or its value schema subject. Icons match the NavRail iconography for visual consistency and show tooltips on hover.
-
-### Table Schema Panel
-Clicking a table or view node in the tree navigator fetches its schema via `DESCRIBE` and displays column names and types in a panel below the tree. Uses `getTableSchema()` API and stores results in `selectedTableSchema`. The panel header shows the table name; a loading spinner appears during fetch.
-
-### Sidebar Collapse Toggle
-A chevron button on the sidebar's right border collapses it to zero width with a 0.2s CSS transition. The schema panel is hidden automatically via `overflow: hidden`. Collapse state is not persisted (resets to expanded on reload).
-
-### Tree Search/Filter
-A sticky search input at the top of the tree navigator filters nodes in real-time (case-insensitive). Parent container nodes are preserved when any child matches. Matching text is highlighted in yellow via a `highlightText` function. Clear button resets the filter.
-
-### Drag-to-Reorder Editor Cells
-A grip handle icon on each cell header enables HTML5 drag-and-drop reordering. Drop position (before/after) is determined by comparing `e.clientY` against the cell's midpoint. The `reorderStatements(fromIndex, toIndex)` store action splices the statements array. Only the grip handle is draggable to avoid Monaco conflicts.
-
-### Schema Refresh Button
-A refresh icon (FiRefreshCw) in the schema panel header re-fetches the table schema with one click. The icon spins during loading via CSS animation. Button is disabled while loading to prevent duplicate requests. Uses the existing `loadTableSchema()` store action.
-
-### Sidebar Count Badges
-Category nodes (Tables, Views, Models, Functions, External Tables) display a count badge pill showing `node.children.length`. Badges are muted gray pills that support dark mode via CSS variables. A helper `isCategoryNode()` determines which node types get badges. Empty categories show "0" with reduced opacity.
+CSV exports use `query-{index}-{YYYYMMDD}-{HHmmss}.csv`. When a statement has a label, it becomes the filename prefix.
 
 ---
 
 ## Statement Execution
 
-### Statement Status Bar
-A status bar appears below the editor after first execution, showing start time (`toLocaleTimeString()`), a colored status dot (green=COMPLETED/RUNNING, yellow=PENDING, red=ERROR, gray=IDLE/CANCELLED), and the server-assigned statement name. Gated on `statement.startedAt` being set.
-
-### Statement History Panel
-A clock icon in the toolbar opens a dropdown panel listing up to 50 server-side statements fetched via `listStatements()` API. Lazy-loaded on first open, cached thereafter. Each entry shows a status badge, statement name, and SQL preview (80 chars). A "Load" button creates a new cell with that statement's SQL. Includes a refresh button.
-
-### History Panel Filters
-A filter strip at the top of the history panel with tabs: All, Completed, Failed (FAILED + CANCELLED), Running (RUNNING + PENDING). Each tab shows a count badge. Filtering is client-side and instant. Relative timestamps ("2m ago", "1h ago") display when the API provides timestamp metadata.
+### Status Bar
+Appears below each editor after first execution. Shows start time, colored status dot (green=COMPLETED/RUNNING, yellow=PENDING, red=ERROR, gray=IDLE/CANCELLED), and server-assigned statement name.
 
 ### Finish Timestamp & Duration
-When a statement reaches a terminal status (COMPLETED, ERROR, CANCELLED), the status bar shows finish time and formatted duration (e.g., "2.3s", "1m 30.5s"). Duration is computed as `lastExecutedAt - startedAt`. A module-level `formatDuration()` function handles formatting with `Math.max(0, ...)` for defensive negative handling.
+Terminal states show finish time and formatted duration (e.g., "2.3s", "1m 30.5s").
 
-### Error Retry Button
-A small "Retry" button (FiRefreshCw icon) appears in the error display area for ERROR and CANCELLED statements. Calls the existing `executeStatement(id)`, which resets error/results and re-runs. Status immediately changes to PENDING on click, hiding the retry button and preventing double-execution.
+### Error Display & Retry
+Clicking the error badge toggles an expandable panel with the full error message, statement name, and start time. A "Retry" button re-executes the statement.
 
-### Engine Selector (per-cell)
-When ksqlDB is enabled (`VITE_KSQL_ENABLED=true`), a compact dropdown in each cell header
-lets users choose between Flink SQL and ksqlDB execution engines. The selector is disabled
-while a statement is RUNNING or PENDING. Switching engines clears results and resets to IDLE.
-New cells inherit the engine from the preceding cell. ksqlDB cells show a purple left border
-and an engine badge when collapsed. The ScanModePanel filters to earliest/latest for ksqlDB
-(mapped to `auto.offset.reset`).
+### Run All / Stop All / Delete All (Split Buttons)
+Header split buttons allow separate or combined control of queries and streams:
+- **Run All** — runs all eligible statements + starts all stream cards
+- **Stop All** — cancels all running statements + stops all stream cards
+- **Delete All** — clears all statements + removes all stream cards
 
-### Empty State Onboarding Hint
-A dismissible card appears below the first editor cell in a fresh workspace (1 statement, IDLE status). Shows three tips: sidebar table interaction, Ctrl+Enter to run, and `?` for shortcuts. Dismissed by running a statement, adding a cell, or clicking X. The `hasSeenOnboardingHint` flag is persisted to localStorage.
-
----
-
-## Topic Management
-
-### Topic Panel (Phase 12.3)
-A fully functional Kafka Topic Management panel in the NavRail sidebar. Browse all topics with partition count and replication factor, search by name, view detailed configuration, create new topics (name, partitions, replication, cleanup policy, retention), and delete topics with a name-confirmation safety gate. Uses the Confluent Cloud Kafka REST API v3.
-
----
-
-## Schema Registry
-
-### Schema Management (Phase 12.2)
-A Schema Registry panel for browsing, creating, evolving, and managing Confluent Cloud schemas. Accessible from the navigation rail. Supports schema visualization in JSON code and tree view formats. Integrates with the Topic Management panel to show associated schemas.
+### Statement History Panel
+A clock icon opens a panel listing up to 50 server-side statements. Each entry shows status badge, statement name, and SQL preview (80 chars). Includes filter tabs (All, Completed, Failed, Running) with count badges and relative timestamps.
 
 ---
 
 ## Streams Panel
 
-### Stream Monitor (Phase 13.1)
-A right-side panel (opened via FiActivity icon in NavRail) for monitoring up to 5 Kafka topics simultaneously. Each topic gets a Stream Card with play/stop controls, partition filtering, and a compact message table (timestamp, partition, offset, key, value). Messages are fetched via background Flink SQL statements using metadata columns. JSON values expand via the shared ExpandableJsonPane component.
+### Stream Cards
+A right-side panel (toggled via FiActivity icon) for monitoring Kafka topics in real time. Each topic gets a stream card with:
+- **Consume mode**: play/stop, earliest/latest offset selector, fetch, clear, live auto-refresh
+- **Produce mode**: synthetic data or dataset source, burst/loop options, progress counter
+- **Results bar**: collapsible results with row count, column visibility toggle, and export dropdown
+
+### Pop-Out to New Window
+Each stream card's three-dot menu includes "Pop Out" which opens the card in a standalone browser window via `window.open()` at `/stream-popout/{topicName}`.
 
 ### Synthetic Data Producer
-Stream Cards can produce synthetic data at 1 message/second. The generator parses Avro and JSON Schema definitions from Schema Registry, applies field-name heuristics (id->UUID, name->fake name, email->fake email), and supports all Avro primitive types, unions, nested records, enums, arrays, and maps. Auto-stops on unmount or error.
+Generates records at 1 message/second. Parses Avro and JSON Schema definitions from Schema Registry, applies field-name heuristics (id->UUID, name->fake name, email->fake email), and supports all Avro types including unions, nested records, enums, arrays, and maps.
+
+### Dataset Producer
+Uses pre-defined datasets (uploaded in Schema Registry panel) to produce real records to topics. Supports burst mode (all at once) and loop mode (continuous replay).
+
+### Column Visibility & Export
+Cards support column show/hide with Show All / Hide All, and export as CSV, JSON, or Copy as Markdown.
+
+### Card Controls
+- Collapse/expand with message count badge and pulsing LIVE indicator when collapsed
+- Duplicate, View Topic, View Schema, Remove via three-dot menu
+- Navigation icons (FiRadio for Topics, FiFileText for Schemas) next to Live button
 
 ### Background Statements
-Stream monitoring uses a separate `backgroundStatements` array in the store (not mixed with workspace statements). Named with a `bg-` prefix for HistoryPanel filtering. Max 1 per contextId, auto-cancelled when the panel closes or a card is removed. Not persisted to localStorage.
+Stream monitoring uses a separate `backgroundStatements` array (not mixed with workspace statements). Named with `bg-` prefix, max 1 per card, auto-cancelled on panel close or card removal.
+
+### Panel Resize
+Both side panel and streams panel support drag-to-resize via handles. Side panel: 200-800px. Streams panel: 280-900px.
+
+---
+
+## Topic Management
+
+### Topic List
+Browse all Kafka topics with partition count and replication factor. Features:
+- Debounced search (300ms)
+- Keyboard navigation with virtual scrolling (`@tanstack/react-virtual`)
+- Composite health score dots (green/yellow/red) per topic based on partition count and replication factor
+- Create Topic button with modal dialog (name, partitions, RF, cleanup policy, retention)
+- Focus restore on back-navigation
+
+### Topic Detail
+Full detail view for a selected topic with:
+- Metadata rows: topic name (copy + insert at cursor), partitions, replication factor, internal flag
+- Configuration table: lazily loaded via Kafka REST API
+  - `retention.ms` pinned to top with human-readable label
+  - `cleanup.policy` pinned second with badge
+  - Inline config editing with hover-revealed pencil icon for writable configs
+  - Client-side validation for numeric config keys
+  - Read-only configs show lock icon; sensitive values masked
+- Schema association section: cross-links to Schema Registry subjects
+- Collapsible partition breakdown table
+- Delete with name-confirmation safety gate
+
+### Bulk Delete
+Multi-select mode with checkboxes, select-all, and bulk delete action bar with confirmation dialog.
+
+### Config Audit Log
+Session-only audit log of configuration changes per topic (not persisted).
+
+---
+
+## Schema Registry
+
+### Schema List
+Browse all schema subjects with search, schema type badges (AVRO, PROTOBUF, JSON), and compatibility level indicators. Virtual scrolling for large registries.
+
+### Schema Detail
+Full detail view per subject with:
+- Schema type badge + schema ID
+- Version selector (all versions fetched on mount)
+- Compatibility mode display (with inherited/global indicator)
+- Code view: formatted JSON in monospace
+- Tree view: visual schema tree (Avro schemas)
+- Copy schema as JSON
+- Generate SELECT statement from Avro fields
+
+### Schema Evolution (Evolve)
+Edit mode with:
+- Textarea pre-filled with current schema JSON
+- "Validate" calls `validateCompatibility` API
+- "Save" (disabled until validated) calls `registerSchema`
+
+### Schema Diff
+Compare any two schema versions side by side. Diff mode with version selector loads the comparison schema and highlights differences.
+
+### Schema Datasets
+Test dataset management per schema subject:
+- Upload JSON or JSONL files (max 500 records)
+- Generate synthetic datasets from schema definition
+- Edit datasets inline (JSON editor)
+- Download datasets
+- Use datasets as data source in Stream Card producers
+
+### Schema Delete
+Delete with confirmation overlay and warning text.
+
+### Cross-Panel Navigation
+- Topic detail links to associated schema subjects
+- Schema panel navigates to datasets view from stream cards
 
 ---
 
 ## Artifacts (UDFs)
 
 ### Artifacts Panel
-Browse, upload, and delete Flink JAR artifacts (UDFs) deployed to Confluent Cloud. The primary action is generating a ready-to-use `CREATE FUNCTION ... USING JAR 'confluent-artifact://...'` statement with a version dropdown. Upload follows a 3-step flow: request presigned URL, upload JAR with progress bar, create artifact record. Delete requires typing the exact artifact name. The panel requires Cloud API keys and shows setup instructions if missing.
+Browse, upload, and delete Flink JAR artifacts (UDFs) deployed to Confluent Cloud:
+- Generate ready-to-use `CREATE FUNCTION ... USING JAR 'confluent-artifact://...'` statement
+- Version dropdown for multi-version artifacts
+- 3-step upload flow: presigned URL request, JAR upload with progress bar, artifact record creation
+- Delete with name-confirmation gate
+- Requires Cloud API keys (shows setup instructions if missing)
 
 ---
 
 ## Compute Pool Dashboard
 
-### Compute Pool Status Badge
-A colored dot and status text in the header show the compute pool's current state (RUNNING/PROVISIONED = green, PROVISIONING = yellow, DELETING = red) and CFU count. Polls the FCPM API every 30 seconds. Failures show "Unknown" with a gray dot; no error toasts for this background check.
+### Header Badge
+A colored dot and status text in the header show the compute pool's current state and CFU count. Polls the FCPM API every 30 seconds.
 
-### Compute Pool Dashboard Panel
-Clicking the header badge opens a push-down panel showing all running statements with real-time telemetry metrics (CFU usage, Records In/Out, Pending Records, State Size) from the Confluent Cloud Telemetry API. Includes per-statement Stop buttons, refresh, and resizable panel height. Accessible with `aria-expanded`, focus management, and Escape to close.
+| Status | Color |
+|---|---|
+| RUNNING / PROVISIONED | Green |
+| PROVISIONING | Yellow |
+| DELETING / Error | Red |
+| Loading | Gray |
+
+### Dashboard Panel
+Push-down panel (toggled via header badge) showing:
+- All running Flink statements with real-time telemetry metrics (CFU usage, Records In/Out, Pending Records, State Size)
+- Per-statement Stop buttons and drill-through to Jobs detail
+- Auto-refresh every 60 seconds, manual refresh button
+- Resizable panel height via drag handle
+- Accessible: `aria-expanded`, focus management, Escape to close
 
 ---
 
-## App-Level Features
+## ksqlDB Integration
 
-### Dark Mode
-Full dark/light theme toggle via a sun/moon icon button in the header. All colors use CSS custom properties defined in `:root` (light) and `[data-theme="dark"]` (dark). Monaco Editor receives `vs-dark` or `vs-light` theme prop. An inline script in `index.html` reads the theme from localStorage before React renders to prevent flash of wrong theme. Falls back to `prefers-color-scheme` system preference.
+### Dual-Engine Architecture
+Each SQL cell independently chooses Flink or ksqlDB via a per-cell engine dropdown. The `SqlEngineAdapter` interface abstracts execution across engines with implementations in `flink-engine.ts` and `ksql-engine.ts`.
 
-### Run All Statements
-A "Run All" toolbar button sequentially executes every statement in IDLE, ERROR, or CANCELLED status. RUNNING/PENDING statements are skipped. Uses a `for...of` loop with `await` to keep API load low. Button is disabled when no eligible statements exist.
+### ksqlDB Feature Toggle
 
-### Settings Panel
-A gear icon toggles a dropdown panel showing read-only environment info (cloud provider, region, compute pool ID), API details (endpoint, org ID, environment ID), workspace stats (statement count, total cached rows), and the Session Properties editor.
+| Control | Description |
+|---|---|
+| `VITE_KSQL_ENABLED=true` | Master switch (env var) |
+| Settings panel checkbox | Runtime toggle (persisted) |
+| `isKsqlConfigured()` | Checks endpoint + key + secret are set |
 
-### Smart Collapse Preview
-Collapsed cells show a one-line summary: the first non-blank, non-comment SQL line (truncated to 60 chars), an inline status badge, and a row count suffix. If a statement label exists, it replaces the SQL preview. Uses a `getPreviewLine()` helper that skips `--` comment lines.
+### ksqlDB SQL Classification
+`classifyKsqlStatement()` routes statements to the correct API path:
+- DDL (CREATE/DROP/ALTER) and persistent queries (CSAS/CTAS/INSERT INTO)
+- Push queries via `fetch()` + `ReadableStream` + `AbortController`
+- Pull queries via standard REST call
+- INSERT VALUES via `/inserts-stream`
 
-### Keyboard Shortcuts Help
-Press `?` (when not in Monaco) or click the `?` header button to open a modal listing all shortcuts: Ctrl+Enter (run), Escape (cancel), Ctrl+Alt+Up/Down (navigate cells), Shift+Alt+F (format), `?` (toggle help). Closes on Escape, overlay click, or toggle. Uses `closest('.monaco-editor')` to avoid triggering inside editors.
+### ksqlDB Queries Page
+Full-page view (accessible from NavRail) for managing ksqlDB persistent queries:
+- List view: all persistent queries with status, type (STREAM AS, TABLE AS, INSERT), and SQL preview
+- Detail view: query details with terminate action
+- External navigation from dashboard
 
-### Collapse/Expand Animation
-Cell collapse uses a CSS `max-height` transition (4000px to 0, 200ms ease-out) with opacity fade. Content stays always mounted in the DOM (never unmounts Monaco) to avoid re-initialization costs. This replaced an earlier framer-motion approach that caused Monaco remount cycles.
+### ksqlDB Dashboard
+Push-down panel (toggled via header badge) mirroring the Compute Pool Dashboard:
+- Shows all persistent queries with state indicators
+- Per-query terminate buttons and drill-through to detail
+- Query count badge in header
+- Auto-refresh, resizable, Escape to close
 
-### Cell Position Counter
-The footer displays "Cell X of Y" when an editor cell is focused, updating reactively. Tracks `focusedStatementId` in Zustand (not persisted). Extracted into a `FooterStatus` component to scope re-renders. Clears to "N statement(s)" on blur.
+---
 
-### Cell Hover Actions
-Copy, delete, and add-cell buttons are hidden by default (opacity: 0) and fade in on cell hover or focus-within (150ms transition). Run button and collapse chevron remain always visible. Delete confirmation forces actions visible via a `.confirming` class. Touch devices get always-visible actions via `@media (hover: none)`.
+## Jobs Management
 
-### Inline Workspace Name
-The header title is click-to-edit. Clicking transforms it into an input pre-filled with the current name. Enter saves, Escape reverts, blur saves (with race condition guard via ref). Empty/whitespace submissions revert to the previous value. Pencil icon appears on hover. Name persists via Zustand `partialize`. Max width 300px with ellipsis truncation.
+### Jobs Page
+Full-page view for all Flink SQL statements (accessible from NavRail):
+- **List view**: searchable table with status filter dropdown (Running, Pending, Completed, Stopped, Failed), ownership filter (My Statements / Other Statements), checkbox selection for bulk actions
+- **Detail view**: full statement details with cancel and delete actions
+- Region subtitle and page-loaded timestamp
+- Relative timestamps ("2m ago", "1h ago")
+- Cache-aware data loading with configurable TTL
 
-### In-App Help System & FAQ
-A searchable Help Panel (opened via `?` key or header icon) replaces the original keyboard shortcuts modal. Categories include UI Features, Flink SQL Concepts, Troubleshooting, and Tips & Tricks. Content covers all shipped features plus critical domain knowledge (cardinality explosions, watermark delays, streaming vs batch, PROCTIME vs ROWTIME, changelog semantics). Contextual "?" icons on key components link directly to relevant FAQs.
-
-### Example Template Engine
-Quick Start examples are defined as typed TypeScript config objects (`KickstarterExampleDef`) with table schemas, data generators, and SQL cell templates. A generic runner handles all boilerplate (table creation, data seeding, SQL substitution). Adding a new example requires only a config file. Bespoke examples requiring JAR upload use `example-setup.ts` as an escape hatch.
+### Deep Links
+Direct URL navigation: `/jobs/{statementName}` loads the Jobs page and selects the specific statement.
 
 ---
 
 ## Education Center (Learning Platform)
 
 ### Learn Panel (Full-Page)
-A full-page Education Center accessible from the navigation rail (Learn icon). Replaces the old Examples sidebar panel with a comprehensive learning platform covering Flink SQL, Kafka, and Confluent Cloud. Features two tabs — Tracks and Examples — with overall progress tracking displayed in the header.
+A full-page Education Center accessible from the NavRail. Features two tabs -- Tracks and Examples -- with overall progress tracking displayed in the header.
 
-### Learning Tracks
-Seven guided learning tracks organized by topic and difficulty: Getting Started (Beginner), Kafka Fundamentals (Beginner), Windowing & Time (Intermediate), Joins & Enrichment (Intermediate), Stateful Processing (Advanced), Views & Architecture (Advanced), and Confluent Cloud Platform (Intermediate). Each track contains a mix of concept lessons and hands-on examples with prerequisite chains. Locked tracks show a "Skip ahead" option for power users.
+### Learning Tracks (7 tracks)
 
-### Concept Lessons
-Seven interactive concept lessons embedded within tracks: What is Kafka?, What is Flink?, Streams vs Tables, Event Time & Watermarks, Join Types, State Management, and Schema Compatibility & Governance. Each lesson includes animated SVG visualizations (tumble/hop windows, watermark progression, join matching, state accumulation) with `prefers-reduced-motion` support.
+| Track | Level | Est. Time | Target Roles |
+|---|---|---|---|
+| Getting Started with Flink SQL | Beginner | 20 min | Data Engineer, Analytics Engineer |
+| Kafka Fundamentals | Beginner | 35 min | Data Engineer, Platform Engineer |
+| Windowing & Time | Intermediate | 30 min | Data Engineer, Analytics Engineer |
+| Joins & Enrichment | Intermediate | 25 min | Data Engineer, Analytics Engineer |
+| Stateful Processing | Advanced | 35 min | Data Engineer |
+| Views & Architecture | Advanced | 30 min | Analytics Engineer |
+| Confluent Cloud Platform | Intermediate | 25 min | Platform Engineer |
 
-### Kafka & Confluent Examples (6 new cards)
-Six new example cards covering Kafka fundamentals and Confluent Cloud patterns: Kafka Produce & Consume (key semantics), Kafka Startup Modes (offset behavior), Kafka Changelog Modes (append vs upsert), Kafka Value Formats (Avro/JSON/raw comparison), Kafka Schema Evolution (real evolution workflow), and Confluent Connector Bridge (source-transform-sink pattern). Total: 46 example cards. All examples use the Flafka Squirrel personality with snarky SQL comments.
+Tracks have prerequisite chains. Locked tracks show a "Skip ahead" option for power users.
 
-### Progress Tracking & Badges
-Zustand-persisted progress tracking (separate `flafka-learn-progress` localStorage key) with per-example, per-lesson, per-track, and per-challenge completion. Ten milestone badges: First Query, Track Starter, Window Master, Join Guru, State Keeper, View Builder, Challenge Accepted, Completionist, Speed Runner, and Kafka Native. Badge celebrations use dedicated celebration UI.
+### Concept Lessons (10 interactive lessons)
+Embedded within tracks, each with animated SVG visualizations:
+- What is Kafka?, What is Flink?, Streams vs Tables
+- Consumer Groups & Offsets, Changelog Modes
+- Event Time & Watermarks, Join Types, State Management
+- Confluent Cloud Architecture, Schema Governance
 
-### Challenges
-Approximately 40 "Try It Yourself" challenges distributed across all 46 examples. Each challenge prompts users to modify SQL, explore edge cases, or test understanding. Challenges include optional hints and expected behavior descriptions. Rendered at the bottom of each example's detail page.
+### Animations (40+ components)
+Native CSS/SVG animation components for concept visualization including: tumble/hop/session/cumulate windows, watermark progression, join matching, state accumulation, CDC pipeline, pattern match, consumer groups, changelog modes, dynamic routing, and many more. All support dark/light theme and `prefers-reduced-motion`.
 
-### Role Personalization (Soft Tags)
-Soft role personalization via tags on track cards — Data Engineer, Analytics Engineer, and Platform Engineer. Tracks display which roles they're recommended for. No gating — all content is accessible to everyone regardless of role selection.
+### Example Cards (50 total)
+Hands-on examples spanning all tracks: Hello Flink, Hello ksqlDB, filters, aggregates, windows (tumble, hop, session, cumulate), joins (regular, temporal, interval, lookup, stream enrichment), deduplication, CDC pipeline, pattern matching, running aggregates, change detection, views (golden record, credit risk, AI drift, early warning, MBS pricing), dynamic routing (Flink Avro/JSON, ksqlDB Avro/JSON), Kafka fundamentals (produce/consume, startup modes, changelog modes, value formats, schema evolution, connector bridge), and more.
 
-### Animation Components
-Five native CSS/SVG animation components for concept visualization: Tumble Window, Hop Window, Watermark, Join Matching, and State Accumulation. Uses CSS `@keyframes` and inline SVG (same pattern as DataFlowDiagram). Supports dark/light theme via CSS variables and respects `prefers-reduced-motion`.
+### Challenges (42 total)
+"Try It Yourself" challenges distributed across examples. Each challenge prompts users to modify SQL, explore edge cases, or test understanding. Includes optional hints and expected behavior descriptions.
+
+### Badges (10 milestones)
+Zustand-persisted progress tracking (separate `flafka-learn-progress` localStorage key):
+
+| Badge | Condition |
+|---|---|
+| First Query | Complete 1 example |
+| Track Starter | Complete 1 track |
+| Window Master | Complete Windowing & Time track |
+| Join Guru | Complete Joins & Enrichment track |
+| State Keeper | Complete Stateful Processing track |
+| View Builder | Complete Views & Architecture track |
+| Challenge Accepted | Complete 10 challenges |
+| Completionist | Complete all 46 examples |
+| Speed Runner | Complete 3+ examples in one session |
+| Kafka Native | Complete Kafka Fundamentals track |
+
+### Role Personalization
+Soft role tags on track cards (Data Engineer, Analytics Engineer, Platform Engineer). No gating -- all content is accessible regardless of role.
+
+---
+
+## Workspace Management
+
+### Workspace Persistence
+Workspace state is saved to localStorage via Zustand's `persist` middleware with a `partialize` function. Transient data (results, errors, running status) is excluded. RUNNING/PENDING statements reset to IDLE on reload.
+
+### Multi-Tab Workspace
+Up to 8 tabs per workspace, each with independent statements, tree data, stream cards, and editor state. Tabs support:
+- Add, close (with running-statement warning), switch, rename (double-click), drag-to-reorder
+- Per-tab workspace name, notes, and save timestamp
+- Cell position counter ("Cell X of Y")
+
+### Saved Workspaces
+Snapshot the entire workspace state under a name and restore from a sidebar panel. Supports up to 50 saved workspaces. RUNNING statements are reconnected on open by checking API for current status. Newest-first sorting, search filter, rename, delete.
+
+### Workspace Import/Export
+- **Export**: downloads as pretty-printed JSON (statements, catalog, database, name, engine per cell)
+- **Import**: reads `.json` file, validates schema (required fields, max 500 statements, max 5MB), shows confirmation dialog, regenerates statement IDs
+
+### Workspace Notes
+Per-tab notes panel that slides up from the tab bar. Notes persist with saved workspaces.
+
+### Workspace Save (Ctrl+S)
+One-click save upserts by name. Tab bar shows save controls and last-saved timestamp.
+
+---
+
+## Snippets
+
+### Snippets Panel
+SQL snippet library accessible from the NavRail sidebar:
+- **Built-in snippets**: Hello World, Show Functions, Create Java UDF, Create Python UDF (hide-able, renamable)
+- **User snippets**: up to 100 saved snippets with search filter
+- **Actions**: insert into focused editor, create new cell, save current editor selection as snippet
+- **Management**: rename inline, delete, search across name and SQL content
+
+---
+
+## Navigation & Sidebar
+
+### Navigation Rail
+Collapsible icon rail (~48px collapsed, ~200px expanded) organized into sections:
+
+| Section | Items |
+|---|---|
+| Workspace | Workspace, Jobs, ksqlDB Queries* |
+| Data | Objects (tree), Topics, Schemas |
+| Tools | Workspaces, Snippets, History, Artifacts, Learn, Help |
+| Settings | Settings |
+
+*ksqlDB Queries only visible when ksqlDB is enabled.
+
+### URL Routing & Deep Links
+Clean URL routing via the History API (no `#` fragments). Supports:
+- Panel navigation: `/jobs`, `/topics`, `/schemas`, `/learn`, `/artifacts`, etc.
+- Deep links: `/topics/{name}`, `/schemas/{subject}`, `/jobs/{statementName}`, `/learn/tracks/{id}`, `/learn/examples/{id}`
+- Legacy hash URL upgrade (`#/jobs/...` -> `/jobs/...`)
+- Browser back/forward navigation
+- Route changes update `document.title` and announce to screen readers
+
+### Database Objects Tree
+Sidebar tree navigator with expandable category nodes (Tables, Views, Models, Functions, External Tables). Features:
+- Sticky search/filter with case-insensitive matching and highlight
+- Count badges per category
+- Click to load schema, double-click columns to insert at cursor
+- Schema refresh button with spin animation
+
+### Sidebar Collapse
+Chevron button collapses sidebar to zero width with 0.2s CSS transition.
+
+---
+
+## Settings
+
+### Settings Panel
+
+| Setting | Description |
+|---|---|
+| Unique ID | User/session identifier for resource tagging |
+| Catalog | Confluent Cloud catalog selector |
+| Database | Database within catalog |
+| Statements | Current statement count (read-only) |
+| Rows Cached | Total cached result rows (read-only) |
+| Data Refresh Interval | Cache TTL for Jobs/History data (1, 5, 10, 30, 60 minutes) |
+| ksqlDB Engine | Feature toggle (requires env configuration) |
+
+### Session Properties Editor
+Key-value editor for Flink SQL session properties (e.g., `sql.local-time-zone`, `parallelism.default`). Properties are merged into all `executeSQL()` API calls. Reserved keys (`sql.current-catalog`, `sql.current-database`) are protected. Includes property help tooltips, add/remove, and reset to defaults.
+
+### Dark Mode
+Full dark/light theme toggle via sun/moon icon in the NavRail. All colors use CSS custom properties. Monaco receives `vs-dark`/`vs-light` theme. An inline script in `index.html` reads theme from localStorage before React renders to prevent flash. Falls back to `prefers-color-scheme`.
+
+---
+
+## Resource Management
+
+### Resource Filter (Soft Multi-Tenancy)
+Filters Jobs and History to show only the current user's resources (`unique` mode) or all resources (`all` mode). Admins default to `all`; regular users default to `unique`. Based on the `VITE_UNIQUE_ID` identifier.
+
+### User-Launched Statements Registry
+Persisted registry of statements launched by the current user. Tracks name, SQL, creation time, and last known phase. Used for ownership attribution in Jobs list.
+
+### Cache Management
+Configurable cache TTL (default 10 minutes) for Jobs and History data. "Clear Cached Data" button forces a fresh reload.
+
+---
+
+## Environment Variables & Feature Flags
+
+### Required Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `VITE_ORG_ID` | Confluent Cloud organization ID |
+| `VITE_ENV_ID` | Confluent Cloud environment ID |
+| `VITE_COMPUTE_POOL_ID` | Flink Compute Pool ID |
+| `VITE_FLINK_API_KEY` | Flink SQL REST API key |
+| `VITE_FLINK_API_SECRET` | Flink SQL REST API secret |
+| `VITE_FLINK_CATALOG` | Default Flink catalog |
+| `VITE_FLINK_DATABASE` | Default Flink database |
+
+### Optional Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `VITE_CLOUD_PROVIDER` | Cloud provider (aws, gcp, azure) |
+| `VITE_CLOUD_REGION` | Cloud region (e.g., us-east-1) |
+| `VITE_METRICS_KEY` / `_SECRET` | Confluent Cloud Metrics API credentials |
+| `VITE_SCHEMA_REGISTRY_URL` | Schema Registry endpoint (enables schema panel) |
+| `VITE_SCHEMA_REGISTRY_KEY` / `_SECRET` | Schema Registry credentials |
+| `VITE_KAFKA_CLUSTER_ID` | Kafka cluster ID (enables topic panel) |
+| `VITE_KAFKA_REST_ENDPOINT` | Kafka REST Proxy endpoint |
+| `VITE_KAFKA_API_KEY` / `_SECRET` | Kafka REST Proxy credentials |
+| `VITE_KAFKA_BOOTSTRAP` | Kafka bootstrap servers |
+| `VITE_UNIQUE_ID` | User/session identifier for resource tagging |
+| `VITE_ADMIN_SECRET` | Set to `FLAFKA` to enable admin mode |
+| `VITE_ENVIRONMENT` | Set to `dev` for testing-friendly defaults |
+
+### ksqlDB Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `VITE_KSQL_ENABLED` | Master switch (`true` to enable) |
+| `VITE_KSQL_ENDPOINT` | ksqlDB cluster endpoint |
+| `VITE_KSQL_API_KEY` / `_SECRET` | ksqlDB credentials |
+
+### Feature Gating Summary
+
+| Feature | Gate |
+|---|---|
+| ksqlDB engine selector | `VITE_KSQL_ENABLED=true` + all 3 ksqlDB vars + Settings toggle |
+| Schema Registry panel | `VITE_SCHEMA_REGISTRY_URL` + `_KEY` configured |
+| Topic Management panel | `VITE_KAFKA_CLUSTER_ID` + `VITE_KAFKA_REST_ENDPOINT` configured |
+| Artifacts panel | `VITE_METRICS_KEY` + `_SECRET` configured |
+| Compute Pool telemetry | `VITE_METRICS_KEY` + `_SECRET` configured |
+| Admin mode (all resources) | `VITE_ADMIN_SECRET=FLAFKA` |
+
+---
+
+## App-Level Features
+
+### Toast Notifications
+Non-blocking toast notifications for success, error, and info messages. Auto-dismiss with manual close option.
+
+### Onboarding Hint
+Dismissible card below the first editor cell in a fresh workspace. Shows three tips. Dismissed by running a statement, adding a cell, or clicking X. Persisted via `hasSeenOnboardingHint`.
+
+### Empty Workspace State
+When all cells are deleted, a humorous SQL joke is displayed with the Flafka squirrel logo and a button to add a new statement.
+
+### In-App Help System & FAQ
+A searchable Help Panel with categories: UI Features, Flink SQL Concepts, Troubleshooting, Tips & Tricks. Contextual "?" icons on key components link directly to relevant FAQs.
+
+### Example Template Engine
+Examples are defined as typed TypeScript config objects (`KickstarterExampleDef`) with table schemas, data generators, and SQL cell templates. A generic runner handles all boilerplate. Adding a new example requires only a config file.
+
+### Collapse/Expand Animation
+Cell collapse uses CSS `max-height` transition (4000px to 0, 200ms ease-out) with opacity fade. Content stays mounted (never unmounts Monaco) to avoid re-initialization costs.
+
+### Inline Workspace Name
+Header title is click-to-edit. Enter saves, Escape reverts, blur saves (with race condition guard). Max width 300px with ellipsis truncation.

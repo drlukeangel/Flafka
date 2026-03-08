@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import './animations.css';
+import { useAnimationSpeed } from './AnimationSpeedContext';
 
 // ---------------------------------------------------------------------------
 //  Types
@@ -26,7 +27,7 @@ interface Particle {
 //  Constants
 // ---------------------------------------------------------------------------
 
-const PHASE_DURATION = 1500;
+const PHASE_DURATION = 2500;
 const TOTAL_PHASES = 8;
 const PAUSE_MS = 800;
 const SVG_W = 560;
@@ -84,12 +85,14 @@ export function SchemaGovernanceAnimation() {
   const [phase, setPhase] = useState<Phase>(0);
   const [progress, setProgress] = useState(0);
   const [particles, setParticles] = useState<Particle[]>([]);
+  const { paused } = useAnimationSpeed();
 
   useEffect(() => {
     let frameId: number;
     let start = Date.now();
 
     const tick = () => {
+      if (paused) { frameId = requestAnimationFrame(tick); return; }
       const elapsed = Date.now() - start;
       const cycle = TOTAL_PHASES * PHASE_DURATION + PAUSE_MS;
 
@@ -134,7 +137,7 @@ export function SchemaGovernanceAnimation() {
 
     frameId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frameId);
-  }, []);
+  }, [paused]);
 
   const eased = easeInOutCubic(Math.min(progress * 1.3, 1));
 

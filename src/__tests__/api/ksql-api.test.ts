@@ -13,7 +13,7 @@ vi.mock('../../api/ksql-client', () => ({
   KSQL_FETCH_BASE: '/api/ksql',
 }))
 
-import { executeKsql, handleKsqlError, parseKsqlSchema, terminateQuery } from '../../api/ksql-api'
+import { executeKsql, handleKsqlError, parseKsqlSchema, terminateQuery, explainQuery } from '../../api/ksql-api'
 
 describe('[@ksql-api] ksql-api', () => {
   beforeEach(() => {
@@ -137,7 +137,33 @@ describe('[@ksql-api] ksql-api', () => {
         data: [{ commandStatus: { status: 'SUCCESS', message: 'Query terminated' } }],
       })
       await terminateQuery('CSAS_TEST_0')
-      expect(mockPost).toHaveBeenCalledWith('/ksql', { ksql: 'TERMINATE CSAS_TEST_0;' })
+      expect(mockPost).toHaveBeenCalledWith('/ksql', { ksql: 'TERMINATE `CSAS_TEST_0`;' })
+    })
+  })
+
+  // ── explainQuery ──────────────────────────────────────────────────
+  describe('explainQuery', () => {
+    it('calls executeKsql with correct EXPLAIN SQL', async () => {
+      mockPost.mockResolvedValueOnce({
+        data: [{ queryDescription: { id: 'CSAS_MY_STREAM_0', state: 'RUNNING' } }],
+      })
+      const result = await explainQuery('CSAS_MY_STREAM_0')
+      expect(mockPost).toHaveBeenCalledWith('/ksql', { ksql: 'EXPLAIN `CSAS_MY_STREAM_0`;' })
+      expect(result).toHaveLength(1)
+    })
+
+    it('returns full response for further parsing', async () => {
+      const mockResponse = {
+        queryDescription: {
+          id: 'CSAS_MY_STREAM_0',
+          state: 'RUNNING',
+          sinks: ['output-topic'],
+          fields: [{ name: 'ID', schema: { type: 'STRING' } }],
+        },
+      }
+      mockPost.mockResolvedValueOnce({ data: [mockResponse] })
+      const result = await explainQuery('CSAS_MY_STREAM_0')
+      expect(result[0]).toEqual(mockResponse)
     })
   })
 })

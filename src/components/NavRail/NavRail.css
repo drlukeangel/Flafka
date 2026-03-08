@@ -16,8 +16,8 @@
 }
 
 .nav-rail--expanded {
-  width: var(--nav-rail-expanded-width, 220px);
-  min-width: var(--nav-rail-expanded-width, 220px);
+  width: var(--nav-rail-expanded-width, 170px);
+  min-width: var(--nav-rail-expanded-width, 170px);
 }
 
 /* Section */
