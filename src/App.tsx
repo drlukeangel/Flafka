@@ -37,7 +37,7 @@ import './App.css';
  * Help text for common Flink SQL session properties
  */
 const SESSION_PROPERTY_HELP: Record<string, string> = {
-  'sql.local-time-zone': 'Timezone for temporal functions (e.g., CURRENT_TIMESTAMP). Default: UTC',
+  'sql.local-time-zone': 'Timezone for temporal functions (e.g., CURRENT_TIMESTAMP). Default: America/New_York',
   'sql.execution.mode': 'Execution mode: "streaming" or "batch". Default: streaming',
   'execution.checkpointing.mode': 'Checkpoint mode: "EXACTLY_ONCE" (slower, safer) or "AT_LEAST_ONCE" (faster). Default: EXACTLY_ONCE',
   'sql.parallelism': 'Number of parallel tasks for SQL operators. Scales with your compute pool.',

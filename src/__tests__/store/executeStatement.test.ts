@@ -120,7 +120,7 @@ describe('[@store] [@execute] executeStatement - polling loop', () => {
       ],
       toasts: [],
       sessionProperties: {
-        'sql.local-time-zone': 'UTC',
+        'sql.local-time-zone': 'America/New_York',
       },
     })
   })

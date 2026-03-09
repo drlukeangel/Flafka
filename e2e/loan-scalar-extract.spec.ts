@@ -22,7 +22,7 @@ test.describe('Loan Detail Extract (Java UDF)', () => {
     await waitForToast(page, 'success', 180_000);
 
     // Verify workspace has a cell containing the UDF SQL
-    await expect(page.locator('text=LoanDetailExtract')).toBeVisible();
+    await expect(page.locator('text=LoanDetailExtract').first()).toBeVisible();
   });
 
   test('idempotent re-run shows "already registered"', async ({ appPage: page }) => {

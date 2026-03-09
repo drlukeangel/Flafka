@@ -118,8 +118,8 @@ export function generateLatePaymentReports(count: number): Record<string, unknow
 // 5. generateLoanEvents — Static & Dynamic Fan-Out examples
 // ---------------------------------------------------------------------------
 
-const EVENT_TYPES = ['NEW_LOAN', 'PAYMENT', 'MODIFICATION', 'FORECLOSURE', 'TERMINATION'] as const;
-const EVENT_WEIGHTS = [0.20, 0.40, 0.15, 0.15, 0.10] as const;
+const EVENT_TYPES = ['NEW_LOAN', 'PAYMENT', 'MODIFICATION', 'FORECLOSURE', 'TERMINATION', 'REFINANCE'] as const;
+const EVENT_WEIGHTS = [0.15, 0.35, 0.15, 0.15, 0.10, 0.10] as const;
 
 function pickWeighted(types: readonly string[], weights: readonly number[], rng: () => number): string {
   const r = rng();
@@ -185,6 +185,132 @@ export function generateRoutingRulesArrayDynamic(): Record<string, unknown>[] {
     { event_type: 'FORECLOSURE', target_topics: ['{COLLECTIONS}'], updated_at: new Date().toISOString() },
     { event_type: 'TERMINATION', target_topics: ['{COLLECTIONS}'], updated_at: new Date().toISOString() },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// 6d. generateRoutingRulesThree — initial 3-rule seed for the dynamic routing
+//     demo. FORECLOSURE + TERMINATION go to COLLECTIONS (2 event types);
+//     NEW_LOAN goes to UNDERWRITING (1 event type). REFINANCE has no rule yet.
+// ---------------------------------------------------------------------------
+
+export function generateRoutingRulesThree(): Record<string, unknown>[] {
+  return [
+    { event_type: 'FORECLOSURE', target_topics: ['{COLLECTIONS}'], updated_at: new Date().toISOString() },
+    { event_type: 'TERMINATION', target_topics: ['{COLLECTIONS}'], updated_at: new Date().toISOString() },
+    { event_type: 'NEW_LOAN', target_topics: ['{UNDERWRITING}'], updated_at: new Date().toISOString() },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// 6e. generateRoutingRulesAddRefinance — Use Case 1: upsert a brand-new
+//     event type with zero downtime. REFINANCE → UNDERWRITING only.
+//     The routing engine is already running — no restart needed.
+// ---------------------------------------------------------------------------
+
+export function generateRoutingRulesAddRefinance(): Record<string, unknown>[] {
+  return [
+    { event_type: 'REFINANCE', target_topics: ['{UNDERWRITING}'], updated_at: new Date().toISOString() },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// 6f. generateRoutingRulesAddFinance — Use Case 2: expand two existing rules
+//     to add FINANCE as a subscriber. TERMINATION and NEW_LOAN now fan out
+//     to FINANCE in addition to their original consumer. The routing engine
+//     never stops — updated rules take effect on the next matching event.
+// ---------------------------------------------------------------------------
+
+export function generateRoutingRulesAddFinance(): Record<string, unknown>[] {
+  return [
+    { event_type: 'TERMINATION', target_topics: ['{COLLECTIONS}', '{FINANCE}'], updated_at: new Date().toISOString() },
+    { event_type: 'NEW_LOAN', target_topics: ['{UNDERWRITING}', '{FINANCE}'], updated_at: new Date().toISOString() },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// 6g-2. generateRoutingRulesRemoveSubscriber — Use Case 3a: remove a single
+//       subscriber from an existing rule. TERMINATION previously fanned out to
+//       [COLLECTIONS, FINANCE]; this upsert drops FINANCE, leaving only
+//       [COLLECTIONS]. The routing engine never stops — partial removals
+//       take effect on the next matching event.
+// ---------------------------------------------------------------------------
+
+export function generateRoutingRulesRemoveSubscriber(): Record<string, unknown>[] {
+  return [
+    { event_type: 'TERMINATION', target_topics: ['{COLLECTIONS}'], updated_at: new Date().toISOString() },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// 6g-3. generateLoanEventsTermination — 100% TERMINATION events for verifying
+//       Use Case 3a (remove subscriber). Useful for confirming that FINANCE no
+//       longer receives TERMINATION after the rule is narrowed.
+// ---------------------------------------------------------------------------
+
+export function generateLoanEventsTermination(count: number): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i++) {
+    const rng = mulberry32(1100 + i);
+    results.push({
+      key: null,
+      event_id: `EVT-T${String(i + 1).padStart(4, '0')}`,
+      loan_id: `LN-${String(rangeInt(1, 100, rng)).padStart(5, '0')}`,
+      event_type: 'TERMINATION',
+      amount: rangeFloat(10000, 300000, rng),
+      created_at: new Date(now - (count - i) * 2000).toISOString(),
+      department: 'SERVICING',
+    });
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// 6g-4. generateLoanEventsForeclosure — 100% FORECLOSURE events for verifying
+//       Use Case 3b (remove rule entirely). Confirms FORECLOSURE events are
+//       silently dropped after the rule is nullified.
+// ---------------------------------------------------------------------------
+
+export function generateLoanEventsForeclosure(count: number): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i++) {
+    const rng = mulberry32(1200 + i);
+    results.push({
+      key: null,
+      event_id: `EVT-F${String(i + 1).padStart(4, '0')}`,
+      loan_id: `LN-${String(rangeInt(1, 100, rng)).padStart(5, '0')}`,
+      event_type: 'FORECLOSURE',
+      amount: rangeFloat(50000, 500000, rng),
+      created_at: new Date(now - (count - i) * 2000).toISOString(),
+      department: 'FORECLOSURES',
+    });
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// 6g. generateLoanEventsRefinance — second-wave publisher carrying the new
+//     event type. 100% REFINANCE events so the fan-out to UNDERWRITING is
+//     immediately visible after the routing rule is upserted.
+// ---------------------------------------------------------------------------
+
+export function generateLoanEventsRefinance(count: number): Record<string, unknown>[] {
+  const results: Record<string, unknown>[] = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i++) {
+    const rng = mulberry32(900 + i);
+    results.push({
+      key: null,
+      event_id: `EVT-R${String(i + 1).padStart(4, '0')}`,
+      loan_id: `LN-${String(rangeInt(1, 100, rng)).padStart(5, '0')}`,
+      event_type: 'REFINANCE',
+      amount: rangeFloat(50000, 400000, rng),
+      created_at: new Date(now - (count - i) * 2000).toISOString(),
+      department: 'UNDERWRITING',
+    });
+  }
+  return results;
 }
 
 // ---------------------------------------------------------------------------

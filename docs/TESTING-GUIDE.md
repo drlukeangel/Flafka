@@ -397,6 +397,71 @@ Avoid:
 
 ---
 
+## E2E Tests (Playwright)
+
+### Running E2E Tests
+
+```bash
+# Run all E2E tests
+npx playwright test
+
+# Run a specific spec file
+npx playwright test e2e/loan-scalar-extract.spec.ts
+npx playwright test e2e/loan-udf-setups.spec.ts
+
+# Run against Docker (skip dev server startup)
+PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test
+```
+
+### Expected Runtimes
+
+E2E tests exercise real Confluent Cloud infrastructure. Timing depends on whether UDF artifacts already exist.
+
+| Spec | Test | First Run (fresh) | Subsequent Runs (artifact reuse) |
+|------|------|-------------------|----------------------------------|
+| `loan-scalar-extract.spec.ts` | Java UDF happy path | ~3 min | ~15s |
+| `loan-udf-setups.spec.ts` | Part D: Aggregate (WeightedAvg) | ~3 min | ~15s |
+| `loan-udf-setups.spec.ts` | Part E: Validation (LoanValidator) | ~3 min | ~15s |
+| `loan-udf-setups.spec.ts` | Part F: PII Masking (PiiMask) | ~3 min | ~15s |
+| `loan-udf-setups.spec.ts` | Part G: Async Enrichment (two JARs) | ~8 min | ~15s |
+
+**Why so long on first run?**
+
+After a JAR is uploaded to S3, Confluent Cloud processes it asynchronously (scan, compile, register). The `versions` field on the artifact doesn't populate until processing completes — typically 30–60 seconds per JAR. Our setup flow correctly waits for versions before generating `CREATE FUNCTION` SQL. The Confluent UI appears faster because it shows "uploaded" immediately without waiting for version availability.
+
+On subsequent runs, existing artifacts are detected by `display_name` and reused — no upload or polling needed, so tests run in ~15 seconds.
+
+### Timeouts
+
+| Config | Value | Reason |
+|--------|-------|--------|
+| `playwright.config.ts` `timeout` | 300,000ms (5 min) | Budget for per-test Confluent API calls |
+| Part G `test.setTimeout` | 540,000ms (9 min) | Part G uploads two fresh JARs if not cached |
+| `waitForToast` D–F | 240,000ms | Single artifact upload + DDL + data gen |
+| `waitForToast` G | 480,000ms | Two artifact uploads; credit-bureau-enrich processes slowly |
+
+### Prerequisites
+
+- All env vars in `.env` must be set (see `.env.example`)
+- `VITE_METRICS_KEY` / `VITE_METRICS_SECRET` are required for artifact cleanup in `beforeAll`
+- `VITE_KAFKA_API_KEY` / `VITE_KAFKA_API_SECRET` required for topic cleanup
+- `VITE_FLINK_API_KEY` / `VITE_FLINK_API_SECRET` required for all SQL execution
+
+### E2E File Structure
+
+```
+e2e/
+  fixtures/
+    app.fixture.ts       # appPage fixture, goToExamples, waitForToast helpers
+  helpers/
+    selectors.ts         # SEL constants (data-testid selectors)
+    cleanup.ts           # cleanupAll() / cleanupPython() — API-level teardown
+  loan-scalar-extract.spec.ts   # Part A: Java scalar UDF
+  loan-udf-setups.spec.ts       # Parts D–G: Aggregate, Validation, PII, Enrichment
+```
+
+---
+
 ## Current Coverage
 
 ### What Is Tested

@@ -32,11 +32,9 @@ const APP_TITLE = 'Flafka';
 /**
  * Parse window.location.pathname into a nav item and optional sub-ID.
  * Also handles legacy hash URLs (#/jobs → /jobs) via replaceState.
- * Extra path segments beyond the sub-ID are silently ignored (intentional).
  */
-export function parseRoute(): { navItem: NavItem; subId?: string; detailId?: string } {
+export function parseRoute(): { navItem: NavItem; subId?: string; detailId?: string; fourthId?: string } {
   // Legacy hash support: redirect #/jobs → /jobs
-  // Decode first, then re-encode to avoid double-encoding already-encoded hash segments
   if (window.location.hash.startsWith('#/')) {
     const raw = window.location.hash.replace(/^#\/?/, '');
     const segments = raw.split('/');
@@ -44,7 +42,6 @@ export function parseRoute(): { navItem: NavItem; subId?: string; detailId?: str
     const subId = segments[1] ? decodeURIComponent(segments[1]) : '';
     const cleanPath = subId ? `/${navItem}/${encodeURIComponent(subId)}` : `/${navItem}`;
     window.history.replaceState(null, '', cleanPath);
-    // Fall through to parse the new pathname (replaceState updates location synchronously)
   }
 
   const pathname = window.location.pathname;
@@ -54,16 +51,18 @@ export function parseRoute(): { navItem: NavItem; subId?: string; detailId?: str
   const first = segments[0];
   const subId = segments[1] ? decodeURIComponent(segments[1]) : undefined;
   const detailId = segments[2] ? decodeURIComponent(segments[2]) : undefined;
+  const fourthId = segments[3] ? decodeURIComponent(segments[3]) : undefined;
 
   if (VALID_NAV_ITEMS.has(first)) {
-    return { navItem: first as NavItem, subId, detailId };
+    return { navItem: first as NavItem, subId, detailId, fourthId };
   }
   return { navItem: 'workspace' };
 }
 
-/** Build a URL path from a nav item and optional sub-ID + detail-ID. */
-export function buildPath(navItem: NavItem, subId?: string | null, detailId?: string | null): string {
+/** Build a URL path from a nav item and optional sub-ID + detail-ID + fourth-ID. */
+export function buildPath(navItem: NavItem, subId?: string | null, detailId?: string | null, fourthId?: string | null): string {
   if (navItem === 'workspace') return '/';
+  if (subId && detailId && fourthId) return `/${navItem}/${encodeURIComponent(subId)}/${encodeURIComponent(detailId)}/${encodeURIComponent(fourthId)}`;
   if (subId && detailId) return `/${navItem}/${encodeURIComponent(subId)}/${encodeURIComponent(detailId)}`;
   if (subId) return `/${navItem}/${encodeURIComponent(subId)}`;
   return `/${navItem}`;
@@ -71,20 +70,20 @@ export function buildPath(navItem: NavItem, subId?: string | null, detailId?: st
 
 /** Apply a parsed route to the store — shared by mount and popstate handlers. */
 function applyRoute(
-  { navItem, subId, detailId }: { navItem: NavItem; subId?: string; detailId?: string },
+  { navItem, subId, detailId, fourthId }: { navItem: NavItem; subId?: string; detailId?: string; fourthId?: string },
   actions: {
     setActiveNavItem: (item: NavItem) => void;
     navigateToExampleDetail: (id: string | null) => void;
     navigateToJobDetail: (name: string) => void;
     navigateToTopic: (name: string) => Promise<void>;
     navigateToSchemaSubject: (subject: string) => void;
-    navigateToLearnRoute: (subId?: string, detailId?: string) => void;
+    navigateToLearnRoute: (subId?: string, detailId?: string, fourthId?: string) => void;
     navigateToKsqlQueryDetail: (queryId: string) => void;
   },
 ) {
   if (navItem === 'learn') {
     actions.setActiveNavItem('learn');
-    actions.navigateToLearnRoute(subId, detailId);
+    actions.navigateToLearnRoute(subId, detailId, fourthId);
   } else if (navItem === 'jobs' && subId) {
     actions.navigateToJobDetail(subId);
   } else if (navItem === 'ksql-queries' && subId) {
@@ -130,9 +129,10 @@ function announceRouteChange(navItem: NavItem, subId?: string | null) {
  *   /topics/{topicName}           → Topics panel with topic selected
  *   /schemas/{subjectName}        → Schemas panel with subject loaded
  *   /jobs/{jobName}               → Jobs page with job detail open
- *   /learn                        → Learn page (tracks tab)
- *   /learn/tracks/{trackId}       → Learn page with track detail
- *   /learn/examples/{exampleId}   → Learn page with example detail
+ *   /learn                              → Learn page (tracks tab)
+ *   /learn/tracks/{trackId}             → Learn page with track detail
+ *   /learn/tracks/{trackId}/{conceptId} → Learn page with concept lesson open
+ *   /learn/examples/{exampleId}         → Learn page with example detail
  */
 export function useRoute() {
   const activeNavItem = useWorkspaceStore((s) => s.activeNavItem);
@@ -151,11 +151,17 @@ export function useRoute() {
   // Learn store state for URL sync
   const learnTab = useLearnStore((s) => s.learnTab);
   const selectedTrackId = useLearnStore((s) => s.selectedTrackId);
+  const selectedConceptId = useLearnStore((s) => s.selectedConceptId);
   const setLearnTab = useLearnStore((s) => s.setLearnTab);
   const navigateToTrackDetail = useLearnStore((s) => s.navigateToTrackDetail);
+  const navigateToConceptLesson = useLearnStore((s) => s.navigateToConceptLesson);
 
-  const navigateToLearnRoute = (subId?: string, detailId?: string) => {
-    if (subId === 'tracks' && detailId) {
+  const navigateToLearnRoute = (subId?: string, detailId?: string, fourthId?: string) => {
+    if (subId === 'tracks' && detailId && fourthId) {
+      setLearnTab('tracks');
+      navigateToTrackDetail(detailId);
+      navigateToConceptLesson(fourthId);
+    } else if (subId === 'tracks' && detailId) {
       setLearnTab('tracks');
       navigateToTrackDetail(detailId);
     } else if (subId === 'examples' && detailId) {
@@ -167,7 +173,6 @@ export function useRoute() {
     } else if (subId === 'examples') {
       setLearnTab('examples');
     } else {
-      // Default: just go to learn page (examples tab)
       setLearnTab('examples');
     }
   };
@@ -198,11 +203,13 @@ export function useRoute() {
   useEffect(() => {
     let subId: string | null = null;
     let detailId: string | null = null;
+    let fourthId: string | null = null;
 
     if (activeNavItem === 'learn') {
       subId = learnTab;
       if (learnTab === 'tracks' && selectedTrackId) {
         detailId = selectedTrackId;
+        if (selectedConceptId) fourthId = selectedConceptId;
       } else if (learnTab === 'examples' && selectedExampleId) {
         detailId = selectedExampleId;
       }
@@ -216,7 +223,7 @@ export function useRoute() {
       subId = selectedSchemaSubject.subject;
     }
 
-    const newPath = buildPath(activeNavItem, subId, detailId);
+    const newPath = buildPath(activeNavItem, subId, detailId, fourthId);
     const currentPath = window.location.pathname;
 
     if (newPath !== currentPath) {
@@ -226,7 +233,7 @@ export function useRoute() {
     }
 
     announceRouteChange(activeNavItem, subId);
-  }, [activeNavItem, selectedExampleId, selectedJobName, selectedTopic, selectedSchemaSubject, learnTab, selectedTrackId, selectedKsqlQueryId]);
+  }, [activeNavItem, selectedExampleId, selectedJobName, selectedTopic, selectedSchemaSubject, learnTab, selectedTrackId, selectedConceptId, selectedKsqlQueryId]);
 
   // URL → store: browser back/forward
   useEffect(() => {

@@ -79,10 +79,17 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
   const getTrackProgress = useLearnStore((s) => s.getTrackProgress);
   const markLessonComplete = useLearnStore((s) => s.markLessonComplete);
   const setCurrentLesson = useLearnStore((s) => s.setCurrentLesson);
+  const navigateToConceptLesson = useLearnStore((s) => s.navigateToConceptLesson);
+  const setLearnTab = useLearnStore((s) => s.setLearnTab);
   const navigateToExampleDetail = useWorkspaceStore((s) => s.navigateToExampleDetail);
 
-  const [viewingConceptId, setViewingConceptId] = useState<string | null>(null);
+  const selectedConceptId = useLearnStore((s) => s.selectedConceptId);
   const [celebrationVisible, setCelebrationVisible] = useState(false);
+
+  // Clear store on unmount
+  useEffect(() => {
+    return () => { navigateToConceptLesson(null); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { completed, total, percent } = getTrackProgress(track.id);
   const isTrackComplete = progress.completedTracks.includes(track.id);
@@ -96,9 +103,35 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
     prevCompleteRef.current = isTrackComplete;
   }, [isTrackComplete]);
 
+  const goToConceptLesson = (lessonId: string) => {
+    const lesson = track.lessons.find((l) => l.id === lessonId);
+    document.title = lesson ? `${lesson.title} — Learn — Flafka` : `Learn — Flafka`;
+    window.history.pushState(null, '', `/learn/tracks/${encodeURIComponent(track.id)}/${encodeURIComponent(lessonId)}`);
+    navigateToConceptLesson(lessonId);
+  };
+
+  const goToTrackRoot = () => {
+    document.title = `${track.title} — Learn — Flafka`;
+    window.history.pushState(null, '', `/learn/tracks/${encodeURIComponent(track.id)}`);
+    navigateToConceptLesson(null);
+  };
+
+  const handleLessonStart = (lesson: TrackLesson) => {
+    if (lesson.type === 'concept') {
+      goToConceptLesson(lesson.id);
+    } else if (lesson.exampleId) {
+      // Store lesson context so ExampleDetailPage can show track navigation buttons
+      setCurrentLesson(lesson.id);
+      document.title = `${lesson.title} — Learn — Flafka`;
+      window.history.pushState(null, '', `/learn/examples/${encodeURIComponent(lesson.exampleId)}`);
+      setLearnTab('examples');
+      navigateToExampleDetail(lesson.exampleId);
+    }
+  };
+
   // If viewing a concept lesson
-  if (viewingConceptId) {
-    const lessonIndex = track.lessons.findIndex((l) => l.id === viewingConceptId);
+  if (selectedConceptId) {
+    const lessonIndex = track.lessons.findIndex((l) => l.id === selectedConceptId);
     const lesson = lessonIndex >= 0 ? track.lessons[lessonIndex] : undefined;
     const nextLesson = lessonIndex >= 0 ? track.lessons[lessonIndex + 1] : undefined;
 
@@ -106,13 +139,15 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
       ? () => {
           if (lesson) markLessonComplete(lesson.id);
           if (nextLesson.type === 'concept') {
-            setViewingConceptId(nextLesson.id);
+            goToConceptLesson(nextLesson.id);
           } else if (nextLesson.exampleId) {
-            setViewingConceptId(null);
+            navigateToConceptLesson(null);
             setCurrentLesson(nextLesson.id);
+            window.history.pushState(null, '', `/learn/examples/${encodeURIComponent(nextLesson.exampleId)}`);
+            setLearnTab('examples');
             navigateToExampleDetail(nextLesson.exampleId);
           } else {
-            setViewingConceptId(null);
+            goToTrackRoot();
           }
         }
       : undefined;
@@ -121,10 +156,10 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
       return (
         <ConceptLessonView
           lesson={lesson}
-          onBack={() => setViewingConceptId(null)}
+          onBack={() => goToTrackRoot()}
           onComplete={() => {
             markLessonComplete(lesson.id);
-            setViewingConceptId(null);
+            goToTrackRoot();
           }}
           onCompleteAndNext={handleCompleteAndNext}
         />
@@ -135,7 +170,7 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
       const lessonComplete = progress.completedLessons.includes(lesson.id);
       return (
         <div className="track-detail">
-          <button className="track-detail__back" onClick={() => setViewingConceptId(null)}>
+          <button className="track-detail__back" onClick={() => goToTrackRoot()}>
             <FiArrowLeft size={16} />
             <span>Back to {track.title}</span>
           </button>
@@ -154,7 +189,7 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
                   style={{ marginTop: 16 }}
                   onClick={() => {
                     markLessonComplete(lesson.id);
-                    setViewingConceptId(null);
+                    goToTrackRoot();
                   }}
                 >
                   Mark as Complete
@@ -166,16 +201,6 @@ export function TrackDetailPage({ track, onBack }: TrackDetailPageProps) {
       );
     }
   }
-
-  const handleLessonStart = (lesson: TrackLesson) => {
-    if (lesson.type === 'concept') {
-      setViewingConceptId(lesson.id);
-    } else if (lesson.exampleId) {
-      // Store lesson context so ExampleDetailPage can show track navigation buttons
-      setCurrentLesson(lesson.id);
-      navigateToExampleDetail(lesson.exampleId);
-    }
-  };
 
   return (
     <div className="track-detail">

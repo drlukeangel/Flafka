@@ -30,6 +30,13 @@ import {
   generateLoanEvents,
   generateLoanEventsDept,
   generateRoutingRulesArrayDynamic,
+  generateRoutingRulesThree,
+  generateRoutingRulesAddRefinance,
+  generateRoutingRulesAddFinance,
+  generateRoutingRulesRemoveSubscriber,
+  generateLoanEventsRefinance,
+  generateLoanEventsTermination,
+  generateLoanEventsForeclosure,
   generatePaymentStream,
   generateBorrowerReference,
 } from '../data/new-example-generators';
@@ -1003,6 +1010,13 @@ const DATA_GENERATORS: Record<string, (count: number) => Record<string, unknown>
   'loan-events': generateLoanEvents,
   'loan-events-dept': generateLoanEventsDept,
   'routing-rules-array-dynamic': (_count: number) => generateRoutingRulesArrayDynamic(),
+  'routing-rules-three': (_count: number) => generateRoutingRulesThree(),
+  'routing-rules-add-refinance': (_count: number) => generateRoutingRulesAddRefinance(),
+  'routing-rules-add-finance': (_count: number) => generateRoutingRulesAddFinance(),
+  'routing-rules-remove-subscriber': (_count: number) => generateRoutingRulesRemoveSubscriber(),
+  'loan-events-refinance': generateLoanEventsRefinance,
+  'loan-events-termination': generateLoanEventsTermination,
+  'loan-events-foreclosure': generateLoanEventsForeclosure,
   'payment-stream-data': generatePaymentStream,
   'borrower-reference': generateBorrowerReference,
   // Kafka/Confluent example generators
@@ -1025,6 +1039,8 @@ export interface TableDef {
   role: 'input' | 'output';
   type?: 'table' | 'view' | 'topic';  // 'view' = skip DDL, 'topic' = create raw Kafka topic (no Flink DDL or Schema Registry schema)
   dataset?: { generator: string; count: number };
+  /** Multiple ordered datasets — all registered under the same schemaSubject, pre-selects the first */
+  datasets?: Array<{ label: string; generator: string; count: number }>;
   stream?: 'produce-consume' | 'consume';
 }
 
@@ -1077,37 +1093,53 @@ export async function runKickstarterExample(
   // Generate datasets, register, add stream cards
   store.setStreamsPanelOpen(true);
   for (const t of def.tables) {
-    if (!t.dataset) continue;
-    const genFn = DATA_GENERATORS[t.dataset.generator];
-    if (!genFn) throw new Error(`Unknown generator: ${t.dataset.generator}`);
-    let records = genFn(t.dataset.count);
-    // Substitute {TABLE_NAME} placeholders in generated data (e.g. routing rules with topic refs)
-    let recordsJson = JSON.stringify(records);
-    for (const [base, resolved] of Object.entries(names)) {
-      recordsJson = recordsJson.split(`{${base}}`).join(resolved);
-    }
-    records = JSON.parse(recordsJson);
-    const datasetId = crypto.randomUUID();
+    // Normalise: `datasets` (multi) takes precedence over `dataset` (single)
+    const datasetDefs = t.datasets
+      ? t.datasets
+      : t.dataset
+        ? [{ label: t.name, generator: t.dataset.generator, count: t.dataset.count }]
+        : [];
+
+    if (datasetDefs.length === 0) continue;
+
+    let firstDatasetId: string | null = null;
     const now = new Date().toISOString();
-    store.addSchemaDataset({
-      id: datasetId,
-      name: `${t.name}-${rid}`,
-      schemaSubject: `${names[t.name]}-value`,
-      records,
-      createdAt: now,
-      updatedAt: now,
-    });
-    if (t.stream) {
-      store.addStreamCard(names[t.name], t.stream, datasetId, {
+
+    for (let i = 0; i < datasetDefs.length; i++) {
+      const dd = datasetDefs[i];
+      const genFn = DATA_GENERATORS[dd.generator];
+      if (!genFn) throw new Error(`Unknown generator: ${dd.generator}`);
+      let records = genFn(dd.count);
+      // Substitute {TABLE_NAME} placeholders in generated data (e.g. routing rules with topic refs)
+      let recordsJson = JSON.stringify(records);
+      for (const [base, resolved] of Object.entries(names)) {
+        recordsJson = recordsJson.split(`{${base}}`).join(resolved);
+      }
+      records = JSON.parse(recordsJson);
+      const datasetId = crypto.randomUUID();
+      const datasetName = t.datasets ? `${dd.label}` : `${t.name}-${rid}`;
+      store.addSchemaDataset({
+        id: datasetId,
+        name: datasetName,
+        schemaSubject: `${names[t.name]}-value`,
+        records,
+        createdAt: now,
+        updatedAt: now,
+      });
+      if (i === 0) firstDatasetId = datasetId;
+    }
+
+    if (t.stream && firstDatasetId) {
+      store.addStreamCard(names[t.name], t.stream, firstDatasetId, {
         type: def.id,
-        count: t.dataset.count,
+        count: datasetDefs[0].count,
       });
     }
   }
 
   // Add consume-only stream cards (no dataset — just a consumer)
   for (const t of def.tables) {
-    if (t.dataset || !t.stream) continue;
+    if (t.dataset || t.datasets || !t.stream) continue;
     store.addStreamCard(names[t.name], t.stream);
   }
 

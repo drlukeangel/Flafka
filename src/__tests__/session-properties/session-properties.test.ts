@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 
 describe('[@session-properties] Session Properties Logic', () => {
   const DEFAULT_PROPERTIES = {
-    'sql.local-time-zone': 'UTC',
+    'sql.local-time-zone': 'America/New_York',
   };
 
   it('should have correct default properties', () => {
     expect(Object.keys(DEFAULT_PROPERTIES)).toHaveLength(1);
-    expect(DEFAULT_PROPERTIES['sql.local-time-zone']).toBe('UTC');
+    expect(DEFAULT_PROPERTIES['sql.local-time-zone']).toBe('America/New_York');
   });
 
   it('should reject reserved keys', () => {
@@ -52,7 +52,7 @@ describe('[@session-properties] Session Properties Logic', () => {
   it('should reset to defaults correctly', () => {
     const reset = { ...DEFAULT_PROPERTIES };
     expect(Object.keys(reset)).toHaveLength(1);
-    expect(reset['sql.local-time-zone']).toBe('UTC');
+    expect(reset['sql.local-time-zone']).toBe('America/New_York');
   });
 
   it('should allow removing a property', () => {

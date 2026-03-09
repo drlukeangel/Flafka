@@ -63,7 +63,7 @@ export const useLearnStore = create<LearnState>()(
       setLearnTab: (tab) => set({ learnTab: tab }),
 
       navigateToTrackDetail: (trackId) => {
-        set({ selectedTrackId: trackId, selectedConceptId: null });
+        set({ selectedTrackId: trackId, selectedConceptId: null, ...(trackId ? { learnTab: 'tracks' as LearnTab } : {}) });
         if (trackId) {
           set((state) => ({
             progress: {

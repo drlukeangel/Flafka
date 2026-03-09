@@ -127,14 +127,20 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const [isProducing, setIsProducing] = useState(false);
   const [produceCount, setProduceCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const limit = 50; // Default LIMIT for generated SQL; users can edit directly in the SQL editor
+  const limit = 50; // Default LIMIT for produce-consume cards; consume-only cards use no limit
   const [scanMode, setScanMode] = useState<'earliest-offset' | 'latest-offset'>('earliest-offset');
-  const [customSql, setCustomSql] = useState(() => `SELECT * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\` LIMIT 50`);
+  const [customSql, setCustomSql] = useState(() => {
+    const base = `SELECT DATE_FORMAT(\`$rowtime\`, 'yyyy-MM-dd HH:mm:ss') AS \`published\`, * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\``;
+    return initialMode === 'consume' ? base : `${base} LIMIT 50`;
+  });
   const [isSqlDirty, setIsSqlDirty] = useState(false);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleFetchRef = useRef<() => void>(() => {});
+  const errorRetryCountRef = useRef(0);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_CONSUME_RETRIES = 10;
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
   const [isResultsVisible, setIsResultsVisible] = useState(true);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
@@ -153,10 +159,11 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
     (s) => s.contextId === contextId
   );
 
-  // Build default SQL query
+  // Build default SQL query — include Kafka system columns for full visibility
   const buildFetchSQL = useCallback(() => {
-    return `SELECT * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\` LIMIT ${limit}`;
-  }, [catalog, database, topicName, limit]);
+    const base = `SELECT DATE_FORMAT(\`$rowtime\`, 'yyyy-MM-dd HH:mm:ss') AS \`published\`, * FROM \`${catalog}\`.\`${database}\`.\`${topicName}\``;
+    return mode === 'consume' ? base : `${base} LIMIT ${limit}`;
+  }, [catalog, database, topicName, limit, mode]);
 
   // Sync customSql when build params change (only if not manually edited)
   useEffect(() => {
@@ -181,20 +188,45 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   // Auto-refresh (live consume) — re-fetches when previous query completes
   const handleStartAutoRefresh = () => {
     setIsAutoRefreshing(true);
+    errorRetryCountRef.current = 0;
+    setRetryCount(0);
     handleFetch(); // Initial fetch
     autoRefreshRef.current = setInterval(() => {
       // Read latest store state directly — avoids stale closure from setInterval
       const currentBg = useWorkspaceStore.getState().backgroundStatements.find(
         (s) => s.contextId === contextId
       );
-      // Stop auto-refresh on error or cancellation — don't hide errors by immediately retrying
-      if (currentBg?.status === 'ERROR' || currentBg?.status === 'CANCELLED') {
+      // Stop on user cancellation — that's intentional
+      if (currentBg?.status === 'CANCELLED') {
         if (autoRefreshRef.current) {
           clearInterval(autoRefreshRef.current);
           autoRefreshRef.current = null;
         }
         setIsAutoRefreshing(false);
         return;
+      }
+      // On error: retry up to MAX_CONSUME_RETRIES, then stop
+      if (currentBg?.status === 'ERROR') {
+        errorRetryCountRef.current++;
+        setRetryCount(errorRetryCountRef.current);
+        if (errorRetryCountRef.current >= MAX_CONSUME_RETRIES) {
+          if (autoRefreshRef.current) {
+            clearInterval(autoRefreshRef.current);
+            autoRefreshRef.current = null;
+          }
+          setIsAutoRefreshing(false);
+          return;
+        }
+        // Retry — handleFetch clears the error and re-submits
+        handleFetchRef.current();
+        return;
+      }
+      // Reset retry counter on success
+      if (currentBg?.status === 'COMPLETED') {
+        if (errorRetryCountRef.current > 0) {
+          errorRetryCountRef.current = 0;
+          setRetryCount(0);
+        }
       }
       if (!currentBg || currentBg.status === 'COMPLETED' || currentBg.status === 'IDLE') {
         handleFetchRef.current();
@@ -208,6 +240,8 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
       autoRefreshRef.current = null;
     }
     setIsAutoRefreshing(false);
+    errorRetryCountRef.current = 0;
+    setRetryCount(0);
   };
 
   const handleResetConsumer = async () => {
@@ -826,7 +860,15 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
         )}
 
         {isResultsVisible && bgStatement && bgStatement.status === 'ERROR' && (
-          <div className="stream-card-error">{bgStatement.error || 'Query failed'}</div>
+          <div className="stream-card-error">
+            {bgStatement.error || 'Query failed'}
+            {isAutoRefreshing && retryCount > 0 && (
+              <span className="stream-card-error__retry"> — retrying ({retryCount}/{MAX_CONSUME_RETRIES})</span>
+            )}
+            {!isAutoRefreshing && retryCount >= MAX_CONSUME_RETRIES && (
+              <span className="stream-card-error__retry"> — gave up after {MAX_CONSUME_RETRIES} retries. Click ► to restart.</span>
+            )}
+          </div>
         )}
 
         {isResultsVisible && bgStatement && resultRows.length === 0 && bgStatement.status !== 'PENDING' && bgStatement.status !== 'RUNNING' && bgStatement.status !== 'ERROR' && (

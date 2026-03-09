@@ -66,7 +66,7 @@ function resetStore() {
     cacheTtlMinutes: 10,
     userLaunchedStatements: [],
     sessionProperties: {
-      'sql.local-time-zone': 'UTC',
+      'sql.local-time-zone': 'America/New_York',
     },
   })
 }
@@ -722,7 +722,7 @@ describe('[@store] [@session] session properties', () => {
     useWorkspaceStore.getState().resetSessionProperties()
 
     const { sessionProperties } = useWorkspaceStore.getState()
-    expect(sessionProperties['sql.local-time-zone']).toBe('UTC')
+    expect(sessionProperties['sql.local-time-zone']).toBe('America/New_York')
     expect(sessionProperties['custom.key']).toBeUndefined()
   })
 })

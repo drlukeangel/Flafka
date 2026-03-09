@@ -10,7 +10,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 1,
-  timeout: 180_000,
+  timeout: 300_000,
   use: {
     baseURL,
     trace: 'on-first-retry',

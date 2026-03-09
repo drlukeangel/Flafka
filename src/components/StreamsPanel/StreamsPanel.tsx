@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { FiActivity } from 'react-icons/fi';
+import { FiActivity, FiChevronDown, FiChevronUp } from 'react-icons/fi';
 import { StreamCard } from './StreamCard';
 import './StreamsPanel.css';
 
@@ -13,6 +13,7 @@ export function StreamsPanel() {
   const removeStreamCardsByTopic = useWorkspaceStore((s) => s.removeStreamCardsByTopic);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [topicSelectorCollapsed, setTopicSelectorCollapsed] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Topic list resize
@@ -39,6 +40,15 @@ export function StreamsPanel() {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   };
+
+  // Auto-collapse topic selector when stream cards appear (e.g., example load)
+  const prevCardCountRef = useRef(streamCards.length);
+  useEffect(() => {
+    if (prevCardCountRef.current === 0 && streamCards.length > 0) {
+      setTopicSelectorCollapsed(true);
+    }
+    prevCardCountRef.current = streamCards.length;
+  }, [streamCards.length]);
 
   // Auto-focus search input on mount
   useEffect(() => {
@@ -72,49 +82,73 @@ export function StreamsPanel() {
 
   return (
     <div className="stream-panel">
-      {/* Topic Selector */}
-      <div className="stream-panel-selector">
-        <div className="stream-panel-search">
+      {/* Topic Selector — collapsible */}
+      <div className={`stream-panel-selector${topicSelectorCollapsed ? ' stream-panel-selector--collapsed' : ''}`}>
+        <div
+          className="stream-panel-search"
+          onClick={() => setTopicSelectorCollapsed((v) => !v)}
+          style={{ cursor: 'pointer' }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTopicSelectorCollapsed((v) => !v); } }}
+          aria-expanded={!topicSelectorCollapsed}
+          aria-label={topicSelectorCollapsed ? 'Expand topic selector' : 'Collapse topic selector'}
+        >
+          {topicSelectorCollapsed
+            ? <FiChevronDown size={14} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+            : <FiChevronUp size={14} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+          }
           <FiActivity size={15} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
           <span className="stream-panel-search-label">Streams</span>
-          <input
-            ref={searchInputRef}
-            type="text"
-            placeholder="Search topics..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="stream-panel-search-input"
-          />
+          {topicSelectorCollapsed && streamCards.length > 0 && (
+            <span className="stream-panel-collapsed-count">{streamCards.length} active</span>
+          )}
+          {!topicSelectorCollapsed && (
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search topics..."
+              value={searchTerm}
+              onChange={(e) => { e.stopPropagation(); setSearchTerm(e.target.value); }}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="stream-panel-search-input"
+            />
+          )}
         </div>
-        <div
-          className="stream-panel-topic-list"
-          style={{ height: topicListHeight }}
-        >
-          {filteredTopics.map((topic) => {
-            const isSelected = hasCardForTopic(topic.topic_name);
-            const isDisabled = !isSelected && streamCards.length >= 10;
-            return (
-              <label
-                key={topic.topic_name}
-                className={`stream-panel-topic-item${isDisabled ? ' stream-panel-topic-item--disabled' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  disabled={isDisabled}
-                  onChange={() => handleTopicToggle(topic.topic_name)}
-                  title={isDisabled ? 'Max 10 streams' : undefined}
-                />
-                <span className="stream-panel-topic-name">{topic.topic_name}</span>
-              </label>
-            );
-          })}
-        </div>
-        <div
-          className="stream-panel-topic-resize"
-          onMouseDown={handleResizeStart}
-          title="Drag to resize topic list"
-        />
+        {!topicSelectorCollapsed && (
+          <>
+            <div
+              className="stream-panel-topic-list"
+              style={{ height: topicListHeight }}
+            >
+              {filteredTopics.map((topic) => {
+                const isSelected = hasCardForTopic(topic.topic_name);
+                const isDisabled = !isSelected && streamCards.length >= 10;
+                return (
+                  <label
+                    key={topic.topic_name}
+                    className={`stream-panel-topic-item${isDisabled ? ' stream-panel-topic-item--disabled' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={isDisabled}
+                      onChange={() => handleTopicToggle(topic.topic_name)}
+                      title={isDisabled ? 'Max 10 streams' : undefined}
+                    />
+                    <span className="stream-panel-topic-name">{topic.topic_name}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div
+              className="stream-panel-topic-resize"
+              onMouseDown={handleResizeStart}
+              title="Drag to resize topic list"
+            />
+          </>
+        )}
       </div>
 
       {/* Stream Cards or Empty State */}

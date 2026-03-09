@@ -531,7 +531,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       hasSeenOnboardingHint: false,
 
       sessionProperties: {
-        'sql.local-time-zone': 'UTC',
+        'sql.local-time-zone': 'America/New_York',
         'sql.execution.mode': 'streaming',
         'execution.checkpointing.mode': 'EXACTLY_ONCE',
       },
@@ -2001,7 +2001,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       resetSessionProperties: () => {
         set({
           sessionProperties: {
-            'sql.local-time-zone': 'UTC',
+            'sql.local-time-zone': 'America/New_York',
             'sql.execution.mode': 'streaming',
             'execution.checkpointing.mode': 'EXACTLY_ONCE',
           },

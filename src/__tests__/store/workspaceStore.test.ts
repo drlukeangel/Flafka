@@ -1368,7 +1368,7 @@ describe('[@store-coverage] duplicateStatement edge case', () => {
 describe('[@store-coverage] setSessionProperty edge cases', () => {
   beforeEach(() => {
     useWorkspaceStore.setState({
-      sessionProperties: { 'sql.local-time-zone': 'UTC' },
+      sessionProperties: { 'sql.local-time-zone': 'America/New_York' },
       toasts: [],
     })
   })

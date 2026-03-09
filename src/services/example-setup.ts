@@ -76,12 +76,10 @@ async function uploadArtifact(
   runtimeLanguage: string,
   onProgress: (s: string) => void,
 ): Promise<FlinkArtifact> {
-  // Check if an artifact with same class already exists (reuse to avoid re-uploading)
+  // Check if an artifact with same display name AND class already exists (reuse to avoid re-uploading)
   onProgress('Checking for existing artifact...');
   const currentArtifacts = await artifactApi.listArtifacts() ?? [];
-  const existing = currentArtifacts.find(
-    (a) => a.class && a.class.toLowerCase() === entryClass.toLowerCase(),
-  );
+  const existing = currentArtifacts.find((a) => a.display_name === displayName);
 
   if (existing) {
     try {
@@ -467,7 +465,7 @@ export async function setupScalarExtractExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const fnName = `${rid}_${BASE_JAVA_FN}`;
+  const fnName = `${BASE_JAVA_FN}_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const outputTopic = `${BASE_SCALAR_OUTPUT_TOPIC}-${rid}`;
   const datasetSubject = `${inputTopic}-value`;
@@ -475,8 +473,8 @@ export async function setupScalarExtractExample(
 
   // Step 1: Upload artifact (reuses existing by class if available)
   const artifact = await uploadArtifact(
-    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
-    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    store, 'platform-examples-loan-detail-extract', JAVA_UDF_CLASS,
+    '/udf/platform-examples-loan-detail-extract.jar', 'JAR', 'JAVA', onProgress,
   );
 
   // Step 2: Create tables (also creates backing Kafka topics on Confluent Cloud)
@@ -532,8 +530,8 @@ export async function setupTableExplodeExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const extractFn = `${rid}_${BASE_PYTHON_EXTRACT_FN}`;
-  const explodeFn = `${rid}_${BASE_PYTHON_EXPLODE_FN}`;
+  const extractFn = `${BASE_PYTHON_EXTRACT_FN}_${rid}`;
+  const explodeFn = `${BASE_PYTHON_EXPLODE_FN}_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const outputTopic = `${BASE_EXPLODE_OUTPUT_TOPIC}-${rid}`;
   const datasetSubject = `${inputTopic}-value`;
@@ -542,7 +540,7 @@ export async function setupTableExplodeExample(
   // Step 1: Upload artifact (reuses existing by class if available)
   const artifact = await uploadArtifact(
     store, 'platform-examples-loan-python-udf', PYTHON_EXPLODE_CLASS,
-    '/examples/loan-detail-udf-python.zip', 'ZIP', 'PYTHON', onProgress,
+    '/udf/platform-examples-loan-python-udf.zip', 'ZIP', 'PYTHON', onProgress,
   );
 
   // Step 2: Create tables (also creates backing Kafka topics on Confluent Cloud)
@@ -597,17 +595,21 @@ export async function setupJavaTableExplodeExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const extractFn = `${rid}_${BASE_JAVA_FN}`;
-  const explodeFn = `${rid}_${BASE_JAVA_EXPLODE_FN}`;
+  const extractFn = `${BASE_JAVA_FN}_${rid}`;
+  const explodeFn = `${BASE_JAVA_EXPLODE_FN}_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const outputTopic = `${BASE_EXPLODE_OUTPUT_TOPIC}-${rid}`;
   const datasetSubject = `${inputTopic}-value`;
   const datasetName = `${BASE_INPUT_TOPIC}-${rid}`;
 
-  // Find existing JAR artifact by class — skips upload if already present
-  const artifact = await uploadArtifact(
-    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
-    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+  // Upload separate artifacts — one JAR per UDF
+  const extractArtifact = await uploadArtifact(
+    store, 'platform-examples-loan-detail-extract', JAVA_UDF_CLASS,
+    '/udf/platform-examples-loan-detail-extract.jar', 'JAR', 'JAVA', onProgress,
+  );
+  const explodeArtifact = await uploadArtifact(
+    store, 'platform-examples-loan-detail-explode', JAVA_EXPLODE_CLASS,
+    '/udf/platform-examples-loan-detail-explode.jar', 'JAR', 'JAVA', onProgress,
   );
 
   await createTable(inputTopic, inputTableDDL(inputTopic), onProgress);
@@ -626,14 +628,16 @@ export async function setupJavaTableExplodeExample(
     updatedAt: now,
   });
 
-  const version = artifact.versions?.[0]?.version;
-  if (!version) throw new Error(`Artifact ${artifact.id} has no versions yet — try again in a moment`);
+  const extractVer = extractArtifact.versions?.[0]?.version;
+  const explodeVer = explodeArtifact.versions?.[0]?.version;
+  if (!extractVer) throw new Error(`Artifact ${extractArtifact.id} has no versions yet — try again in a moment`);
+  if (!explodeVer) throw new Error(`Artifact ${explodeArtifact.id} has no versions yet — try again in a moment`);
 
   onProgress('Adding queries to workspace...');
   // Cell 1: Register scalar extract function
-  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, artifact.id, version), undefined, `fn-extract-${rid}`);
-  // Cell 2: Register table explode function (same artifact, different class)
-  store.addStatement(createFunctionSQL(explodeFn, JAVA_EXPLODE_CLASS, artifact.id, version), undefined, `fn-explode-${rid}`);
+  store.addStatement(createFunctionSQL(extractFn, JAVA_UDF_CLASS, extractArtifact.id, extractVer), undefined, `fn-extract-${rid}`);
+  // Cell 2: Register table explode function
+  store.addStatement(createFunctionSQL(explodeFn, JAVA_EXPLODE_CLASS, explodeArtifact.id, explodeVer), undefined, `fn-explode-${rid}`);
   // Cell 3: LATERAL TABLE query
   store.addStatement(tableExplodeJavaSQL(extractFn, explodeFn, inputTopic, outputTopic), undefined, `exec-udf-${rid}`);
   // Cell 4: View output
@@ -654,19 +658,19 @@ export async function setupAggregateUdfExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const extractFn = `${rid}_LoanDetailExtract`;
-  const weightedAvgFn = `${rid}_WeightedAvg`;
+  const extractFn = `LoanDetailExtract_${rid}`;
+  const weightedAvgFn = `WeightedAvg_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const outputTopic = `LOAN-PORTFOLIO-STATS-${rid}`;
 
   // Step 1: Upload artifacts (reuses existing by class if available)
   const extractArtifact = await uploadArtifact(
-    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
-    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    store, 'platform-examples-loan-detail-extract', JAVA_UDF_CLASS,
+    '/udf/platform-examples-loan-detail-extract.jar', 'JAR', 'JAVA', onProgress,
   );
   const weightedAvgArtifact = await uploadArtifact(
     store, 'platform-examples-weighted-avg', WEIGHTED_AVG_CLASS,
-    '/udf/credit-bureau-enrich-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    '/udf/platform-examples-credit-bureau-enrich.jar', 'JAR', 'JAVA', onProgress,
   );
 
   // Step 2: Create tables
@@ -714,20 +718,20 @@ export async function setupValidationExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const extractFn = `${rid}_LoanDetailExtract`;
-  const validatorFn = `${rid}_LoanValidator`;
+  const extractFn = `LoanDetailExtract_${rid}`;
+  const validatorFn = `LoanValidator_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const validatedTopic = `LOANS-VALIDATED-${rid}`;
   const deadLetterTopic = `LOANS-DEAD-LETTER-${rid}`;
 
   // Step 1: Upload artifacts
   const extractArtifact = await uploadArtifact(
-    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
-    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    store, 'platform-examples-loan-detail-extract', JAVA_UDF_CLASS,
+    '/udf/platform-examples-loan-detail-extract.jar', 'JAR', 'JAVA', onProgress,
   );
   const validatorArtifact = await uploadArtifact(
     store, 'platform-examples-loan-validator', LOAN_VALIDATOR_CLASS,
-    '/udf/loan-validator-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    '/udf/platform-examples-loan-validator.jar', 'JAR', 'JAVA', onProgress,
   );
 
   // Step 2: Create tables (input + 2 outputs)
@@ -778,19 +782,19 @@ export async function setupPiiMaskingExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const extractFn = `${rid}_LoanDetailExtract`;
-  const maskFn = `${rid}_PiiMask`;
+  const extractFn = `LoanDetailExtract_${rid}`;
+  const maskFn = `PiiMask_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const outputTopic = `LOANS-MASKED-${rid}`;
 
   // Step 1: Upload artifacts
   const extractArtifact = await uploadArtifact(
-    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
-    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    store, 'platform-examples-loan-detail-extract', JAVA_UDF_CLASS,
+    '/udf/platform-examples-loan-detail-extract.jar', 'JAR', 'JAVA', onProgress,
   );
   const maskArtifact = await uploadArtifact(
     store, 'platform-examples-pii-mask', PII_MASK_CLASS,
-    '/udf/pii-mask-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    '/udf/platform-examples-pii-mask.jar', 'JAR', 'JAVA', onProgress,
   );
 
   // Step 2: Create tables
@@ -838,19 +842,19 @@ export async function setupAsyncEnrichmentExample(
   onProgress: (step: string) => void,
 ): Promise<{ runId: string }> {
   const rid = generateRunId();
-  const extractFn = `${rid}_LoanDetailExtract`;
-  const enrichFn = `${rid}_CreditBureauEnrich`;
+  const extractFn = `LoanDetailExtract_${rid}`;
+  const enrichFn = `CreditBureauEnrich_${rid}`;
   const inputTopic = `${BASE_INPUT_TOPIC}-${rid}`;
   const outputTopic = `LOANS-ENRICHED-V2-${rid}`;
 
   // Step 1: Upload artifacts
   const extractArtifact = await uploadArtifact(
-    store, 'platform-examples-flink-kickstarter', JAVA_UDF_CLASS,
-    '/examples/flink-kickstarter-udfs-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    store, 'platform-examples-loan-detail-extract', JAVA_UDF_CLASS,
+    '/udf/platform-examples-loan-detail-extract.jar', 'JAR', 'JAVA', onProgress,
   );
   const enrichArtifact = await uploadArtifact(
     store, 'platform-examples-credit-bureau-enrich', CREDIT_BUREAU_ENRICH_CLASS,
-    '/udf/credit-bureau-enrich-1.0.0.jar', 'JAR', 'JAVA', onProgress,
+    '/udf/platform-examples-credit-bureau-enrich.jar', 'JAR', 'JAVA', onProgress,
   );
 
   // Step 2: Create tables
