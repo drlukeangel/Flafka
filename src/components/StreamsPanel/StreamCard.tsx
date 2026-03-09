@@ -145,9 +145,11 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const [isResultsVisible, setIsResultsVisible] = useState(true);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set());
   const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
+  const [copyDropdownOpen, setCopyDropdownOpen] = useState(false);
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [cardMenuOpen, setCardMenuOpen] = useState(false);
   const columnsDropdownRef = useRef<HTMLDivElement>(null);
+  const copyDropdownRef = useRef<HTMLDivElement>(null);
   const exportDropdownRef = useRef<HTMLDivElement>(null);
   const cardMenuRef = useRef<HTMLDivElement>(null);
   const startProduceRef = useRef<(() => void) | null>(null);
@@ -519,11 +521,14 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
     navigateToSchemaDatasets(schemaSubject);
   };
 
-  // Close column/export dropdowns on outside click
+  // Close column/copy/export dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (columnsDropdownRef.current && !columnsDropdownRef.current.contains(event.target as Node)) {
         setColumnsDropdownOpen(false);
+      }
+      if (copyDropdownRef.current && !copyDropdownRef.current.contains(event.target as Node)) {
+        setCopyDropdownOpen(false);
       }
       if (exportDropdownRef.current && !exportDropdownRef.current.contains(event.target as Node)) {
         setExportDropdownOpen(false);
@@ -532,11 +537,11 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
         setCardMenuOpen(false);
       }
     };
-    if (columnsDropdownOpen || exportDropdownOpen || cardMenuOpen) {
+    if (columnsDropdownOpen || copyDropdownOpen || exportDropdownOpen || cardMenuOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [columnsDropdownOpen, exportDropdownOpen, cardMenuOpen]);
+  }, [columnsDropdownOpen, copyDropdownOpen, exportDropdownOpen, cardMenuOpen]);
 
   // Pop out to a new browser window
   const handlePopOut = () => {
@@ -567,35 +572,52 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
   const showAllColumns = () => setHiddenColumns(new Set());
   const hideAllColumns = () => setHiddenColumns(new Set(allColumnNames));
 
-  const handleTableExport = (format: 'csv' | 'json') => {
-    const sorted = [...resultRows].sort((a, b) => {
+  const getSortedRows = () => {
+    return [...resultRows].sort((a, b) => {
       const aTs = String((a as Record<string, unknown>)._ts ?? '');
       const bTs = String((b as Record<string, unknown>)._ts ?? '');
       return bTs.localeCompare(aTs);
     });
+  };
+
+  const handleTableExport = (format: 'csv' | 'json' | 'md') => {
+    const sorted = getSortedRows();
     if (sorted.length === 0 || displayCols.length === 0) return;
     const filePrefix = topicName || 'stream';
     if (format === 'csv') {
       downloadFile(buildCsvContent(sorted, displayCols), getExportFilename(filePrefix, 'csv'), 'text/csv');
-    } else {
+    } else if (format === 'json') {
       downloadFile(buildJsonContent(sorted, displayCols), getExportFilename(filePrefix, 'json'), 'application/json');
+    } else {
+      downloadFile(buildMarkdownContent(sorted, displayCols), getExportFilename(filePrefix, 'md'), 'text/markdown');
     }
     setExportDropdownOpen(false);
-    addToast({ type: 'success', message: `Exported ${sorted.length} rows as ${format.toUpperCase()}`, duration: 2000 });
+    addToast({ type: 'success', message: `Exported ${sorted.length} rows as ${format === 'md' ? 'Markdown' : format.toUpperCase()}`, duration: 2000 });
   };
 
-  const handleCopyMarkdown = () => {
-    const sorted = [...resultRows].sort((a, b) => {
-      const aTs = String((a as Record<string, unknown>)._ts ?? '');
-      const bTs = String((b as Record<string, unknown>)._ts ?? '');
-      return bTs.localeCompare(aTs);
-    });
+  const handleCopy = (format: 'markdown' | 'json' | 'csv') => {
+    const sorted = getSortedRows();
     if (sorted.length === 0 || displayCols.length === 0) return;
-    const markdown = buildMarkdownContent(sorted, displayCols);
-    navigator.clipboard.writeText(markdown)
-      .then(() => addToast({ type: 'success', message: `Copied ${Math.min(sorted.length, 100)} rows as Markdown`, duration: 2000 }))
+    let content: string;
+    let label: string;
+    let rowCount: number;
+    if (format === 'markdown') {
+      content = buildMarkdownContent(sorted, displayCols);
+      label = 'Markdown';
+      rowCount = Math.min(sorted.length, 100);
+    } else if (format === 'json') {
+      content = buildJsonContent(sorted, displayCols);
+      label = 'JSON';
+      rowCount = sorted.length;
+    } else {
+      content = buildCsvContent(sorted, displayCols);
+      label = 'CSV';
+      rowCount = sorted.length;
+    }
+    navigator.clipboard.writeText(content)
+      .then(() => addToast({ type: 'success', message: `Copied ${rowCount} rows as ${label}`, duration: 2000 }))
       .catch(() => addToast({ type: 'error', message: 'Failed to copy to clipboard', duration: 2000 }));
-    setExportDropdownOpen(false);
+    setCopyDropdownOpen(false);
   };
 
   // Collapsible card content — extracted so popout portal can reuse without collapse guard
@@ -798,7 +820,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
               <div className="stream-card-table-toolbar-group" ref={columnsDropdownRef}>
                 <button
                   className={`stream-card-btn${columnsDropdownOpen ? ' stream-card-btn--active-subtle' : ''}`}
-                  onClick={() => { setColumnsDropdownOpen(o => !o); setExportDropdownOpen(false); }}
+                  onClick={() => { setColumnsDropdownOpen(o => !o); setCopyDropdownOpen(false); setExportDropdownOpen(false); }}
                   title="Choose which columns to show or hide"
                   aria-label="Toggle columns"
                   aria-haspopup="true"
@@ -828,10 +850,30 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
                   </div>
                 )}
               </div>
+              <div className="stream-card-table-toolbar-group" ref={copyDropdownRef}>
+                <button
+                  className={`stream-card-btn${copyDropdownOpen ? ' stream-card-btn--active-subtle' : ''}`}
+                  onClick={() => { setCopyDropdownOpen(o => !o); setColumnsDropdownOpen(false); setExportDropdownOpen(false); }}
+                  title="Copy results to clipboard"
+                  aria-label="Copy data"
+                  aria-haspopup="true"
+                  aria-expanded={copyDropdownOpen}
+                  disabled={resultRows.length === 0}
+                >
+                  <FiClipboard size={14} />
+                </button>
+                {copyDropdownOpen && (
+                  <div className="stream-card-dropdown" style={{ position: 'absolute', bottom: '100%', right: 0, zIndex: 100 }}>
+                    <button className="stream-card-dropdown-action-btn" onClick={() => handleCopy('markdown')}>Copy as Markdown</button>
+                    <button className="stream-card-dropdown-action-btn" onClick={() => handleCopy('json')}>Copy as JSON</button>
+                    <button className="stream-card-dropdown-action-btn" onClick={() => handleCopy('csv')}>Copy as CSV</button>
+                  </div>
+                )}
+              </div>
               <div className="stream-card-table-toolbar-group" ref={exportDropdownRef}>
                 <button
                   className={`stream-card-btn${exportDropdownOpen ? ' stream-card-btn--active-subtle' : ''}`}
-                  onClick={() => { setExportDropdownOpen(o => !o); setColumnsDropdownOpen(false); }}
+                  onClick={() => { setExportDropdownOpen(o => !o); setColumnsDropdownOpen(false); setCopyDropdownOpen(false); }}
                   title="Export results as CSV, JSON, or Markdown"
                   aria-label="Export data"
                   aria-haspopup="true"
@@ -844,10 +886,7 @@ export function StreamCard({ cardId, topicName, initialMode, initialDatasetId, o
                   <div className="stream-card-dropdown" style={{ position: 'absolute', bottom: '100%', right: 0, zIndex: 100 }}>
                     <button className="stream-card-dropdown-action-btn" onClick={() => handleTableExport('csv')}>Export as CSV</button>
                     <button className="stream-card-dropdown-action-btn" onClick={() => handleTableExport('json')}>Export as JSON</button>
-                    <button className="stream-card-dropdown-action-btn" onClick={handleCopyMarkdown}>
-                      <FiClipboard size={12} />
-                      Copy as Markdown
-                    </button>
+                    <button className="stream-card-dropdown-action-btn" onClick={() => handleTableExport('md')}>Export as Markdown</button>
                   </div>
                 )}
               </div>

@@ -188,7 +188,7 @@ describe('[@stream-card-layout] StreamCard Layout', () => {
       expect(screen.getByText('Hide All')).toBeInTheDocument();
     });
 
-    it('export button opens export dropdown', () => {
+    it('export button opens export dropdown with CSV, JSON, Markdown', () => {
       useWorkspaceStore.setState({
         backgroundStatements: [bgStatementWithResults],
       });
@@ -196,7 +196,18 @@ describe('[@stream-card-layout] StreamCard Layout', () => {
       fireEvent.click(screen.getByLabelText('Export data'));
       expect(screen.getByText('Export as CSV')).toBeInTheDocument();
       expect(screen.getByText('Export as JSON')).toBeInTheDocument();
+      expect(screen.getByText('Export as Markdown')).toBeInTheDocument();
+    });
+
+    it('copy button opens copy dropdown with Markdown, JSON, CSV', () => {
+      useWorkspaceStore.setState({
+        backgroundStatements: [bgStatementWithResults],
+      });
+      render(<StreamCard {...defaultProps} />);
+      fireEvent.click(screen.getByLabelText('Copy data'));
       expect(screen.getByText('Copy as Markdown')).toBeInTheDocument();
+      expect(screen.getByText('Copy as JSON')).toBeInTheDocument();
+      expect(screen.getByText('Copy as CSV')).toBeInTheDocument();
     });
   });
 

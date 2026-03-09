@@ -15,6 +15,7 @@ import {
   downloadFile as sharedDownloadFile,
   buildCsvContent,
   buildJsonContent,
+  buildMarkdownContent,
 } from '../../utils/table-export';
 import {
   FiSearch,
@@ -182,66 +183,54 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     }
   };
 
-  const copyAsMarkdown = () => {
-    if (sortedData.length === 0) {
+  const handleCopy = (format: 'markdown' | 'json' | 'csv') => {
+    if (sortedData.length === 0 || !visibleColumnNames || visibleColumnNames.length === 0) {
       addToast({ type: 'error', message: 'No data to copy', duration: 2000 });
       return;
     }
 
-    if (!visibleColumnNames || visibleColumnNames.length === 0) {
-      addToast({ type: 'error', message: 'No columns to copy', duration: 2000 });
-      return;
-    }
+    let content: string;
+    let label: string;
+    let rowCount: number;
 
-    const headers = ['#', ...visibleColumnNames];
-    const markdownLines: string[] = [];
-
-    // Header row
-    markdownLines.push('| ' + headers.join(' | ') + ' |');
-
-    // Separator row
-    const separators = headers.map((h) => '-'.repeat(Math.max(3, h.length)));
-    markdownLines.push('| ' + separators.join(' | ') + ' |');
-
-    // Data rows (max 100)
-    const rowsToShow = Math.min(sortedData.length, 100);
-    for (let i = 0; i < rowsToShow; i++) {
-      const row = sortedData[i];
-      const displayRowNum = originalIndexMap.get(row) ?? (i + 1);
-      const cells = [String(displayRowNum)];
-
-      for (const colName of visibleColumnNames) {
-        cells.push(formatCellValue(row[colName]));
+    if (format === 'markdown') {
+      const headers = ['#', ...visibleColumnNames];
+      const markdownLines: string[] = [];
+      markdownLines.push('| ' + headers.join(' | ') + ' |');
+      const separators = headers.map((h) => '-'.repeat(Math.max(3, h.length)));
+      markdownLines.push('| ' + separators.join(' | ') + ' |');
+      const rowsToShow = Math.min(sortedData.length, 100);
+      for (let i = 0; i < rowsToShow; i++) {
+        const row = sortedData[i];
+        const displayRowNum = originalIndexMap.get(row) ?? (i + 1);
+        const cells = [String(displayRowNum)];
+        for (const colName of visibleColumnNames) {
+          cells.push(formatCellValue(row[colName]));
+        }
+        markdownLines.push('| ' + cells.join(' | ') + ' |');
       }
-
-      markdownLines.push('| ' + cells.join(' | ') + ' |');
+      if (sortedData.length > 100) {
+        const remaining = sortedData.length - 100;
+        const footerCells = Array(headers.length).fill('');
+        footerCells[1] = `*[...${remaining} more rows]*`;
+        markdownLines.push('| ' + footerCells.join(' | ') + ' |');
+      }
+      content = markdownLines.join('\n');
+      label = 'Markdown';
+      rowCount = Math.min(sortedData.length, 100);
+    } else if (format === 'json') {
+      content = buildJsonContent(sortedData, visibleColumnNames);
+      label = 'JSON';
+      rowCount = sortedData.length;
+    } else {
+      content = buildCsvContent(sortedData, visibleColumnNames);
+      label = 'CSV';
+      rowCount = sortedData.length;
     }
 
-    // Footer if truncated (same column count as header)
-    if (sortedData.length > 100) {
-      const remaining = sortedData.length - 100;
-      const footerCells = Array(headers.length).fill('');
-      footerCells[1] = `*[...${remaining} more rows]*`;
-      markdownLines.push('| ' + footerCells.join(' | ') + ' |');
-    }
-
-    const markdown = markdownLines.join('\n');
-
-    navigator.clipboard.writeText(markdown)
-      .then(() => {
-        addToast({
-          type: 'success',
-          message: `Copied ${rowsToShow} rows as markdown`,
-          duration: 2000,
-        });
-      })
-      .catch(() => {
-        addToast({
-          type: 'error',
-          message: 'Failed to copy to clipboard',
-          duration: 2000,
-        });
-      });
+    navigator.clipboard.writeText(content)
+      .then(() => addToast({ type: 'success', message: `Copied ${rowCount} rows as ${label}`, duration: 2000 }))
+      .catch(() => addToast({ type: 'error', message: 'Failed to copy to clipboard', duration: 2000 }));
   };
 
   const handleSort = (column: string) => {
@@ -263,13 +252,14 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
     return sharedGetExportFilename(prefix, ext);
   };
 
-  const handleExport = (format: 'csv' | 'json') => {
+  const handleExport = (format: 'csv' | 'json' | 'md') => {
+    const colNames = columns.map((c) => c.name);
     if (format === 'csv') {
-      const csv = buildCsvContent(sortedData, columns.map((c) => c.name));
-      sharedDownloadFile(csv, getExportFilename('csv'), 'text/csv');
+      sharedDownloadFile(buildCsvContent(sortedData, colNames), getExportFilename('csv'), 'text/csv');
+    } else if (format === 'json') {
+      sharedDownloadFile(buildJsonContent(sortedData, colNames), getExportFilename('json'), 'application/json');
     } else {
-      const json = buildJsonContent(sortedData, columns.map((c) => c.name));
-      sharedDownloadFile(json, getExportFilename('json'), 'application/json');
+      sharedDownloadFile(buildMarkdownContent(sortedData, colNames), getExportFilename('md'), 'text/markdown');
     }
   };
 
@@ -352,23 +342,26 @@ const ResultsTable: React.FC<ResultsTableProps> = ({ data, columns, totalRowsRec
               </div>
             )}
           </div>
-          <button
-            onClick={copyAsMarkdown}
-            disabled={sortedData.length === 0 || visibleColumnNames.length === 0}
-            title="Copy as Markdown"
-            className="export-btn"
-          >
-            <FiClipboard size={14} />
-            <span>Copy as MD</span>
-          </button>
           <div className="export-dropdown">
-            <button className="export-btn" title="Export">
+            <button className="export-btn" title="Copy to clipboard">
+              <FiClipboard size={14} />
+              <span>Copy</span>
+            </button>
+            <div className="export-menu">
+              <button onClick={() => handleCopy('markdown')}>Copy as Markdown</button>
+              <button onClick={() => handleCopy('json')}>Copy as JSON</button>
+              <button onClick={() => handleCopy('csv')}>Copy as CSV</button>
+            </div>
+          </div>
+          <div className="export-dropdown">
+            <button className="export-btn" title="Export to file">
               <FiDownload size={14} />
               <span>Export</span>
             </button>
             <div className="export-menu">
               <button onClick={() => handleExport('csv')}>Export as CSV</button>
               <button onClick={() => handleExport('json')}>Export as JSON</button>
+              <button onClick={() => handleExport('md')}>Export as Markdown</button>
             </div>
           </div>
         </div>

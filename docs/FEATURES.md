@@ -82,11 +82,16 @@ A frozen "#" column displays 1-based original row indices. Indices remain stable
 ### JSON Cell Expander
 Object/array cells show a small expand chevron. Clicking opens a portal pane with pretty-printed JSON and a "Copy JSON" button. Supports close-on-scroll, Escape, and click-outside.
 
-### Copy as Markdown Table
-Formats visible, sorted, filtered data as a markdown table and copies to clipboard. Tables over 100 rows are truncated with a footer.
+### Copy to Clipboard (Dropdown)
+A "Copy" dropdown in the ResultsTable toolbar offers three clipboard formats:
+- **Copy as Markdown** — markdown table with `#` row index column; truncated at 100 rows with a footer
+- **Copy as JSON** — pretty-printed JSON array of visible column data
+- **Copy as CSV** — comma-separated values with headers
+
+All copy operations respect current column visibility, sorting, and search filtering. Success/error feedback via toast notification.
 
 ### Custom Export Filenames
-CSV exports use `query-{index}-{YYYYMMDD}-{HHmmss}.csv`. When a statement has a label, it becomes the filename prefix.
+File exports use `{prefix}-{YYYYMMDD}-{HHmmss}.{ext}` where ext is `csv`, `json`, or `md`. When a statement has a label, it becomes the filename prefix. The Export dropdown supports CSV, JSON, and Markdown file downloads.
 
 ---
 
@@ -129,8 +134,10 @@ Generates records at 1 message/second. Parses Avro and JSON Schema definitions f
 ### Dataset Producer
 Uses pre-defined datasets (uploaded in Schema Registry panel) to produce real records to topics. Supports burst mode (all at once) and loop mode (continuous replay).
 
-### Column Visibility & Export
-Cards support column show/hide with Show All / Hide All, and export as CSV, JSON, or Copy as Markdown.
+### Column Visibility, Copy & Export
+Cards support column show/hide with Show All / Hide All. Three toolbar icon buttons (Columns, Copy, Export):
+- **Copy** (clipboard icon) — dropdown with Copy as Markdown, Copy as JSON, Copy as CSV (all clipboard)
+- **Export** (download icon) — dropdown with Export as CSV, Export as JSON, Export as Markdown (all file downloads)
 
 ### Card Controls
 - Collapse/expand with message count badge and pulsing LIVE indicator when collapsed

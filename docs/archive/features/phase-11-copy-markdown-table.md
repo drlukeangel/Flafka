@@ -1,8 +1,10 @@
 # Phase 11: Copy Results as Markdown Table
 
 **Date**: 2026-02-28
-**Status**: Design Phase
+**Status**: Shipped (Updated 2026-03-09)
 **Owner**: Orchestrator
+
+> **Update 2026-03-09**: The single "Copy as MD" button has been replaced with a **Copy dropdown** offering three clipboard formats: Markdown, JSON, and CSV. This applies to both the ResultsTable (SQL card) and StreamCard (stream panel). The Export dropdown also now includes Markdown file download. See `docs/FEATURES.md` for current behavior.
 
 ## Problem Statement
 

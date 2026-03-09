@@ -233,7 +233,7 @@ describe('[@results-table] [@export] ResultsTable export and copy', () => {
     render(<ResultsTable data={mockData} columns={mockColumns} />)
 
     // Hover over the export dropdown to reveal it (CSS hover)
-    const exportBtn = screen.getByTitle('Export')
+    const exportBtn = screen.getByTitle('Export to file')
     await user.hover(exportBtn)
 
     const csvBtn = screen.getByText('Export as CSV')
@@ -248,7 +248,7 @@ describe('[@results-table] [@export] ResultsTable export and copy', () => {
     const user = userEvent.setup()
     render(<ResultsTable data={mockData} columns={mockColumns} />)
 
-    const exportBtn = screen.getByTitle('Export')
+    const exportBtn = screen.getByTitle('Export to file')
     await user.hover(exportBtn)
 
     const jsonBtn = screen.getByText('Export as JSON')
@@ -258,7 +258,7 @@ describe('[@results-table] [@export] ResultsTable export and copy', () => {
     expect(mockAnchorClick).toHaveBeenCalledTimes(1)
   })
 
-  it('Copy as MD button copies markdown table to clipboard', async () => {
+  it('Copy dropdown — Copy as Markdown copies markdown table to clipboard', async () => {
     const user = userEvent.setup()
 
     // Use vi.stubGlobal for clipboard since Object.defineProperty may not persist to jsdom
@@ -267,8 +267,11 @@ describe('[@results-table] [@export] ResultsTable export and copy', () => {
 
     render(<ResultsTable data={mockData} columns={mockColumns} />)
 
-    const copyMdBtn = screen.getByTitle('Copy as Markdown')
-    await user.click(copyMdBtn)
+    // Hover the Copy dropdown to reveal menu, then click Copy as Markdown
+    const copyBtn = screen.getByTitle('Copy to clipboard')
+    await user.hover(copyBtn)
+    const copyMdItem = screen.getByText('Copy as Markdown')
+    await user.click(copyMdItem)
 
     expect(stubWriteText).toHaveBeenCalledTimes(1)
     const clipboardText = stubWriteText.mock.calls[0][0] as string
@@ -281,10 +284,52 @@ describe('[@results-table] [@export] ResultsTable export and copy', () => {
     expect(clipboardText).toContain('Bob')
   })
 
-  it('Copy as MD is disabled when data is empty', () => {
+  it('Copy dropdown — Copy as JSON copies JSON to clipboard', async () => {
+    const user = userEvent.setup()
+
+    const stubWriteText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText: stubWriteText } })
+
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    const copyBtn = screen.getByTitle('Copy to clipboard')
+    await user.hover(copyBtn)
+    const copyJsonItem = screen.getByText('Copy as JSON')
+    await user.click(copyJsonItem)
+
+    expect(stubWriteText).toHaveBeenCalledTimes(1)
+    const clipboardText = stubWriteText.mock.calls[0][0] as string
+    const parsed = JSON.parse(clipboardText)
+    expect(parsed).toEqual([
+      { id: 1, name: 'Alice' },
+      { id: 2, name: 'Bob' },
+    ])
+  })
+
+  it('Copy dropdown — Copy as CSV copies CSV to clipboard', async () => {
+    const user = userEvent.setup()
+
+    const stubWriteText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText: stubWriteText } })
+
+    render(<ResultsTable data={mockData} columns={mockColumns} />)
+
+    const copyBtn = screen.getByTitle('Copy to clipboard')
+    await user.hover(copyBtn)
+    const copyCsvItem = screen.getByText('Copy as CSV')
+    await user.click(copyCsvItem)
+
+    expect(stubWriteText).toHaveBeenCalledTimes(1)
+    const clipboardText = stubWriteText.mock.calls[0][0] as string
+    expect(clipboardText).toContain('id,name')
+    expect(clipboardText).toContain('"Alice"')
+    expect(clipboardText).toContain('"Bob"')
+  })
+
+  it('Copy dropdown not present when data is empty', () => {
     render(<ResultsTable data={[]} columns={mockColumns} />)
     // Empty state renders different component - no toolbar
-    expect(screen.queryByTitle('Copy as Markdown')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Copy to clipboard')).not.toBeInTheDocument()
   })
 })
 
@@ -744,8 +789,11 @@ describe('[@results-table] [@markdown-truncation] Copy as Markdown truncation', 
     const bigData = Array.from({ length: 120 }, (_, i) => ({ id: i + 1, val: `row-${i + 1}` }))
     render(<ResultsTable data={bigData} columns={mockColumns} />)
 
-    const copyMdBtn = screen.getByTitle('Copy as Markdown')
-    await user.click(copyMdBtn)
+    // Hover Copy dropdown, then click Copy as Markdown
+    const copyBtn = screen.getByTitle('Copy to clipboard')
+    await user.hover(copyBtn)
+    const copyMdItem = screen.getByText('Copy as Markdown')
+    await user.click(copyMdItem)
 
     expect(mockWriteText).toHaveBeenCalledTimes(1)
     const md = mockWriteText.mock.calls[0][0] as string
@@ -843,7 +891,7 @@ describe('[@results-table] [@export-filename] Export with statementName', () => 
       <ResultsTable data={mockData} columns={mockColumns} statementName="My Query" />
     )
 
-    const exportBtn = screen.getByTitle('Export')
+    const exportBtn = screen.getByTitle('Export to file')
     await user.hover(exportBtn)
     const csvBtn = screen.getByText('Export as CSV')
     await user.click(csvBtn)
@@ -859,7 +907,7 @@ describe('[@results-table] [@export-filename] Export with statementName', () => 
       <ResultsTable data={mockData} columns={mockColumns} statementIndex={3} />
     )
 
-    const exportBtn = screen.getByTitle('Export')
+    const exportBtn = screen.getByTitle('Export to file')
     await user.hover(exportBtn)
     const jsonBtn = screen.getByText('Export as JSON')
     await user.click(jsonBtn)
@@ -982,7 +1030,7 @@ describe('[@coverage-boost] ResultsTable cell click with null/object values', ()
   })
 })
 
-describe('[@coverage-boost] ResultsTable copyAsMarkdown edge cases', () => {
+describe('[@coverage-boost] ResultsTable copy edge cases', () => {
   const mockColumns: Column[] = [
     { name: 'id', type: 'INTEGER' },
   ]
@@ -991,8 +1039,11 @@ describe('[@coverage-boost] ResultsTable copyAsMarkdown edge cases', () => {
     vi.clearAllMocks()
   })
 
-  it('Copy as MD button disabled when all columns hidden', async () => {
+  it('Copy as Markdown with all columns hidden shows error toast', async () => {
     const user = userEvent.setup()
+    const stubWriteText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...window.navigator, clipboard: { writeText: stubWriteText } })
+
     const data = [{ id: 1 }]
     render(<ResultsTable data={data} columns={mockColumns} />)
 
@@ -1002,9 +1053,13 @@ describe('[@coverage-boost] ResultsTable copyAsMarkdown edge cases', () => {
     const hideAllBtn = screen.getByText('Hide All')
     await user.click(hideAllBtn)
 
-    // Copy as MD button should now be disabled
-    const copyMdBtn = screen.getByTitle('Copy as Markdown') as HTMLButtonElement
-    expect(copyMdBtn.disabled).toBe(true)
+    // Attempt to copy — should not write to clipboard (function returns early)
+    const copyBtn = screen.getByTitle('Copy to clipboard')
+    await user.hover(copyBtn)
+    const copyMdItem = screen.getByText('Copy as Markdown')
+    await user.click(copyMdItem)
+
+    expect(stubWriteText).not.toHaveBeenCalled()
   })
 })
 
