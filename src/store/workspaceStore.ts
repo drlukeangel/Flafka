@@ -3524,6 +3524,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           state.ksqlFeatureEnabled = env.ksqlEnabled;
         }
 
+        // Ensure default session properties are set for existing users (EST timezone)
+        if (!state.sessionProperties) {
+          state.sessionProperties = {};
+        }
+        if (!state.sessionProperties['sql.local-time-zone']) {
+          state.sessionProperties['sql.local-time-zone'] = 'America/New_York';
+        }
+        if (!state.sessionProperties['sql.execution.mode']) {
+          state.sessionProperties['sql.execution.mode'] = 'streaming';
+        }
+        if (!state.sessionProperties['execution.checkpointing.mode']) {
+          state.sessionProperties['execution.checkpointing.mode'] = 'EXACTLY_ONCE';
+        }
+
         // v2 → v3: Add engine field to statements (undefined = flink, backward compatible)
         // No data transform needed — undefined is the correct default for Flink.
 
