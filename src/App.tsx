@@ -867,13 +867,21 @@ function App() {
                 </div>
               ) : (
                 <div className="editor-cells">
-                  {statements.map((statement, index) => (
-                    <EditorCell
-                      key={statement.id}
-                      statement={statement}
-                      index={index}
-                    />
-                  ))}
+                  {/* Render in stable DOM order (sorted by ID) so React never moves Monaco
+                      editor DOM nodes on reorder. Visual position controlled by CSS `order`. */}
+                  {[...statements]
+                    .sort((a, b) => a.id.localeCompare(b.id))
+                    .map((statement) => {
+                      const visualIndex = statements.indexOf(statement);
+                      return (
+                        <div key={statement.id} style={{ order: visualIndex }}>
+                          <EditorCell
+                            statement={statement}
+                            index={visualIndex}
+                          />
+                        </div>
+                      );
+                    })}
                   {showOnboardingHint && <OnboardingHint onDismiss={dismissOnboardingHint} />}
                 </div>
               )}
