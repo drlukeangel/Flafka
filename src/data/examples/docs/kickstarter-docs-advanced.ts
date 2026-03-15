@@ -1922,6 +1922,34 @@ CROSS JOIN UNNEST(l.coborrower_names, l.coborrower_scores)
   'ksql-dynamic-routing': {
     subtitle: 'Route loan events to department topics using a lookup table — one join, zero hardcoded routes.',
     businessContext: 'Static fan-out requires a code deploy to add a new routing rule. Dynamic routing stores rules in a ksqlDB table: new route = one INSERT, zero restarts. EXPLODE() turns multi-target routing rules into individual output rows automatically.',
+    sqlBlocks: [
+      {
+        label: 'Materialize Routing Rules Table',
+        sql: `CREATE TABLE \`ROUTING-RULES-table\` AS
+SELECT
+  \`key_data\`->event_type AS \`event_type\`,
+  LATEST_BY_OFFSET(\`target_topics\`) AS \`target_topics\`
+FROM \`ROUTING-RULES\`
+GROUP BY \`key_data\`->event_type
+EMIT CHANGES;`,
+      },
+      {
+        label: 'Routing Engine: EXPLODE + Stream-Table Join',
+        sql: `CREATE STREAM \`ROUTED-EVENTS\`
+WITH (KAFKA_TOPIC = 'ROUTED-EVENTS', VALUE_FORMAT = 'AVRO')
+AS SELECT
+  e.\`event_id\` AS \`event_id\`,
+  EXPLODE(r.\`target_topics\`) AS \`target_topic\`,
+  e.\`loan_id\` AS \`loan_id\`,
+  e.\`event_type\` AS \`event_type\`,
+  e.\`amount\` AS \`amount\`,
+  e.\`department\` AS \`department\`
+FROM \`LOAN-EVENTS\` e
+  INNER JOIN \`ROUTING-RULES-table\` r
+  ON e.\`event_type\` = r.\`event_type\`
+EMIT CHANGES;`,
+      },
+    ],
     concepts: [
       { term: 'Stream-Table Join in ksqlDB', explanation: 'ksqlDB stream-table joins are temporal by default: when an event arrives on the stream, it looks up the CURRENT value in the table. This is equivalent to Flink\'s FOR SYSTEM_TIME AS OF — automatic point-in-time enrichment.' },
       { term: 'EXPLODE()', explanation: 'ksqlDB\'s EXPLODE() is equivalent to Flink\'s CROSS JOIN UNNEST(). It takes an array column and returns one row per element. A routing rule with target_topics=[\'underwriting\',\'finance\'] becomes 2 rows.' },
@@ -1938,6 +1966,34 @@ CROSS JOIN UNNEST(l.coborrower_names, l.coborrower_scores)
   'ksql-dynamic-routing-json': {
     subtitle: 'Same dynamic routing as the Avro variant — JSON format, simpler DDL, no Schema Registry required.',
     businessContext: 'The Avro version requires KEY_FORMAT=\'AVRO\', STRUCT KEY declarations, and Schema Registry enrollment. JSON removes all of that. Trade-off: no schema enforcement, but faster to prototype and simpler to debug. Run both side-by-side to understand the Avro vs JSON decision.',
+    sqlBlocks: [
+      {
+        label: 'Materialize Routing Rules Table',
+        sql: `CREATE TABLE \`ROUTING-RULES-table\` AS
+SELECT
+  \`event_type\`,
+  LATEST_BY_OFFSET(\`target_topics\`) AS \`target_topics\`
+FROM \`ROUTING-RULES\`
+GROUP BY \`event_type\`
+EMIT CHANGES;`,
+      },
+      {
+        label: 'Routing Engine: EXPLODE + Stream-Table Join',
+        sql: `CREATE STREAM \`ROUTED-EVENTS\`
+WITH (KAFKA_TOPIC = 'ROUTED-EVENTS', VALUE_FORMAT = 'JSON')
+AS SELECT
+  e.\`event_id\` AS \`event_id\`,
+  EXPLODE(r.\`target_topics\`) AS \`target_topic\`,
+  e.\`loan_id\` AS \`loan_id\`,
+  e.\`event_type\` AS \`event_type\`,
+  e.\`amount\` AS \`amount\`,
+  e.\`department\` AS \`department\`
+FROM \`LOAN-EVENTS\` e
+  INNER JOIN \`ROUTING-RULES-table\` r
+  ON e.\`event_type\` = r.\`event_type\`
+EMIT CHANGES;`,
+      },
+    ],
     concepts: [
       { term: 'VALUE_FORMAT=\'JSON\'', explanation: 'ksqlDB serializes/deserializes events as plain JSON. No Schema Registry needed. Column types are inferred from the CREATE STREAM DDL, not from a registered schema.' },
       { term: 'KEY_FORMAT=\'KAFKA\'', explanation: 'With JSON value format, keys are typically stored as plain Kafka byte strings. No Avro wrapping means simpler key declarations (STRING KEY instead of STRUCT<field> KEY).' },
@@ -2003,6 +2059,28 @@ LIMIT 50;`,
     businessContext: 'Running three separate INSERT jobs means three statements, three offset sets, and three monitoring views. EXECUTE STATEMENT SET bundles them: one commit, one job to monitor, one failure domain. The source topic is read once and the events are fanned out internally — reducing network traffic and consumer group overhead by 66%.',
     sqlBlocks: [
       {
+        label: 'Routing Rules Table',
+        sql: `SELECT event_type, target_topics, updated_at
+FROM \`EOT-PLATFORM-EXAMPLES-ROUTING-RULES\`;`,
+      },
+      {
+        label: 'Routing Engine: Temporal Join + CROSS JOIN UNNEST',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-ROUTED-EVENTS\`
+SELECT
+  CAST(e.event_id AS BYTES) AS \`key\`,
+  t.target_topic,
+  e.event_id,
+  e.loan_id,
+  e.event_type,
+  e.amount,
+  e.department
+FROM \`EOT-PLATFORM-EXAMPLES-LOAN-EVENTS\` e
+JOIN \`EOT-PLATFORM-EXAMPLES-ROUTING-RULES\`
+  FOR SYSTEM_TIME AS OF e.\`$rowtime\` AS r
+  ON e.event_type = r.event_type
+CROSS JOIN UNNEST(r.target_topics) AS t(target_topic);`,
+      },
+      {
         label: 'Fan-Out: EXECUTE STATEMENT SET',
         sql: `EXECUTE STATEMENT SET
 BEGIN
@@ -2054,6 +2132,30 @@ GROUP BY target_topic, event_type;`,
   'loan-routing-avro': {
     subtitle: 'Same three-way fan-out as the JSON variant, with Avro serialization and Schema Registry enforcement.',
     businessContext: 'In production, schema drift is a silent killer. A producer adds a field, JSON parsers return NULL without warning, and downstream analytics silently compute wrong metrics for hours before anyone notices. Avro + Schema Registry catches this at the serialization boundary: incompatible schema = immediate, loud failure — not silent data corruption.',
+    sqlBlocks: [
+      {
+        label: 'Routing Rules Table',
+        sql: `SELECT event_type, target_topics, updated_at
+FROM \`EOT-PLATFORM-EXAMPLES-ROUTING-RULES\`;`,
+      },
+      {
+        label: 'Routing Engine: Temporal Join + CROSS JOIN UNNEST',
+        sql: `INSERT INTO \`EOT-PLATFORM-EXAMPLES-ROUTED-EVENTS\`
+SELECT
+  CAST(e.event_id AS BYTES) AS \`key\`,
+  t.target_topic,
+  e.event_id,
+  e.loan_id,
+  e.event_type,
+  e.amount,
+  e.department
+FROM \`EOT-PLATFORM-EXAMPLES-LOAN-EVENTS\` e
+JOIN \`EOT-PLATFORM-EXAMPLES-ROUTING-RULES\`
+  FOR SYSTEM_TIME AS OF e.\`$rowtime\` AS r
+  ON e.event_type = r.event_type
+CROSS JOIN UNNEST(r.target_topics) AS t(target_topic);`,
+      },
+    ],
     concepts: [
       { term: 'Avro Schema Registry Enforcement', explanation: 'Every Avro message includes a schema ID. Confluent\'s Schema Registry stores schemas and enforces compatibility rules. Flink uses the schema ID to deserialize efficiently. An incompatible producer change fails at produce time — not silently downstream.' },
       { term: 'Schema Compatibility Rules', explanation: 'BACKWARD: new consumers read old messages (add optional fields with defaults). FORWARD: old consumers read new messages. FULL: both directions. Renaming or removing fields is a breaking change and is rejected by the Registry.' },
